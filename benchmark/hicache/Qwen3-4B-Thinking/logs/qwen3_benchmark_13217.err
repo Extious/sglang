@@ -1,0 +1,3 @@
+/var/spool/slurm/d/job13217/slurm_script: line 68: 2359187 Killed                  "${cmd[@]}" > "${LOG_DIR}/server_${config_name}.log" 2>&1
+/var/spool/slurm/d/job13217/slurm_script: line 68: 2363518 Killed                  "${cmd[@]}" > "${LOG_DIR}/server_${config_name}.log" 2>&1
+/var/spool/slurm/d/job13217/slurm_script: line 68: 2367639 Killed                  "${cmd[@]}" > "${LOG_DIR}/server_${config_name}.log" 2>&1

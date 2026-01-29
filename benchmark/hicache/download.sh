@@ -15,14 +15,8 @@ download() {
             ;;
         ultragpt)
             echo $1
-            # Questions about the world
-            wget https://cloud.tsinghua.edu.cn/seafhttp/files/be1d7b87-22ca-449e-a6a7-c61d1ea7e010/ultrachat_release_230407.json
-            # Writing and Creation
-            wget https://cloud.tsinghua.edu.cn/seafhttp/files/61742d2a-25e2-4d08-b2b9-15f47ae50ace/ultrachat_material_release_230417.json
-            wget https://cloud.tsinghua.edu.cn/seafhttp/files/f71f6aa6-d346-4b16-85b7-8502efa3d608/ultrachat_material_release_230412.json
-            # External materials
-            wget https://cloud.tsinghua.edu.cn/seafhttp/files/42d22e28-e899-4975-a70f-5eda163e265d/ultrachat_existent_material_release_230420.json.gz
-            gunzip ultrachat_existent_material_release_230420.json.gz
+            # Download UltraChat dataset from Hugging Face
+            huggingface-cli download stingning/ultrachat --repo-type dataset --local-dir ultrachat
             ;;
         loogle)
             echo $1

@@ -19,7 +19,7 @@ from sglang.utils import dump_state_text, read_jsonl
 
 
 def main(args):
-    lines = read_jsonl(args.data_path)[: args.num_events]
+    lines = list(read_jsonl(args.data_path))[: args.num_events]
     mapping = {
         "poignancy_event": poignancy_event,
         "generate_event_triple": generate_event_triple,

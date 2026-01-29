@@ -1,0 +1,2 @@
+/var/spool/slurm/d/job13151/slurm_script: line 67: 2351087 Killed                  "${cmd[@]}" > "${LOG_DIR}/server_${config_name}.log" 2>&1
+slurmstepd: error: Detected 1 oom-kill event(s) in StepId=13151.batch cgroup. Some of your processes may have been killed by the cgroup out-of-memory handler.

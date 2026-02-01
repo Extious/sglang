@@ -21,8 +21,8 @@ download() {
         loogle)
             echo $1
             git lfs install
-            git clone git@hf.co:datasets/bigainlco/LooGLE
-            unzip LooGLE/data.zip
+            git clone https://huggingface.co/datasets/bigainlco/LooGLE
+            echo "LooGLE data files are already available in LooGLE/data/ directory"
             ;;
         nextqa)
             echo $1

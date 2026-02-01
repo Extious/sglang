@@ -9,10 +9,13 @@ import threading
 import time
 from dataclasses import dataclass
 from functools import wraps
+from typing import List
 
 import aiohttp
+import numpy as np
 
 from sglang.bench_serving import (
+    DatasetRow,
     RequestFuncOutput,
     get_tokenizer,
     remove_prefix,
@@ -59,6 +62,13 @@ def parse_args():
         help="local dataset to sample tokens from",
     )
     parser.add_argument(
+        "--dataset-name",
+        type=str,
+        default="sharegpt",
+        choices=["sharegpt", "loogle"],
+        help="dataset format: sharegpt (JSON) or loogle (JSONL)",
+    )
+    parser.add_argument(
         "--host",
         type=str,
         default="localhost",
@@ -88,6 +98,12 @@ def parse_args():
         type=str,
         default="debug.log.jsonl",
         help="File to write debug logs in JSONL format",
+    )
+    parser.add_argument(
+        "--result-file",
+        type=str,
+        default="",
+        help="JSON file to write performance summary (default: none)",
     )
     return parser.parse_args()
 
@@ -124,6 +140,74 @@ def load_config():
     return config
 
 
+def _compute_random_lens(full_len: int, range_ratio: float, num: int) -> np.ndarray:
+    return np.random.randint(
+        max(int(full_len * range_ratio), 1),
+        full_len + 1,
+        size=num,
+    )
+
+
+def sample_random_requests_loogle(
+    input_len: int,
+    output_len: int,
+    num_prompts: int,
+    range_ratio: float,
+    tokenizer,
+    dataset_path: str,
+    random_sample: bool = True,
+    return_text: bool = True,
+) -> List[DatasetRow]:
+    """Sample prompts from LooGLE JSONL with same interface as sample_random_requests."""
+    input_lens = _compute_random_lens(input_len, range_ratio, num_prompts)
+    output_lens = _compute_random_lens(output_len, range_ratio, num_prompts)
+
+    prompts = []
+    with open(dataset_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            data = json.loads(line)
+            if "qa_pairs" not in data or data["qa_pairs"] == "none" or len(data.get("qa_pairs", [])) == 0:
+                prompts.append("Input: " + data["input"] + " Question: Please summarize the input")
+            else:
+                qa_pairs = data["qa_pairs"] if isinstance(data["qa_pairs"], list) else eval(data["qa_pairs"])
+                for i, qa in enumerate(qa_pairs):
+                    if i == 0:
+                        prompts.append("Input: " + data["input"] + " Question: " + qa["Q"])
+                    else:
+                        prompts.append(qa["Q"])
+    if not prompts:
+        raise ValueError(f"No valid prompts in loogle dataset: {dataset_path}")
+
+    random.shuffle(prompts)
+    input_requests = []
+    idx = 0
+    while len(input_requests) < num_prompts:
+        i = len(input_requests)
+        prompt = prompts[idx % len(prompts)]
+        idx += 1
+        prompt_token_ids = tokenizer.encode(prompt)
+        if len(prompt_token_ids) == 0:
+            continue
+        target_len = input_lens[i]
+        if len(prompt_token_ids) > target_len:
+            input_ids = prompt_token_ids[:target_len]
+        else:
+            ratio = (target_len + len(prompt_token_ids) - 1) // len(prompt_token_ids)
+            input_ids = (prompt_token_ids * ratio)[:target_len]
+        input_content = tokenizer.decode(input_ids) if return_text else input_ids
+        input_requests.append(
+            DatasetRow(
+                prompt=input_content,
+                prompt_len=int(input_lens[i]),
+                output_len=int(output_lens[i]),
+            )
+        )
+    return input_requests
+
+
 @dataclass
 class UserData:
     user_id: int
@@ -147,10 +231,11 @@ def synchronized():
 
 
 class UserGenerator:
-    def __init__(self, config, model_path, dataset_path):
+    def __init__(self, config, model_path, dataset_path, dataset_name="sharegpt"):
         self.tokenizer_path = model_path
         self.tokenizer = get_tokenizer(self.tokenizer_path)
         self.dataset_path = dataset_path
+        self.dataset_name = dataset_name
 
         self.user_id = 0
         self.lock = threading.Lock()
@@ -169,10 +254,15 @@ class UserGenerator:
         self.range_ratio = 0.8
         assert self.range_ratio <= 1
 
+        sample_fn = (
+            sample_random_requests_loogle
+            if dataset_name == "loogle"
+            else sample_random_requests
+        )
         self.candidate_inputs = [
             [
                 r
-                for r in sample_random_requests(
+                for r in sample_fn(
                     input_len=(
                         self.mean_new_tokens_per_round[i] * (2 - self.range_ratio)
                     ),
@@ -392,6 +482,7 @@ class WorkloadGenerator:
             config,
             args.model_path,
             args.dataset_path,
+            args.dataset_name,
         )
 
         self.url = f"http://{args.host}:{args.port}/generate"
@@ -557,6 +648,10 @@ def main():
         logging.basicConfig(level=logging.INFO)
         logger.info("use log_level info")
     performance_data = WorkloadGenerator(args).run()
+
+    if getattr(args, "result_file", "") and performance_data:
+        with open(args.result_file, "w") as f:
+            json.dump(performance_data, f, indent=2)
 
     # Close debug log file if it was opened
     if debug_log_file:

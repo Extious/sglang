@@ -1,282 +1,233 @@
 # Multi-Agent Benchmark Datasets
 
-本目录包含 MAST-Data 与 TRAIL 两个多智能体评测数据集的说明与字段说明。
+本目录包含六个多智能体/智能体相关评测数据集：**MAST-Data**、**TRAIL**、**agentcode**、**Multi-Agents-Parallel-Orchestration-Dataset**、**multiagent-router-finetuning**、**system-prompts-multi-agent-systems**。下文分别介绍各数据集的内容、适用场景与 Prompt 结构，并给出下载与工具用法。
+
+---
+
+## 数据集一览
+
+| 数据集 | 来源 | 场景 | 规模/格式 |
+|--------|------|------|-----------|
+| **MAST-Data** | [mcemri/MAST-Data](https://huggingface.co/datasets/mcemri/MAST-Data) | 多智能体系统（ChatDev、AppWorld、MetaGPT、AG2、HyperAgent 等）执行轨迹，按 MAST 失败分类标注 | JSON 数组；full + human 标注子集 |
+| **TRAIL** | [PatronusAI/TRAIL](https://huggingface.co/datasets/PatronusAI/TRAIL) | GAIA 问答、SWE-Bench 修 bug；带错误定位与影响程度标注的智能体 trace | Parquet + GAIA/SWE Bench 下 JSON trace + 标注 JSON |
+| **agentcode** | [AlignmentLab-AI/agentcode](https://huggingface.co/datasets/AlignmentLab-AI/agentcode) | 智能体与代码相关指令/对话，用于 CoT、指令遵循等 | JSONL，约 22 万条，~465 MB |
+| **Multi-Agents-Parallel-Orchestration** | [DeepNLP/Multi-Agents-Parallel-Orchestration-Dataset](https://huggingface.co/datasets/DeepNLP/Multi-Agents-Parallel-Orchestration-Dataset) | 多智能体并行/顺序编排（Deep Research、行程规划等）；每行 JSON 为 session，内有多条 trace（并行 Agent） | 多行 JSON，每行 `session_id -> trace_id -> record`；record 含 function_calls（messages/tools/tool_calls） |
+| **multiagent-router-finetuning** | [bhaiyahnsingh45/multiagent-router-finetuning](https://huggingface.co/datasets/bhaiyahnsingh45/multiagent-router-finetuning) | 多智能体客服路由微调：意图分类、参数抽取、将 query 路由到对应 Agent（technical_support / billing / product_info） | HF Dataset / Parquet；115 条，train 92 / test 23；字段：system_message, agent_name, agent_arguments, 用户问题 |
+| **system-prompts-multi-agent-systems** | [kimcomehome/system-prompts-multi-agent-systems](https://huggingface.co/datasets/kimcomehome/system-prompts-multi-agent-systems) | 多智能体系统相关 system prompt 数据 | HF Dataset / Parquet；100 条；具体字段见下载后数据 |
 
 ---
 
 ## 一、MAST-Data (MAST-Data/)
 
-来源: [mcemri/MAST-Data](https://huggingface.co/datasets/mcemri/MAST-Data)。多智能体系统执行轨迹，并按 MAST (Multi-Agent Systems Failure Taxonomy) 标注失败类型。
+### 1.1 内容与场景
 
-### 1.1 文件列表
+- **内容**：多智能体系统（MAS）的完整执行轨迹（含任务 prompt、多轮对话、代码执行、评测结果），并按 **MAST (Multi-Agent Systems Failure Taxonomy)** 做失败模式标注。
+- **场景**：
+  - **ChatDev**：多阶段角色对话（CEO/CPO/CTO/Programmer 等），按阶段完成需求分析 → 语言选择 → 编码 → CodeReview → 文档等；每阶段为多轮 role-playing chat，每轮对应一次 LLM 调用。
+  - **AppWorld**：层级式消息传递；Supervisor Agent 编排子 Agent（如 spotify），通过 `send_message` 与代码执行交替，多轮 Supervisor ↔ 子 Agent 对话。
+  - **MetaGPT**：线性角色流水线；任务广播后按角色顺序（SimpleCoder → SimpleTester → SimpleReviewer 等）依次产生输出，每角色对应 LLM 调用。
+  - **AG2 / HyperAgent**：单次或短链；一条 `problem_statement`（或 SWE-Bench 风格 issue）驱动一次或少数几次 LLM 调用（推理+代码/工具调用）。
+
+### 1.2 Prompt 结构
+
+- **任务级 prompt**：每条 trace 对应一个**任务描述**（如「开发一个跳棋游戏」「在 Spotify 里切歌直到某首」）。在原始 `trace.trajectory` 中通常出现在：
+  - **ChatDev**：`**task_prompt**:` 后紧跟的文本；在 `trajectory_expanded.metadata` 中为 `task_prompt` 字段。
+  - **AppWorld**：`**** Task N/M (id) ****` 后一行即为 `task`。
+  - **AG2/HyperAgent**：`metadata.problem_statement` 或轨迹中的 `problem_statement`。
+- **单次 LLM 调用的 prompt 结构**：
+  - **ChatDev**：每阶段 = 固定 **role_prompt（user 角色 + assistant 角色）+ phase_prompt**，占位符如 `{task}`, `{codes}`, `{language}` 等由上游阶段填充；即 `background_prompt + user_role_prompt + assistant_role_prompt + phase_prompt`，组成发给 LLM 的 system/user messages。
+  - **AppWorld**：Supervisor 与各子 Agent 的输入为「当前任务/上下文 + 收到的 message」，轨迹中以 `message_to_agent` / `response_from_agent` 等块呈现。
+  - **MetaGPT**：`[FROM: Human TO: {'<all>'}]` + `CONTENT: task_prompt` 后，各角色按序收到上下文并生成 `NEW MESSAGES`。
+- **提取方式**：脚本 `extract_prompt_flow.py` 可从 `MAD_full_dataset.json` / `MAD_human_labelled_dataset.json` 中解析出 `task_prompt`，输出到 `mast_full_prompt_flow.json` / `mast_human_prompt_flow.json`。脚本 `expand_mad_full_trajectory.py` 将 `trace.trajectory` 拆成 `trajectory_expanded`（含 `metadata`、`sections`、按 mas 的 phase/section 结构），便于按段分析 LLM 输入。
+
+### 1.3 文件与字段速查
 
 | 文件 | 说明 |
 |------|------|
-| `MAD_full_dataset.json` | 完整数据集，每条为一条 trace + MAST 数值标注 |
-| `MAD_human_labelled_dataset.json` | 人工标注子集，含详细 failure mode 与多标注员布尔标注 |
-| `README.md` | 数据集卡片 |
+| `MAD_full_dataset.json` | 每条：`mas_name`, `llm_name`, `benchmark_name`, `trace_id`, `trace`（含 `key`, `index`, `trajectory` 长文本）, `mast_annotation`（1.1～3.3 二值） |
+| `MAD_human_labelled_dataset.json` | 每条：`round`, `mas_name`, `benchmark_name`, `trace_id`, `trace` 文本, `annotations`（各 failure mode + annotator_1/2/3 布尔） |
 
-### 1.2 MAD_full_dataset.json
-
-**类型**: JSON 数组，每元素为一条记录。
-
-**每条记录顶层字段**:
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `mas_name` | string | 多智能体系统名称，如 `"ChatDev"`, `"AppWorld"` |
-| `llm_name` | string | 使用的 LLM 名称，如 `"GPT-4o"` |
-| `benchmark_name` | string | 基准名称，如 `"ProgramDev"`, `"Test-C"` |
-| `trace_id` | int | 轨迹编号 |
-| `trace` | object | 轨迹元数据与正文，见下表 |
-| `mast_annotation` | object | MAST 分类下的二值标注 (0/1)，键为 "1.1"～"3.3" |
-
-**`trace` 对象字段**:
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `key` | string | 轨迹唯一键，如 `"ChatDev_ProgramDev_GPT4o"` |
-| `index` | int | 在该 key 下的索引 |
-| `trajectory` | string | 完整执行日志文本（含**<span style="color:red">任务 prompt</span>**、多智能体对话与执行过程） |
-
-**`mast_annotation` 对象**:
-
-键为 MAST 失败模式编号，值为 0（未出现）或 1（出现）。编号与含义对应关系（与 MAD_human_labelled 中的 "failure mode" 一致）:
-
-- **1.x 推理/任务理解**: `1.1` Poor task constraint compliance, `1.2` Inconsistency between reasoning and action, `1.3` Undetected conversation ambiguities and contradictions, `1.4` Fail to elicit clarification (between agents), `1.5` Unaware of stopping conditions  
-- **2.x 执行/规划**: `2.1` Unbatched repetitive execution, `2.2` Step repetition, `2.3` Backtracking interruption, `2.4` Conversation reset, `2.5` Derailment from task, `2.6` Disobey role specification  
-- **3.x 协作**: `3.1` Disagreement induced inaction, `3.2` Withholding relevant information, `3.3` Ignoring suggestions from agents  
-
-（注：MAD_full_dataset 的 `mast_annotation` 仅包含 1.1～3.3；MAD_human_labelled 的 `annotations` 中还可能包含 3.4、4.1、4.2、4.3 等更多 failure mode。）
-
-### 1.3 MAD_human_labelled_dataset.json
-
-**类型**: JSON 数组，每元素为一条人工标注记录。
-
-**每条记录顶层字段**:
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `round` | string | 标注轮次，如 `"Round 1"` |
-| `mas_name` | string | 多智能体系统名称 |
-| `benchmark_name` | string | 基准名称 |
-| `trace_id` | int | 轨迹编号 |
-| `trace` | string | 完整执行轨迹文本（含**<span style="color:red">任务 prompt</span>**、多轮对话、代码执行输出、以及末尾的 Evaluation 块） |
-| `annotations` | array | 对 MAST 各 failure mode 的逐条标注，见下表 |
-
-**`annotations` 数组中每个元素**:
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `failure mode` | string | MAST 失败模式完整描述（含编号与说明，如 "1.5 Unaware of stopping conditions\n\nLack of recognition..."） |
-| `annotator_1` | boolean | 标注员 1 是否判定该条 trace 存在该失败模式 |
-| `annotator_2` | boolean | 标注员 2 是否判定存在 |
-| `annotator_3` | boolean | 标注员 3 是否判定存在 |
-
-`trace` 末尾的 Evaluation 块为 JSON，包含 `success`, `difficulty`, `num_tests`, `passes`, `failures` 等评测结果。
+MAST 失败模式编号（1.1～3.3）：1.x 推理/任务理解，2.x 执行/规划，3.x 协作；详见原数据集或 MAST taxonomy。
 
 ---
 
 ## 二、TRAIL (TRAIL/)
 
-来源: [PatronusAI/TRAIL](https://huggingface.co/datasets/PatronusAI/TRAIL)。Trace Reasoning and Agentic Issue Localization：带错误定位与影响程度标注的智能体执行 trace，来自 GAIA 与 SWE-Bench 任务。
+### 2.1 内容与场景
 
-### 2.1 目录与文件概览
+- **内容**：**Trace Reasoning and Agentic Issue Localization**。来自 **GAIA** 与 **SWE-Bench** 的智能体执行 trace（OpenTelemetry 风格 span 树），并配有**错误定位**（category、location=span_id、evidence、impact）与**多维度评分**（reliability、security、instruction_adherence、plan_opt、overall）。
+- **场景**：
+  - **GAIA**：多步推理/工具调用以回答复杂问题；trace 中常带 `question`、`task_id`、`true_answer` 等；适合评估「任务理解 → 检索/推理 → 答案」的链路及错误发生位置。
+  - **SWE-Bench**：根据 issue/problem_statement 在仓库中修 bug；trace 含 `problem_statement`、`instance_id`、`patch`、repo 等；适合评估代码修改与测试通过情况，以及错误所属 span。
+
+### 2.2 Prompt 结构
+
+- **任务级 prompt**：
+  - **GAIA**：根任务或主问题多在 `spans[].logs[].body.question` 或 `body.function.arguments` 中的 `question`；也可从根 span 的 `span_attributes` 或 logs 中取。
+  - **SWE-Bench**：`problem_statement` 与任务描述常在 `body.function.arguments.item.problem_statement`、`item.question` 等路径。
+- **单次 LLM 调用的 prompt**：
+  - 最常见位置：**`spans[].span_attributes.input.value`**，多为 JSON 字符串，内含 `messages` 数组（如 `[{"role":"system","content":"..."},{"role":"user","content":"..."}]`）。
+  - 其次：**`spans[].logs[].body.function.arguments`**（如 `CodeAgent.run` 等 span 的入参）。
+  - 定位技巧：找 `span_attributes` 中 `input.mime_type: application/json` 或 `openinference.span.kind: LLM` 的 span，其 `input.value` 即该次 LLM 输入。
+- **提取方式**：`extract_prompt_flow.py` 支持 `--dataset trail_gaia` / `trail_swe`，输出 `trail_gaia_prompt_flow.json` / `trail_swe_bench_prompt_flow.json`（含 trace_id、main_task/question、problem_statement、prompt_flow 等）。
+
+### 2.3 文件与字段速查
 
 | 路径 | 说明 |
 |------|------|
-| `data/gaia-*.parquet` | GAIA 任务的 HF 表格式：列 `trace`, `labels`（均为 string） |
-| `data/swe_bench-*.parquet` | SWE-Bench 任务的 HF 表格式：同上 |
-| `GAIA/*.json` | 按 trace_id 的 GAIA 原始 trace（OpenTelemetry spans） |
-| `SWE Bench/*.json` | 按 trace_id 的 SWE-Bench 原始 trace，结构同 GAIA |
-| `processed_annotations_gaia/*.json` | GAIA 每条 trace 的错误与分数标注 |
-| `processed_annotations_swe_bench/*.json` | SWE-Bench 每条 trace 的错误与分数标注 |
-| `README.md` | 数据集卡片 |
+| `data/gaia-*.parquet`, `data/swe_bench-*.parquet` | 列 `trace`, `labels`（序列化 trace/标注），GAIA 约 117 条，SWE-Bench 约 31 条 |
+| `GAIA/*.json`, `SWE Bench/*.json` | 按 trace_id 命名的原始 trace：`trace_id`, `spans`（OpenTelemetry span 树；span 含 `span_id`, `span_attributes.input.value`, `logs[].body` 等） |
+| `processed_annotations_gaia/*.json`, `processed_annotations_swe_bench/*.json` | `trace_id`, `errors[]`（category, location=span_id, evidence, description, impact）, `scores[]`（各维度分数与 overall） |
 
-### 2.2 data/*.parquet
-
-HuggingFace 标准表格式：
-
-| 列名 | 类型 | 说明 |
-|------|------|------|
-| `trace` | string | 序列化后的整条 trace（可与 GAIA/SWE Bench 下同名 trace_id 的 JSON 对应） |
-| `labels` | string | 序列化后的标注（与 processed_annotations_* 中对应 trace_id 的标注一致） |
-
-- `gaia-*.parquet`: 117 条；`swe_bench-*.parquet`: 31 条（以 HF 卡片为准）。
-
-### 2.3 GAIA/*.json 与 SWE Bench/*.json（原始 Trace）
-
-**文件名**: 以 trace_id 命名的 JSON，如 `0adc4f3b99d9564d32811e913cc9d248.json`。
-
-**顶层字段**:
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `trace_id` | string | 16 进制 trace 标识，与文件名一致 |
-| `spans` | array | OpenTelemetry 风格的 span 数组，根 span 的 `parent_span_id` 为 null，子 span 通过 `child_spans` 或 `parent_span_id` 嵌套 |
-
-**每个 span 对象字段**:
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `timestamp` | string | ISO 时间戳 |
-| `trace_id` | string | 所属 trace_id |
-| `span_id` | string | 当前 span 的 16 进制 ID（标注中的 `location` 即引用此 id） |
-| `parent_span_id` | string \| null | 父 span 的 span_id |
-| `trace_state` | string | OpenTelemetry trace state |
-| `span_name` | string | 如 `"main"`, `"answer_single_question"`, `"CodeAgent.run"` |
-| `span_kind` | string | 如 `"Internal"` |
-| `service_name` | string | 服务名，如 `"gaia-annotation-samples/app:GAIA-Samples"` 或 SWE-Bench 对应服务名 |
-| `resource_attributes` | object | 资源属性（如 `service.name`, `telemetry.sdk.language` 等） |
-| `scope_name` | string | 如 `"patronus.sdk"`, `"openinference.instrumentation.smolagents"` |
-| `scope_version` | string | 版本号 |
-| `span_attributes` | object | 本 span 属性（如 `pat.app`, `pat.project.id`, **<span style="color:red">`input.value`</span>**（**输入给 LLM 的 Prompt，通常为 JSON 格式的 messages 数组**）, `output.value` 等） |
-| `duration` | string | ISO 8601 时长，如 `"PT58.876293S"` |
-| `status_code` | string | 如 `"Unset"`, `"Ok"` |
-| `status_message` | string | 状态说明 |
-| `events` | array | 事件列表 |
-| `links` | array | 链接列表 |
-| `logs` | array | 本条 span 的 log 列表，见下表 |
-| `child_spans` | array | 子 span 数组，结构与顶层 span 相同（递归） |
-
-**`logs` 中每个 log 对象**:
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `timestamp` | string | 日志时间 |
-| `trace_id`, `span_id` | string | 所属 trace/span |
-| `trace_flags` | int | 标志位 |
-| `severity_text` | string | 如 `"INFO"` |
-| `severity_number` | int | 严重程度数值 |
-| `service_name` | string | 服务名 |
-| `body` | object | 主要内容，常见键：**<span style="color:red">`function.arguments`</span>**（**可能包含输入给 LLM 的 Prompt，如 messages 数组**）, `function.name`, `function.output`（含输入、工具名、输出等）；GAIA 中常有 `question`（**任务 prompt**）, `task_id`, `true_answer`, `Annotator Metadata`；SWE-Bench 中常有 `item`（含 `problem_statement`（**问题描述 prompt**）, `instance_id`, `patch`, `question`（**任务 prompt**） 等） |
-| `resource_attributes` | object | 资源属性 |
-| `scope_name`, `scope_version` | string | 作用域信息 |
-| `log_attributes` | object | 如 `pat.log.id`, `pat.log.type`, `pat.project.name` 等 |
-| `evaluations` | array | 评估结果（若有） |
-| `annotations` | array | 注解（若有） |
-
-GAIA 的 span 中常包含任务描述 `question`、`task_id`、`true_answer`；SWE-Bench 的 span 中常包含 issue、repo、base_commit、patch、problem_statement、test_patch 等字段（多在 `body.function.arguments.item` 或类似路径）。
-
-### 2.4 processed_annotations_gaia/*.json 与 processed_annotations_swe_bench/*.json
-
-**文件名**: 与对应 trace 的 trace_id 一致，如 `0adc4f3b99d9564d32811e913cc9d248.json`。
-
-**顶层字段**:
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `trace_id` | string | 与 GAIA/SWE Bench 中同名 JSON 的 trace_id 一致 |
-| `errors` | array | 该 trace 中标注出的错误列表，见下表 |
-| `scores` | array | 该 trace 的维度评分与总评，见下表 |
-
-**`errors` 中每个元素**:
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `category` | string | 错误类别，如 `"Formatting Errors"`, `"Incorrect Problem Identification"`, `"Language-only"`, `"Poor Information Retrieval"`, `"Incorrect Memory Usage"`, `"Context Handling Failures"` 等 |
-| `location` | string | 对应 span 的 `span_id`（在 GAIA/SWE Bench 的 JSON 中可定位到具体 span） |
-| `evidence` | string | 支持该错误判定的证据（日志片段、输出片段等） |
-| `description` | string | 错误描述 |
-| `impact` | string | 影响程度：`"LOW"`, `"MEDIUM"`, `"HIGH"` |
-
-**`scores` 中每个元素**（通常一条 trace 一个对象）:
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `reliability_score` | int | 可靠性评分（如 1–5） |
-| `reliability_reasoning` | string | 评分理由 |
-| `security_score` | int | 安全性评分 |
-| `security_reasoning` | string | 评分理由 |
-| `instruction_adherence_score` | int | 指令遵循度评分 |
-| `instruction_adherence_reasoning` | string | 评分理由 |
-| `plan_opt_score` | int | 计划/策略合理性评分 |
-| `plan_opt_reasoning` | string | 评分理由 |
-| `overall` | float | 综合分数 |
-
-使用方式建议：由 `data/*.parquet` 按 trace_id 关联到 `GAIA/*.json` 或 `SWE Bench/*.json` 得到完整 span 结构，再由 `processed_annotations_gaia/*.json` 或 `processed_annotations_swe_bench/*.json` 中的 `trace_id` 与 `errors[].location`（span_id）对齐到具体 span，用于错误定位与评估。
+关联方式：`data/*.parquet` 的 trace_id → `GAIA/*.json` 或 `SWE Bench/*.json` 得 span 树；再用 `processed_annotations_*` 的 `errors[].location`（span_id）对齐到具体 span。
 
 ---
 
-## 三、Prompt 流程提取
+## 三、agentcode (agentcode/)
 
-脚本 `extract_prompt_flow.py` 可从上述两个数据集中提取 prompt 流程并输出为 JSON。
+### 3.1 内容与场景
 
-**用法**（在 `benchmark/multi_agent/` 下执行）:
+- **内容**：智能体与代码相关的指令/对话数据，属 AlignmentLab-AI 的 **"Double-the-data"** 系列，可与 chain-of-thought、指令遵循等训练或评测配合使用。
+- **场景**：通用「智能体 + 代码」类任务（具体任务类型以 HF 或下载后样本为准）；HF 上暂无详细 dataset card，建议下载后查看 `agentcodeclean.jsonl` 前几行确定字段与 prompt 结构。
+
+### 3.2 文件与规模
+
+| 文件 | 说明 |
+|------|------|
+| `agentcodeclean.jsonl` | 主数据，JSONL，每行一条样本；约 221,095 条，约 465 MB |
+
+### 3.3 下载
+
+在 `benchmark/multi_agent/` 下执行：
 
 ```bash
-# 提取全部（MAST-Data full/human + TRAIL GAIA + TRAIL SWE-Bench）
-python extract_prompt_flow.py
+./download.sh agentcode   # 仅 agentcode
+./download.sh all         # 全部六个数据集
+```
 
-# 仅提取指定数据集
-python extract_prompt_flow.py --dataset mast_full    # MAD_full_dataset.json
-python extract_prompt_flow.py --dataset mast_human   # MAD_human_labelled_dataset.json
-python extract_prompt_flow.py --dataset trail_gaia  # TRAIL/GAIA/*.json
-python extract_prompt_flow.py --dataset trail_swe    # TRAIL/SWE Bench/*.json
+---
 
-# 指定数据目录与输出目录
+## 四、Multi-Agents-Parallel-Orchestration-Dataset
+
+### 4.1 内容与场景
+
+- **内容**：多智能体**并行**（Parallel）与**顺序**（Sequential）编排的 workflow 数据。每行一个 JSON，表示一次会话（session）；会话内可有多条 trace，每条 trace 对应一个 Agent 的一次运行（Parallel 时多 Agent 并行回答同一问题）。
+- **场景**：Deep Research（多源搜索）、行程规划（地图/地点 MCP）、多 Agent 顺序执行（Planning Agent 生成 plan 后按序执行各 Agent）。每条 record 含 `function_calls`：messages（user/assistant/tool）+ tools + tool_calls（OpenAI 风格）。
+
+### 4.2 Prompt 结构
+
+- **任务级 prompt**：`function_calls[0].messages` 中第一条 `role: user` 的 `content`（如 "Plan a trip from Hangzhou to Beijing...", "Research what's the difference between AI Agent Skills and MCPs?"）。
+- **单次 LLM 调用**：由 `function_calls[k].messages` 组成多轮上下文；assistant 消息可含 `tool_calls`；工具返回以 `role: tool` 消息形式追加。
+
+### 4.3 文件与解析
+
+| 路径 | 说明 |
+|------|------|
+| `Multi-Agents-Parallel-Orchestration-Dataset/example_deepnlp_multi_agents_202601.json` | 多行 JSON，每行 `{ session_id: { trace_id: record } }`；record 含 `model`, `session_id`, `trace_id`, `function_calls`（及 Sequential 时的 `plan`） |
+| `Multi-Agents-Parallel-Orchestration-Dataset/DATA_STRUCTURE.md` | 字段与解析说明 |
+| `Multi-Agents-Parallel-Orchestration-Dataset/parse_parallel_orchestration.py` | 解析脚本：统计 sessions/traces/models/function_calls，可选输出每条 record 摘要 |
+
+下载：`./download.sh parallel`。解析：在 `Multi-Agents-Parallel-Orchestration-Dataset/` 下执行 `python parse_parallel_orchestration.py`，或 `python Multi-Agents-Parallel-Orchestration-Dataset/parse_parallel_orchestration.py -v -o summary.json`（从 `benchmark/multi_agent/` 运行）。
+
+---
+
+## 五、multiagent-router-finetuning (multiagent-router-finetuning/)
+
+### 5.1 内容与场景
+
+- **内容**：用于**多智能体客服路由**微调的合成数据。每条样本包含：系统 prompt、用户问题、**目标 Agent 名称**（路由标签）、**Agent 专用参数**（agent_arguments）。适用于训练「意图分类 + 参数抽取 + 路由到对应 Agent」的模型（如 FunctionGemma 等）。
+- **场景**：客服场景下将 query 路由到三类 Agent：**technical_support_agent**（技术问题、bug、集成）、**billing_agent**（支付、订阅、发票）、**product_info_agent**（功能、方案、集成与合规）。含少量边缘/模糊 query 以测试鲁棒性。
+
+### 5.2 Prompt 与字段
+
+- **user_content** (string)：用户请求/问题文本。
+- **agent_name** (string)：目标 Agent，取值为 `technical_support_agent`、`billing_agent`、`product_info_agent`。
+- **agent_arguments** (string)：该 Agent 所需参数的 JSON 字符串（如 `{"issue_type":"crash","priority":"high"}`；billing 含 urgency 等，product_info 含 topic 等）。HF 卡片中另有 system_message，若使用 Parquet 版本可含该系统 prompt 列。
+
+### 5.3 文件与规模
+
+- 下载后位于 `multiagent-router-finetuning/`；主数据为 `dataset.json`（JSON 数组，115 条），亦可使用 HF 自动转换的 Parquet（含 train/test 划分）。
+- 规模：115 条，train 92 / test 23；约 47.5 kB。
+
+下载：`./download.sh router`。
+
+---
+
+## 六、system-prompts-multi-agent-systems (system-prompts-multi-agent-systems/)
+
+### 6.1 内容与场景
+
+- **内容**：多智能体系统相关的 **system prompt** 数据；HF 上 README 为空，具体用途与字段需下载后查看数据列。
+- **规模**：100 条，约 48.5 kB；格式为 HF Dataset（Parquet 等）。
+
+下载：`./download.sh system_prompts`。下载后查看 `system-prompts-multi-agent-systems/` 内文件或列名以确认字段与 prompt 结构。
+
+---
+
+## 七、工具与脚本
+
+### 7.1 下载
+
+```bash
+./download.sh [mast|trail|agentcode|parallel|router|system_prompts|all]   # 默认 all
+```
+
+### 7.2 Prompt 流程提取（MAST-Data、TRAIL）
+
+在 `benchmark/multi_agent/` 下：
+
+```bash
+python extract_prompt_flow.py                    # 全部
+python extract_prompt_flow.py --dataset mast_full
+python extract_prompt_flow.py --dataset mast_human
+python extract_prompt_flow.py --dataset trail_gaia
+python extract_prompt_flow.py --dataset trail_swe
 python extract_prompt_flow.py --data-dir /path/to/multi_agent --output-dir /path/to/out
 ```
 
-**输出文件**（默认写入当前目录）:
+输出：`mast_full_prompt_flow.json`, `mast_human_prompt_flow.json`, `trail_gaia_prompt_flow.json`, `trail_swe_bench_prompt_flow.json`（字段见上文各节）。
 
-| 文件 | 来源 | 每条记录主要内容 |
-|------|------|------------------|
-| `mast_full_prompt_flow.json` | MAD_full_dataset | mas_name, llm_name, benchmark_name, trace_id, task_prompt（来自 trajectory 中的 `**task_prompt**:`） |
-| `mast_human_prompt_flow.json` | MAD_human_labelled | round, mas_name, benchmark_name, trace_id, task_prompt（来自 trace 中 `******************** Task N/M (id) ********************` 后一行） |
-| `trail_gaia_prompt_flow.json` | TRAIL/GAIA | trace_id, main_task（根任务文本）, prompt_flow（span 内 question/task/user_message 等列表） |
-| `trail_swe_bench_prompt_flow.json` | TRAIL/SWE Bench | trace_id, question, problem_statement, prompt_flow |
+### 7.3 MAD_full trajectory 展开（MAST-Data）
+
+将 `MAD_full_dataset.json` 的 `trace.trajectory` 解析为结构化 `trajectory_expanded`（按 mas 的 metadata、sections、evaluation 等）：
+
+```bash
+python expand_mad_full_trajectory.py
+python expand_mad_full_trajectory.py --keep-trajectory
+python expand_mad_full_trajectory.py --input /path/to/in.json --output /path/to/out.json
+```
+
+按 `mas_name` 的展开结构概览：ChatDev → metadata（task_prompt 等）+ sections（DemandAnalysis/Coding/CodeReview 等）；AppWorld → task + sections（response_from_agent, message_to_agent, code_execution 等）+ evaluation；AG2/HyperAgent → problem_statement + sections；其余 → sections 按日志块划分。
+
+### 4.4 run.sh（多 worker + router）
+
+`run.sh` 会启动 10 个 Qwen3-4B-Thinking worker（每 GPU 一个）并在端口 30000 启动 router 做负载均衡。**前置条件**：需安装 router 包（Python 模块名 `sglang_router`）。
+
+**推荐：直接安装 PyPI 预构建 wheel（无需 Rust 编译）：**
+
+```bash
+pip install sglang-router
+```
+
+若需从源码构建（需 Rust 环境）：
+
+```bash
+cd sgl-model-gateway/bindings/python
+pip install maturin
+maturin develop --features vendored-openssl
+```
+
+安装完成后在 `benchmark/multi_agent/` 下执行 `./run.sh`。
 
 ---
 
-## 四、MAD_full trajectory 详细展开
+## 八、TRAIL 中 LLM Prompt 定位小结
 
-脚本 `expand_mad_full_trajectory.py` 将 `MAD_full_dataset.json` 中每条记录的 `trace.trajectory` 字符串解析为结构化字段 `trajectory_expanded`，便于按段使用。
+在 GAIA / SWE Bench 的 span 中，输入给 LLM 的 prompt 常见位置：
 
-**用法**（在 `benchmark/multi_agent/` 下执行）:
+1. **`spans[].span_attributes.input.value`**：JSON 字符串，通常含 `messages` 数组。
+2. **`spans[].logs[].body.function.arguments`**：工具/Agent 调用参数中的 prompt。
+3. **GAIA**：`body.question` 或 `body.function.arguments` 中的 question。
+4. **SWE-Bench**：`body.function.arguments.item.question`、`item.problem_statement`。
 
-```bash
-# 默认：读 MAST-Data/MAD_full_dataset.json，写 MAST-Data/MAD_full_dataset_expanded.json（不保留原始 trajectory）
-python expand_mad_full_trajectory.py
-
-# 保留原始 trajectory 字段
-python expand_mad_full_trajectory.py --keep-trajectory
-
-# 指定输入/输出路径
-python expand_mad_full_trajectory.py --input /path/to/MAD_full_dataset.json --output /path/to/expanded.json
-```
-
-**按 mas_name 的展开结构**:
-
-| mas_name | trajectory_expanded 主要字段 |
-|----------|------------------------------|
-| **ChatDev** | `metadata`（**task_prompt**, config_path, project_name, ChatDevConfig, ChatGPTConfig 等）, `task_prompt`, `sections`（phase_or_log：**phase_name** \| DemandAnalysis / Coding / CodeReviewComment 等）, `evaluation` |
-| **AppWorld** | `task`（**** Task N/M (id) **** 后一行）, `sections`（response_from_agent, message_to_agent, code_execution, entering_agent_loop, exiting_agent_loop, api_response；每项含 type, header, agent, content）, `evaluation`（JSON：success, difficulty, passes, failures） |
-| **AG2 / HyperAgent** | `metadata`（instance_id, problem_statement 等）, `problem_statement`, `sections`（trajectory_content） |
-| **Magentic / OpenManus 等** | `sections`（按 RUN.SH STARTING、Processing 等拆分的 block） |
-
-输出文件中每条记录保留原有顶层字段（mas_name, llm_name, benchmark_name, trace_id, trace, mast_annotation），并新增 `trajectory_expanded`；默认会从 `trace` 中移除原始 `trajectory` 以减小体积，可用 `--keep-trajectory` 保留。
-
-### 2.5 如何定位输入给 LLM 的 Prompt
-
-**<span style="color:red">输入给 LLM 的 Prompt 主要位于以下位置：</span>**
-
-1. **`spans[].span_attributes.input.value`**：最常见的位置，通常是一个 JSON 字符串，包含 `messages` 数组，格式如：
-   ```json
-   {
-     "messages": [
-       {"role": "system", "content": "..."},
-       {"role": "user", "content": "..."}
-     ]
-   }
-   ```
-
-2. **`spans[].logs[].body.function.arguments`**：函数调用参数中可能包含 prompt，特别是 LLM 调用相关的 span（如 `span_name` 为 `"CodeAgent.run"` 或类似名称的 span）。
-
-3. **`spans[].logs[].body.question`**（GAIA）：直接的任务 prompt 文本。
-
-4. **`spans[].logs[].body.function.arguments.item.question`**（SWE-Bench）：任务 prompt 文本。
-
-5. **`spans[].logs[].body.function.arguments.item.problem_statement`**（SWE-Bench）：问题描述 prompt。
-
-**提示**：查找 `span_attributes` 中包含 `"input.mime_type": "application/json"` 或 `"openinference.span.kind": "LLM"` 的 span，这些通常对应 LLM 调用，其 `input.value` 字段即为输入 prompt。
+优先查找 `span_attributes` 中 `openinference.span.kind: LLM` 或 `input.mime_type: application/json` 的 span，其 `input.value` 即该次调用的输入 prompt。

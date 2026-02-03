@@ -1,0 +1,5 @@
+http://gpu14:8000
+http://gpu14:8001
+http://gpu17:8002
+http://gpu17:8003
+http://gpu18:8004

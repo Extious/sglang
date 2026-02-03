@@ -23,7 +23,17 @@ from typing import Any, Callable, List, Optional, Tuple, Type, Union
 import numpy as np
 import pybase64
 import requests
-from IPython.display import HTML, display
+try:
+    from IPython.display import HTML, display  # type: ignore
+
+    _HAS_IPYTHON = True
+except Exception:  # pragma: no cover
+    # IPython is only used for notebook-friendly rendering. It is optional and
+    # should not prevent server-side usage (e.g., when IPython/pygments is
+    # missing or inaccessible on some filesystems).
+    HTML = None  # type: ignore
+    display = None  # type: ignore
+    _HAS_IPYTHON = False
 from pydantic import BaseModel
 from tqdm import tqdm
 
@@ -364,7 +374,7 @@ def is_in_ci() -> bool:
 
 
 def print_highlight(html_content: str):
-    if is_in_ci():
+    if is_in_ci() and _HAS_IPYTHON:
         html_content = str(html_content).replace("\n", "<br>")
         display(HTML(f"<strong style='color: #00008B;'>{html_content}</strong>"))
     else:

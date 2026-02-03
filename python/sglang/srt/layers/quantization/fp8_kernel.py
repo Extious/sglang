@@ -41,18 +41,38 @@ _is_hip = is_hip()
 _is_cuda = is_cuda()
 _is_cpu = is_cpu()
 _use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
+_has_sgl_kernel_ops = False
 
 if _is_cuda:
-    from sgl_kernel import sgl_per_tensor_quant_fp8, sgl_per_token_quant_fp8
-
-    # Temporary
     try:
-        from sgl_kernel import sgl_per_token_group_quant_8bit
+        from sgl_kernel import sgl_per_tensor_quant_fp8, sgl_per_token_quant_fp8
+        _has_sgl_kernel_ops = True
 
-        enable_sgl_per_token_group_quant_8bit = True
-    except ImportError:
-        from sgl_kernel import sgl_per_token_group_quant_fp8
+        # Temporary
+        try:
+            from sgl_kernel import sgl_per_token_group_quant_8bit
 
+            enable_sgl_per_token_group_quant_8bit = True
+        except ImportError:
+            from sgl_kernel import sgl_per_token_group_quant_fp8
+
+            enable_sgl_per_token_group_quant_8bit = False
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            "Failed to import sgl_kernel CUDA ops (%s). FP8 quantization kernels will be unavailable.",
+            e,
+        )
+
+        def _sgl_kernel_missing(*args, **kwargs):
+            raise ImportError(
+                "sgl_kernel is required for FP8 quantization kernels. "
+                "Install sgl_kernel or disable FP8-related features."
+            )
+
+        sgl_per_tensor_quant_fp8 = _sgl_kernel_missing  # type: ignore[assignment]
+        sgl_per_token_quant_fp8 = _sgl_kernel_missing  # type: ignore[assignment]
+        sgl_per_token_group_quant_fp8 = _sgl_kernel_missing  # type: ignore[assignment]
+        sgl_per_token_group_quant_8bit = _sgl_kernel_missing  # type: ignore[assignment]
         enable_sgl_per_token_group_quant_8bit = False
 
 if _is_hip:
@@ -1860,7 +1880,7 @@ def triton_scaled_mm(
     return result.to(out_dtype)
 
 
-if _is_cuda:
+if _is_cuda and _has_sgl_kernel_ops:
     if enable_sgl_per_token_group_quant_8bit:
 
         @torch.library.register_fake("sgl_kernel::sgl_per_token_group_quant_8bit")

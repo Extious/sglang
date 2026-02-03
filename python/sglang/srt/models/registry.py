@@ -91,32 +91,55 @@ class _ModelRegistry:
 def import_model_classes(package_name: str):
     model_arch_name_to_cls = {}
     package = importlib.import_module(package_name)
+    def _try_register_module(mod_name: str) -> None:
+        if mod_name.split(".")[-1] in envs.SGLANG_DISABLED_MODEL_ARCHS.get():
+            logger.debug(f"Skip loading {mod_name} due to SGLANG_DISABLED_MODEL_ARCHS")
+            return
+        try:
+            module = importlib.import_module(mod_name)
+        except Exception as e:
+            logger.warning(f"Ignore import error when loading {mod_name}: {e}")
+            return
+        if not hasattr(module, "EntryClass"):
+            return
+        entry = module.EntryClass
+        if isinstance(entry, list):  # To support multiple model classes in one module
+            for tmp in entry:
+                if tmp.__name__ in model_arch_name_to_cls:
+                    raise ValueError(
+                        f"Duplicated model implementation for {tmp.__name__}"
+                    )
+                model_arch_name_to_cls[tmp.__name__] = tmp
+        else:
+            if entry.__name__ in model_arch_name_to_cls:
+                raise ValueError(f"Duplicated model implementation for {entry.__name__}")
+            model_arch_name_to_cls[entry.__name__] = entry
+
+    # Normal path: scan the package directory.
     for _, name, ispkg in pkgutil.iter_modules(package.__path__, package_name + "."):
         if not ispkg:
-            if name.split(".")[-1] in envs.SGLANG_DISABLED_MODEL_ARCHS.get():
-                logger.debug(f"Skip loading {name} due to SGLANG_DISABLED_MODEL_ARCHS")
-                continue
+            _try_register_module(name)
 
-            try:
-                module = importlib.import_module(name)
-            except Exception as e:
-                logger.warning(f"Ignore import error when loading {name}: {e}")
-                continue
-            if hasattr(module, "EntryClass"):
-                entry = module.EntryClass
-                if isinstance(
-                    entry, list
-                ):  # To support multiple model classes in one module
-                    for tmp in entry:
-                        assert (
-                            tmp.__name__ not in model_arch_name_to_cls
-                        ), f"Duplicated model implementation for {tmp.__name__}"
-                        model_arch_name_to_cls[tmp.__name__] = tmp
-                else:
-                    assert (
-                        entry.__name__ not in model_arch_name_to_cls
-                    ), f"Duplicated model implementation for {entry.__name__}"
-                    model_arch_name_to_cls[entry.__name__] = entry
+    # Fallback: on some filesystems (e.g., flaky NFS), iter_modules may return
+    # nothing without raising. Register a minimal set of common models so the
+    # server can still start.
+    if not model_arch_name_to_cls:
+        logger.warning(
+            "No model implementations found when scanning %s; falling back to a minimal built-in list.",
+            package_name,
+        )
+        fallback_modules = [
+            "llama",
+            "mistral",
+            "mixtral",
+            "gemma2",
+            "gemma3_causal",
+            "gpt2",
+            "opt",
+            "phi",
+        ]
+        for mod in fallback_modules:
+            _try_register_module(f"{package_name}.{mod}")
 
     return model_arch_name_to_cls
 

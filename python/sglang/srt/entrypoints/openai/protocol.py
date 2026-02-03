@@ -19,16 +19,6 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple, TypeAlias, Union
 
-from openai.types.responses import (
-    ResponseFunctionToolCall,
-    ResponseInputItemParam,
-    ResponseOutputItem,
-    ResponseOutputMessage,
-    ResponseOutputText,
-    ResponseReasoningItem,
-)
-from openai.types.responses.response import ToolChoice
-from openai.types.responses.tool import Tool
 from pydantic import (
     BaseModel,
     Field,
@@ -37,6 +27,31 @@ from pydantic import (
     model_validator,
 )
 from typing_extensions import Literal
+
+try:
+    from openai.types.responses import (  # type: ignore
+        ResponseFunctionToolCall,
+        ResponseInputItemParam,
+        ResponseOutputItem,
+        ResponseOutputMessage,
+        ResponseOutputText,
+        ResponseReasoningItem,
+    )
+except Exception:  # pragma: no cover
+    # `openai` (and its transitive deps) is optional for serving. Some
+    # environments may have intermittent filesystem issues when importing
+    # heavy dependencies (e.g., pygments). Fallback to lightweight stubs so
+    # the server can still start and serve /v1/chat/completions.
+
+    class _OpenAIResponsesStub(BaseModel):
+        pass
+
+    ResponseFunctionToolCall = _OpenAIResponsesStub
+    ResponseInputItemParam = _OpenAIResponsesStub
+    ResponseOutputItem = _OpenAIResponsesStub
+    ResponseOutputMessage = _OpenAIResponsesStub
+    ResponseOutputText = _OpenAIResponsesStub
+    ResponseReasoningItem = _OpenAIResponsesStub
 
 try:
     from xgrammar import StructuralTag
@@ -398,7 +413,7 @@ class ChatCompletionMessageGenericParam(BaseModel):
     name: Optional[str] = None
     reasoning_content: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = Field(default=None, examples=[None])
-    tools: Optional[List[Tool]] = Field(default=None, examples=[None])
+    tools: Optional[List["Tool"]] = Field(default=None, examples=[None])
 
     @field_validator("role", mode="before")
     @classmethod

@@ -1,114 +1,43 @@
 #!/bin/bash
 # Deploy 10x Qwen3-4B-Thinking on 10 GPUs with 1 router.
 # Each worker: 1 GPU, 1 model instance. Router load-balances on port 30000.
+#
+# Split scripts:
+#   - ./run_server.sh (workers)
+#   - ./run_router.sh (router)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="${SGLANG_REPO_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
-MODEL_PATH="${MODEL_PATH:-Qwen/Qwen3-4B-Thinking-2507}"
-ROUTER_PORT="${ROUTER_PORT:-30000}"
-WORKER_BASE_PORT="${WORKER_BASE_PORT:-8000}"
-NUM_WORKERS=10
-# Stagger worker startup to avoid NFS/disk I/O errors when many processes start at once
-WORKER_STARTUP_DELAY="${WORKER_STARTUP_DELAY:-12}"
-# Retry worker start if it exits quickly (e.g. NFS EIO); check after this many seconds
-WORKER_START_CHECK_SEC="${WORKER_START_CHECK_SEC:-30}"
-WORKER_START_RETRIES="${WORKER_START_RETRIES:-3}"
-# Seconds to wait before retrying after a worker exits early (lets NFS settle)
-WORKER_RETRY_DELAY_SEC="${WORKER_RETRY_DELAY_SEC:-10}"
+WORKER_URLS_FILE="${WORKER_URLS_FILE:-${SCRIPT_DIR}/logs/worker_urls.txt}"
 
-export PYTHONPATH="${REPO_ROOT}/python:${PYTHONPATH:-}"
-export NO_PROXY="localhost,127.0.0.1,0.0.0.0,::1"
-export no_proxy="localhost,127.0.0.1,0.0.0.0,::1"
-# Reduce Python filesystem encoding probe; can avoid NFS EIO on init_fs_encoding
-export LC_ALL="${LC_ALL:-C.UTF-8}"
-export LANG="${LANG:-C.UTF-8}"
-export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
-
-LOG_DIR="${SCRIPT_DIR}/logs"
-mkdir -p "${LOG_DIR}"
-
-PIDS=()
+SERVER_PID=""
 cleanup() {
-    echo "Cleaning up workers..."
-    for pid in "${PIDS[@]}"; do
-        kill "${pid}" 2>/dev/null || true
-    done
-    wait 2>/dev/null || true
-    echo "Done."
+    if [ -n "${SERVER_PID}" ] && kill -0 "${SERVER_PID}" 2>/dev/null; then
+        kill "${SERVER_PID}" 2>/dev/null || true
+        wait "${SERVER_PID}" 2>/dev/null || true
+    fi
 }
 trap cleanup EXIT INT TERM
 
-# Per-worker wait: longer on NFS since model load reads a lot from disk
-WAIT_FOR_PORT_MAX_ATTEMPTS="${WAIT_FOR_PORT_MAX_ATTEMPTS:-90}"
-WAIT_FOR_PORT_SLEEP_SEC="${WAIT_FOR_PORT_SLEEP_SEC:-2}"
-wait_for_port() {
-    local port=$1
-    local max_attempts=${WAIT_FOR_PORT_MAX_ATTEMPTS}
-    local attempt=0
-    while [ $attempt -lt $max_attempts ]; do
-        if curl -s "http://127.0.0.1:${port}/v1/models" > /dev/null 2>&1; then
-            return 0
-        fi
-        sleep "${WAIT_FOR_PORT_SLEEP_SEC}"
-        attempt=$((attempt + 1))
-    done
-    echo "Timeout waiting for port ${port}"
-    return 1
-}
+"${SCRIPT_DIR}/run_server.sh" &
+SERVER_PID=$!
 
-echo "Starting ${NUM_WORKERS} Qwen3-4B-Thinking workers (1 per GPU)..."
-
-for i in $(seq 0 $((NUM_WORKERS - 1))); do
-    port=$((WORKER_BASE_PORT + i))
-    export CUDA_VISIBLE_DEVICES=${i}
-    : > "${LOG_DIR}/worker_${i}.log"
-    pid=""
-    for attempt in $(seq 1 "${WORKER_START_RETRIES}"); do
-        python -m sglang.launch_server \
-            --model-path "${MODEL_PATH}" \
-            --tp 1 \
-            --port "${port}" \
-            --host 127.0.0.1 \
-            >> "${LOG_DIR}/worker_${i}.log" 2>&1 &
-        pid=$!
-        echo "  Worker ${i}: GPU ${i}, port ${port}, PID ${pid} (attempt ${attempt}/${WORKER_START_RETRIES})"
-        sleep "${WORKER_START_CHECK_SEC}"
-        if kill -0 "${pid}" 2>/dev/null; then
-            PIDS+=("${pid}")
-            break
-        fi
-        wait "${pid}" 2>/dev/null || true
-        echo "  Worker ${i} exited early (e.g. NFS I/O error)"
-        if [ $attempt -lt "${WORKER_START_RETRIES}" ]; then
-            echo "  Waiting ${WORKER_RETRY_DELAY_SEC}s before retry..."
-            sleep "${WORKER_RETRY_DELAY_SEC}"
-        fi
-    done
-    if [ -z "${pid}" ] || ! kill -0 "${pid}" 2>/dev/null; then
-        echo "Worker ${i} failed after ${WORKER_START_RETRIES} attempts. Check ${LOG_DIR}/worker_${i}.log"
-        cleanup
+WAIT_WORKER_URLS_MAX_SEC="${WAIT_WORKER_URLS_MAX_SEC:-1800}"
+WAIT_WORKER_URLS_SLEEP_SEC="${WAIT_WORKER_URLS_SLEEP_SEC:-2}"
+elapsed=0
+while [ ! -s "${WORKER_URLS_FILE}" ]; do
+    if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+        wait "${SERVER_PID}" 2>/dev/null || true
+        echo "run_server.sh exited before workers became ready. Check ${SCRIPT_DIR}/logs/worker_*.log"
         exit 1
     fi
-    echo "  Waiting for worker ${i} (port ${port}) to be ready..."
-    wait_for_port "${port}" || { echo "Worker ${i} (port ${port}) failed to become ready"; cleanup; exit 1; }
-    echo "  Worker ${i} (port ${port}) ready"
+    if [ $elapsed -ge "${WAIT_WORKER_URLS_MAX_SEC}" ]; then
+        echo "Timeout waiting for ${WORKER_URLS_FILE}"
+        exit 1
+    fi
+    sleep "${WAIT_WORKER_URLS_SLEEP_SEC}"
+    elapsed=$((elapsed + WAIT_WORKER_URLS_SLEEP_SEC))
 done
 
-WORKER_URLS=""
-for i in $(seq 0 $((NUM_WORKERS - 1))); do
-    port=$((WORKER_BASE_PORT + i))
-    WORKER_URLS="${WORKER_URLS} http://127.0.0.1:${port}"
-done
-WORKER_URLS="${WORKER_URLS# }"
-
-echo "Starting router on port ${ROUTER_PORT} (worker URLs: ${WORKER_URLS})..."
-
-# Router: use launch_router from sgl-model-gateway (pip install sglang[gateway] or install from sgl-model-gateway/bindings/python)
-python -m sglang_router.launch_router \
-    --worker-urls ${WORKER_URLS} \
-    --policy round_robin \
-    --host 0.0.0.0 \
-    --port "${ROUTER_PORT}" \
-    --model-path "${MODEL_PATH}"
+"${SCRIPT_DIR}/run_router.sh"

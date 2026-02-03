@@ -63,13 +63,20 @@ from sglang.srt.configs import (
     Qwen3NextConfig,
     Step3VLConfig,
 )
-from sglang.srt.configs.deepseek_ocr import DeepseekVLV2Config
-from sglang.srt.configs.internvl import InternVLChatConfig
+try:
+    from sglang.srt.configs.deepseek_ocr import DeepseekVLV2Config
+except Exception:
+    DeepseekVLV2Config = None  # type: ignore[assignment]
+
+try:
+    from sglang.srt.configs.internvl import InternVLChatConfig
+except Exception:
+    InternVLChatConfig = None  # type: ignore[assignment]
 from sglang.srt.connector import create_remote_connector
 from sglang.srt.multimodal.customized_mm_processor_utils import _CUSTOMIZED_MM_PROCESSOR
 from sglang.srt.utils import is_remote_url, logger, lru_cache_frozenset, mistral_utils
 
-_CONFIG_REGISTRY: List[Type[PretrainedConfig]] = [
+_CONFIG_REGISTRY: List[Optional[Type[PretrainedConfig]]] = [
     ChatGLMConfig,
     DbrxConfig,
     ExaoneConfig,
@@ -92,9 +99,13 @@ _CONFIG_REGISTRY: List[Type[PretrainedConfig]] = [
     JetVLMConfig,
 ]
 
-_CONFIG_REGISTRY = {
-    config_cls.model_type: config_cls for config_cls in _CONFIG_REGISTRY
-}
+_CONFIG_REGISTRY = [
+    cfg
+    for cfg in _CONFIG_REGISTRY
+    if cfg is not None and not getattr(cfg, "__sglang_optional_import_failed__", False)
+]
+
+_CONFIG_REGISTRY = {config_cls.model_type: config_cls for config_cls in _CONFIG_REGISTRY}
 
 for name, cls in _CONFIG_REGISTRY.items():
     with contextlib.suppress(ValueError):

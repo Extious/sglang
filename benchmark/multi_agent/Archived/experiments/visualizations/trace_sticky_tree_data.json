@@ -1,0 +1,77 @@
+{
+  "http://gpu17:8000": {
+    "snapshots": [
+      {
+        "timestamp": 1770184861.82607,
+        "cache_hit_rate": 0.1423538399316946,
+        "token_usage": 0.0,
+        "num_cached_tokens": 0,
+        "num_total_tokens": 85881,
+        "num_running_reqs": 0,
+        "num_waiting_reqs": 0,
+        "gen_throughput": 0.0
+      }
+    ],
+    "request_history": []
+  },
+  "http://gpu17:8001": {
+    "snapshots": [
+      {
+        "timestamp": 1770184861.832284,
+        "cache_hit_rate": 0.1379128636481139,
+        "token_usage": 0.0,
+        "num_cached_tokens": 0,
+        "num_total_tokens": 85881,
+        "num_running_reqs": 0,
+        "num_waiting_reqs": 0,
+        "gen_throughput": 0.0
+      }
+    ],
+    "request_history": []
+  },
+  "http://gpu18:8002": {
+    "snapshots": [
+      {
+        "timestamp": 1770184861.8401027,
+        "cache_hit_rate": 0.12469313872517647,
+        "token_usage": 0.0,
+        "num_cached_tokens": 0,
+        "num_total_tokens": 85881,
+        "num_running_reqs": 0,
+        "num_waiting_reqs": 0,
+        "gen_throughput": 0.0
+      }
+    ],
+    "request_history": []
+  },
+  "http://gpu18:8003": {
+    "snapshots": [
+      {
+        "timestamp": 1770184861.8471966,
+        "cache_hit_rate": 0.13521911496839173,
+        "token_usage": 0.0,
+        "num_cached_tokens": 0,
+        "num_total_tokens": 85881,
+        "num_running_reqs": 0,
+        "num_waiting_reqs": 0,
+        "gen_throughput": 0.0
+      }
+    ],
+    "request_history": []
+  },
+  "http://gpu19:8004": {
+    "snapshots": [
+      {
+        "timestamp": 1770184861.8535926,
+        "cache_hit_rate": 0.11749671388929459,
+        "token_usage": 0.0,
+        "num_cached_tokens": 0,
+        "num_total_tokens": 85881,
+        "num_running_reqs": 0,
+        "num_waiting_reqs": 0,
+        "gen_throughput": 0.0
+      }
+    ],
+    "request_history": []
+  }
+}

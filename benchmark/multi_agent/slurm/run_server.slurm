@@ -1,0 +1,314 @@
+#!/bin/bash
+#SBATCH --job-name=exp1_server
+#SBATCH --partition=long
+#SBATCH --gres=gpu:rtx4090:2
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=100G
+#SBATCH --time=24:00:00
+#SBATCH --exclusive
+#SBATCH --exclude=gpu[10-13]
+#SBATCH --output=/home/comp/zhanzhao/sglang/benchmark/multi_agent/logs/run_server_%j.out
+#SBATCH --error=/home/comp/zhanzhao/sglang/benchmark/multi_agent/logs/run_server_%j.err
+
+# Usage:
+#   sbatch [SBATCH_OPTIONS] run_server.slurm [SCRIPT_OPTIONS]
+#
+# SBATCH Options (must be before script name):
+#   --nodes=N             Number of nodes to allocate (REQUIRED)
+# Qwen/Qwen3-4B-Instruct-2507
+# Script Options:
+#   --model-path PATH     Model path (default: Qwen/Qwen3-4B-Thinking-2507)
+#   --num-workers N       Number of workers (default: 5)
+#   --worker-base-port P  Base port for workers (default: 8000)
+#   --workers-per-node N  Workers per node (default: 2)
+#   --tool-call-parser P  Tool call parser (default: qwen)
+#   --enable-hicache      Enable hierarchical KV cache (default: enabled)
+#   --disable-hicache     Disable hierarchical KV cache
+#   --hicache-size N      HiCache size per worker in GB (default: 8)
+#   --hicache-ratio R     HiCache ratio when hicache-size<=0 (default: 2.0)
+#   -h, --help            Show this help message
+#
+# Examples:
+#   # 1 node, 1 worker
+#   sbatch --nodes=1 run_server.slurm --num-workers 1 --workers-per-node 1 --model-path Qwen/Qwen3-4B-Instruct-2507 --enable-hicache --hicache-size 24
+#
+#   # 3 nodes, 6 workers (2 per node)
+#   sbatch --nodes=3 run_server.slurm --num-workers 6 --workers-per-node 2
+#
+#   # Custom model
+#   sbatch --nodes=2 run_server.slurm --model-path meta-llama/Llama-3-8B --num-workers 4
+
+set -euo pipefail
+
+# Default values (can be overridden by environment variables or command line args)
+DEFAULT_MODEL_PATH="Qwen/Qwen3-4B-Thinking-2507"
+DEFAULT_NUM_WORKERS=5
+DEFAULT_WORKER_BASE_PORT=8000
+DEFAULT_WORKERS_PER_NODE=2
+DEFAULT_TOOL_CALL_PARSER="qwen"
+DEFAULT_ENABLE_HICACHE=1
+DEFAULT_HICACHE_SIZE=8
+DEFAULT_HICACHE_RATIO=2.0
+
+# Parse command line arguments
+show_help() {
+    sed -n '15,40p' "$0" | sed 's/^# //'
+    exit 0
+}
+
+# Initialize with environment variables or defaults
+MODEL_PATH="${MODEL_PATH:-${DEFAULT_MODEL_PATH}}"
+NUM_WORKERS="${NUM_WORKERS:-${DEFAULT_NUM_WORKERS}}"
+WORKER_BASE_PORT="${WORKER_BASE_PORT:-${DEFAULT_WORKER_BASE_PORT}}"
+WORKERS_PER_NODE="${WORKERS_PER_NODE:-${DEFAULT_WORKERS_PER_NODE}}"
+TOOL_CALL_PARSER="${TOOL_CALL_PARSER:-${DEFAULT_TOOL_CALL_PARSER}}"
+ENABLE_HICACHE="${ENABLE_HICACHE:-${DEFAULT_ENABLE_HICACHE}}"
+HICACHE_SIZE="${HICACHE_SIZE:-${DEFAULT_HICACHE_SIZE}}"
+HICACHE_RATIO="${HICACHE_RATIO:-${DEFAULT_HICACHE_RATIO}}"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --model-path)
+            MODEL_PATH="$2"
+            shift 2
+            ;;
+        --num-workers)
+            NUM_WORKERS="$2"
+            shift 2
+            ;;
+        --worker-base-port)
+            WORKER_BASE_PORT="$2"
+            shift 2
+            ;;
+        --workers-per-node)
+            WORKERS_PER_NODE="$2"
+            shift 2
+            ;;
+        --tool-call-parser)
+            TOOL_CALL_PARSER="$2"
+            shift 2
+            ;;
+        --enable-hicache)
+            ENABLE_HICACHE=1
+            shift
+            ;;
+        --disable-hicache)
+            ENABLE_HICACHE=0
+            shift
+            ;;
+        --hicache-size)
+            HICACHE_SIZE="$2"
+            shift 2
+            ;;
+        --hicache-ratio)
+            HICACHE_RATIO="$2"
+            shift 2
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            echo "Use --help for usage information" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [ "${ENABLE_HICACHE}" -eq 1 ]; then
+    HICACHE_FLAG="--enable-hicache"
+else
+    HICACHE_FLAG="--disable-hicache"
+fi
+
+# Use hardcoded script directory (BASH_SOURCE may not work correctly in SLURM)
+SCRIPT_DIR="/home/comp/zhanzhao/sglang/benchmark/multi_agent"
+cd "${SCRIPT_DIR}"
+
+REPO_ROOT="${SGLANG_REPO_ROOT:-/home/comp/zhanzhao/sglang}"
+LOG_DIR="${SCRIPT_DIR}/logs"
+VENV_DIR="${REPO_ROOT}/.venv"
+
+# Avoid stale "ready" markers from previous runs (shared filesystem).
+mkdir -p "${LOG_DIR}"
+rm -f "${LOG_DIR}/worker_urls.txt"
+rm -f "${LOG_DIR}"/node_*/worker_urls.txt
+rm -f "${LOG_DIR}"/node_*/server_node.txt
+
+# Activate virtual environment
+if [ -f "${VENV_DIR}/bin/activate" ]; then
+    source "${VENV_DIR}/bin/activate"
+    echo "Activated virtual environment: ${VENV_DIR}"
+elif [ -f "${VENV_DIR}/Scripts/activate" ]; then
+    source "${VENV_DIR}/Scripts/activate"
+    echo "Activated virtual environment: ${VENV_DIR}"
+else
+    echo "WARNING: Virtual environment not found at ${VENV_DIR}" >&2
+    echo "  Trying to continue with system Python..." >&2
+fi
+
+# Verify critical paths exist
+if [ ! -f "${SCRIPT_DIR}/src/server/deploy_server.py" ]; then
+    echo "ERROR: deploy_server.py not found in ${SCRIPT_DIR}/src/server" >&2
+    exit 1
+fi
+
+if [ ! -d "${REPO_ROOT}/python" ]; then
+    echo "ERROR: SGLang python directory not found: ${REPO_ROOT}/python" >&2
+    exit 1
+fi
+
+export PYTHONPATH="${REPO_ROOT}/python:${REPO_ROOT}:${PYTHONPATH:-}"
+export NO_PROXY="localhost,127.0.0.1,0.0.0.0,::1"
+export no_proxy="localhost,127.0.0.1,0.0.0.0,::1"
+export LC_ALL="${LC_ALL:-C.UTF-8}"
+export LANG="${LANG:-C.UTF-8}"
+export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
+
+echo "Deploying SGLang Server (Workers)"
+echo "Nodes: ${SLURM_NODELIST:-unknown}"
+echo "Total workers: ${NUM_WORKERS}"
+echo "Workers per node: ${WORKERS_PER_NODE}"
+echo "Model: ${MODEL_PATH}"
+echo "Tool call parser: ${TOOL_CALL_PARSER}"
+echo "HiCache: ${ENABLE_HICACHE}"
+if [ "${ENABLE_HICACHE}" -eq 1 ]; then
+    if [ "${HICACHE_SIZE}" -gt 0 ]; then
+        echo "HiCache size per worker (GB): ${HICACHE_SIZE}"
+    else
+        echo "HiCache ratio: ${HICACHE_RATIO}"
+    fi
+fi
+echo "Repo root: ${REPO_ROOT}"
+echo "Output: ${LOG_DIR}"
+
+# For multi-node deployment: distribute workers across nodes
+TOTAL_NODES=${SLURM_JOB_NUM_NODES:-1}
+NODE_LIST=($(scontrol show hostnames ${SLURM_JOB_NODELIST}))
+
+# Calculate distribution
+REMAINING_WORKERS=${NUM_WORKERS}
+WORKER_ID=0
+BASE_PORT=${WORKER_BASE_PORT}
+
+# Start workers on each node
+SRUN_PIDS=()
+NODE_IDS=()
+for NODE_ID in $(seq 0 $((TOTAL_NODES - 1))); do
+    if [ ${REMAINING_WORKERS} -le 0 ]; then
+        break
+    fi
+    
+    NODE_WORKERS=${WORKERS_PER_NODE}
+    if [ ${NODE_WORKERS} -gt ${REMAINING_WORKERS} ]; then
+        NODE_WORKERS=${REMAINING_WORKERS}
+    fi
+    
+    NODE_NAME=${NODE_LIST[$NODE_ID]}
+    NODE_PORT=$((BASE_PORT + WORKER_ID))
+    
+    echo "Node ${NODE_ID} (${NODE_NAME}): Starting ${NODE_WORKERS} workers (ports ${NODE_PORT}-$((NODE_PORT + NODE_WORKERS - 1)))"
+    
+    srun -w "${NODE_NAME}" --nodes=1 --ntasks=1 \
+        bash -c "
+        # Activate virtual environment
+        if [ -f \"${VENV_DIR}/bin/activate\" ]; then
+            source \"${VENV_DIR}/bin/activate\"
+        elif [ -f \"${VENV_DIR}/Scripts/activate\" ]; then
+            source \"${VENV_DIR}/Scripts/activate\"
+        fi
+        
+        export PYTHONPATH=\"${REPO_ROOT}/python:${REPO_ROOT}:\${PYTHONPATH:-}\"
+        export NO_PROXY=\"localhost,127.0.0.1,0.0.0.0,::1\"
+        export no_proxy=\"localhost,127.0.0.1,0.0.0.0,::1\"
+        export LC_ALL=\"\${LC_ALL:-C.UTF-8}\"
+        export LANG=\"\${LANG:-C.UTF-8}\"
+        export PYTHONIOENCODING=\"\${PYTHONIOENCODING:-utf-8}\"
+        
+        cd ${SCRIPT_DIR}/src/server
+        mkdir -p \"${LOG_DIR}/node_${NODE_ID}\"
+
+        python deploy_server.py \
+            --model-path \"${MODEL_PATH}\" \
+            --num-workers ${NODE_WORKERS} \
+            --worker-base-port ${NODE_PORT} \
+            --tool-call-parser \"${TOOL_CALL_PARSER}\" \
+            ${HICACHE_FLAG} \
+            --hicache-size ${HICACHE_SIZE} \
+            --hicache-ratio ${HICACHE_RATIO} \
+            --output-dir \"${LOG_DIR}/node_${NODE_ID}\" \
+            > \"${LOG_DIR}/node_${NODE_ID}/deploy.log\" 2>&1
+    " &
+    
+    SRUN_PIDS+=($!)
+    NODE_IDS+=(${NODE_ID})
+    WORKER_ID=$((WORKER_ID + NODE_WORKERS))
+    REMAINING_WORKERS=$((REMAINING_WORKERS - NODE_WORKERS))
+done
+
+# Wait for worker_urls.txt files to appear (workers ready)
+echo "Waiting for workers to be ready (timeout=1800s)..."
+WAIT_TIMEOUT=1800
+WAIT_START=$(date +%s)
+FAILED_NODES=()
+
+for NODE_ID in "${NODE_IDS[@]}"; do
+    URLS_FILE="${LOG_DIR}/node_${NODE_ID}/worker_urls.txt"
+    echo "  Waiting for node ${NODE_ID} workers..."
+    while true; do
+        ELAPSED=$(($(date +%s) - WAIT_START))
+        if [ ${ELAPSED} -ge ${WAIT_TIMEOUT} ]; then
+            echo "ERROR: Timeout waiting for node ${NODE_ID} workers" >&2
+            FAILED_NODES+=(${NODE_ID})
+            break
+        fi
+        if [ -f "${URLS_FILE}" ] && [ -s "${URLS_FILE}" ]; then
+            echo "  Node ${NODE_ID} workers ready."
+            break
+        fi
+        sleep 5
+    done
+done
+
+# Collect and merge worker URLs from all nodes
+WORKER_URLS_FILE="${LOG_DIR}/worker_urls.txt"
+: > "${WORKER_URLS_FILE}"
+
+SUCCESS_COUNT=0
+for NODE_ID in $(seq 0 $((TOTAL_NODES - 1))); do
+    NODE_URLS_FILE="${LOG_DIR}/node_${NODE_ID}/worker_urls.txt"
+    if [ -f "${NODE_URLS_FILE}" ] && [ -s "${NODE_URLS_FILE}" ]; then
+        echo "Node ${NODE_ID} worker URLs:"
+        cat "${NODE_URLS_FILE}" | sed 's/^/  /'
+        cat "${NODE_URLS_FILE}" >> "${WORKER_URLS_FILE}"
+        SUCCESS_COUNT=$((SUCCESS_COUNT + $(wc -l < "${NODE_URLS_FILE}" | tr -d ' ')))
+    else
+        echo "WARNING: Node ${NODE_ID} worker_urls.txt not found or empty" >&2
+        if [ -f "${LOG_DIR}/node_${NODE_ID}/deploy.log" ]; then
+            echo "  Check log: ${LOG_DIR}/node_${NODE_ID}/deploy.log" >&2
+        fi
+    fi
+done
+
+echo ""
+if [ ${SUCCESS_COUNT} -eq ${NUM_WORKERS} ]; then
+    echo "Server deployment completed successfully. Worker URLs saved to ${WORKER_URLS_FILE}"
+    echo "Total workers: ${SUCCESS_COUNT}"
+    echo ""
+    echo "Workers are running. Job will stay alive until cancelled (scancel) or timeout."
+    echo "Press Ctrl+C or use 'scancel ${SLURM_JOB_ID}' to stop."
+
+    # Keep the job running - wait indefinitely
+    # This allows the worker processes to continue serving requests
+    while true; do
+        sleep 60
+        echo "[$(date)] Workers still running..."
+    done
+else
+    echo "WARNING: Only ${SUCCESS_COUNT}/${NUM_WORKERS} workers started" >&2
+    if [ ${#FAILED_NODES[@]} -gt 0 ]; then
+        echo "Failed nodes: ${FAILED_NODES[*]}" >&2
+    fi
+    exit 1
+fi

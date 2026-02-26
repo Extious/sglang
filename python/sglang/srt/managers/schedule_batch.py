@@ -486,6 +486,7 @@ class Req:
         extra_key: Optional[str] = None,
         dimensions: Optional[int] = None,
         http_worker_ipc: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ):
         # Input and output info
         self.rid = rid
@@ -539,6 +540,7 @@ class Req:
 
         self.extra_key = extra_key
         self.lora_id = lora_id
+        self.agent_id = agent_id
 
         # Memory pool info
         self.req_pool_idx: Optional[int] = None
@@ -810,13 +812,17 @@ class Req:
         token_ids = self.fill_ids[:max_prefix_len]
 
         if tree_cache is not None:
+            _extra_kwargs = (
+                {"req": self, "cow_mamba": True}
+                if isinstance(tree_cache, MambaRadixCache)
+                else {}
+            )
+            if getattr(self, "agent_id", None):
+                _extra_kwargs["agent_id"] = self.agent_id
+                _extra_kwargs["agent_req_id"] = self.rid
             match_result = tree_cache.match_prefix(
                 key=RadixKey(token_ids=token_ids, extra_key=self.extra_key),
-                **(
-                    {"req": self, "cow_mamba": True}
-                    if isinstance(tree_cache, MambaRadixCache)
-                    else {}
-                ),
+                **_extra_kwargs,
             )
             (
                 self.prefix_indices,

@@ -245,6 +245,9 @@ class GenerateReqInput(BaseReq, APIServingTimingMixin):
     # Whether to return entropy
     return_entropy: bool = False
 
+    # Agent identifier for attribution tracking (from OpenAI 'user' field)
+    agent_id: Optional[str] = None
+
     def contains_mm_input(self) -> bool:
         return (
             has_valid_data(self.image_data)
@@ -647,6 +650,7 @@ class GenerateReqInput(BaseReq, APIServingTimingMixin):
             custom_labels=self.custom_labels,
             return_bytes=self.return_bytes,
             return_entropy=self.return_entropy,
+            agent_id=self.agent_id,
             http_worker_ipc=self.http_worker_ipc,
             **{
                 field: getattr(self, field)
@@ -723,6 +727,9 @@ class TokenizedGenerateReqInput(BaseReq):
 
     # Whether to return entropy
     return_entropy: bool = False
+
+    # Agent identifier for attribution tracking
+    agent_id: Optional[str] = None
 
 
 @dataclass
@@ -1385,6 +1392,26 @@ class GetInternalStateReq(BaseReq):
 @dataclass
 class GetInternalStateReqOutput(BaseReq):
     internal_state: Dict[Any, Any]
+
+
+@dataclass
+class DumpRadixTreeReqInput(BaseReq):
+    include_prefix: bool = True
+    include_segment: bool = True
+    max_nodes: int = 2000
+    max_depth: int = 64
+    max_tokens_per_node: int = 4096
+    # When enabled, best-effort synchronize async HiCache events before dump.
+    strict_sync: bool = True
+    # Max seconds to wait for strict synchronization.
+    sync_timeout_s: float = 5.0
+
+
+@dataclass
+class DumpRadixTreeReqOutput(BaseReq):
+    success: bool
+    message: str
+    tree: Dict[str, Any]
 
 
 @dataclass

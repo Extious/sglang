@@ -78,6 +78,8 @@ from sglang.srt.managers.io_struct import (
     CloseSessionReqInput,
     ContinueGenerationReqInput,
     DestroyWeightsUpdateGroupReqInput,
+    DumpRadixTreeReqInput,
+    DumpRadixTreeReqOutput,
     ExpertDistributionReq,
     ExpertDistributionReqOutput,
     ExpertDistributionReqType,
@@ -582,6 +584,7 @@ class Scheduler(
                 (ProfileReq, self.profile),
                 (FreezeGCReq, self.handle_freeze_gc),
                 (GetInternalStateReq, self.get_internal_state),
+                (DumpRadixTreeReqInput, self.dump_radix_tree),
                 (SetInternalStateReq, self.set_internal_state),
                 (RpcReqInput, self.handle_rpc_request),
                 (ExpertDistributionReq, self.expert_distribution_handle),
@@ -1329,6 +1332,8 @@ class Scheduler(
                 ),
                 http_worker_ipc=recv_req.http_worker_ipc,
                 dllm_config=self.dllm_config,
+                extra_key=getattr(recv_req, "extra_key", None),
+                agent_id=getattr(recv_req, "agent_id", None),
             )
             req.tokenizer = self.tokenizer
 
@@ -2296,6 +2301,216 @@ class Scheduler(
         ret.pop("model_config", None)
 
         return GetInternalStateReqOutput(internal_state=ret)
+
+    def dump_radix_tree(self, recv_req: DumpRadixTreeReqInput):
+        max_nodes = int(getattr(recv_req, "max_nodes", 2000) or 2000)
+        max_depth = int(getattr(recv_req, "max_depth", 64) or 64)
+        max_tokens_per_node = int(
+            getattr(recv_req, "max_tokens_per_node", 4096) or 4096
+        )
+        include_prefix = bool(getattr(recv_req, "include_prefix", True))
+        include_segment = bool(getattr(recv_req, "include_segment", True))
+        strict_sync = bool(getattr(recv_req, "strict_sync", True))
+        sync_timeout_s = float(getattr(recv_req, "sync_timeout_s", 5.0) or 5.0)
+
+        if not hasattr(self.tree_cache, "root_node"):
+            return DumpRadixTreeReqOutput(
+                success=False,
+                message="notsupported",
+                tree={"success": False, "message": "notsupported"},
+            )
+
+        strict_sync_converged = True
+        if strict_sync and self.enable_hierarchical_cache:
+            sync_fn = getattr(self.tree_cache, "sync_hicache_events", None)
+            if callable(sync_fn):
+                try:
+                    strict_sync_converged = bool(sync_fn(sync_timeout_s))
+                except Exception:
+                    strict_sync_converged = False
+            else:
+                # Fallback for old cache implementations.
+                try:
+                    self.tree_cache.check_hicache_events()
+                except Exception:
+                    strict_sync_converged = False
+
+        pending_write_ids = set()
+        pending_load_ids = set()
+        if self.enable_hierarchical_cache:
+            try:
+                pending_write_ids = set(
+                    (getattr(self.tree_cache, "ongoing_write_through", {}) or {}).keys()
+                )
+            except Exception:
+                pending_write_ids = set()
+            try:
+                pending_load_ids = set(
+                    (getattr(self.tree_cache, "ongoing_load_back", {}) or {}).keys()
+                )
+            except Exception:
+                pending_load_ids = set()
+
+        root = self.tree_cache.root_node
+        from collections import deque
+
+        def _node_id(n):
+            try:
+                return int(getattr(n, "id", -1))
+            except Exception:
+                return -1
+
+        q = deque()
+        q.append((root, None, 0, []))
+        nodes = []
+        edges = []
+        visited = 0
+        truncated = False
+        total_gpu_kv_tokens = 0
+        total_cpu_kv_tokens = 0
+        total_gpu_kv_tokens_raw = 0
+        total_cpu_kv_tokens_raw = 0
+
+        while q and visited < max_nodes:
+            node, parent_id, depth, prefix_tokens = q.popleft()
+            visited += 1
+
+            node_id = _node_id(node)
+            seg = []
+            try:
+                if hasattr(node, "key") and node.key is not None:
+                    seg = list(getattr(node.key, "token_ids", []) or [])
+            except Exception:
+                seg = []
+
+            seg_len = len(seg)
+            if max_tokens_per_node >= 0 and seg_len > max_tokens_per_node:
+                seg = seg[:max_tokens_per_node]
+
+            prefix = []
+            prefix_len = 0
+            if include_prefix:
+                if prefix_tokens:
+                    prefix = prefix_tokens + seg
+                else:
+                    prefix = seg[:] if seg else []
+
+                prefix_len = len(prefix)
+                if max_tokens_per_node >= 0 and prefix_len > max_tokens_per_node:
+                    prefix = prefix[:max_tokens_per_node]
+
+            child_count = 0
+            try:
+                child_count = len(getattr(node, "children", {}) or {})
+            except Exception:
+                child_count = 0
+
+            try:
+                value_obj = getattr(node, "value", None)
+                gpu_kv_tokens_raw = int(len(value_obj)) if value_obj is not None else 0
+            except Exception:
+                gpu_kv_tokens_raw = 0
+            try:
+                host_obj = getattr(node, "host_value", None)
+                cpu_kv_tokens_raw = int(len(host_obj)) if host_obj is not None else 0
+            except Exception:
+                cpu_kv_tokens_raw = 0
+
+            write_pending = node_id in pending_write_ids
+            load_pending = node_id in pending_load_ids
+
+            # "ready" means data is available for stable snapshot consumption.
+            gpu_kv_tokens = 0 if load_pending else gpu_kv_tokens_raw
+            cpu_kv_tokens = 0 if write_pending else cpu_kv_tokens_raw
+
+            evicted = gpu_kv_tokens_raw == 0
+            backuped = cpu_kv_tokens_raw > 0
+
+            if gpu_kv_tokens > 0:
+                cache_residency = "gpu_host" if cpu_kv_tokens > 0 else "gpu_only"
+            else:
+                cache_residency = "host_only" if cpu_kv_tokens > 0 else "none"
+
+            total_gpu_kv_tokens += gpu_kv_tokens
+            total_cpu_kv_tokens += cpu_kv_tokens
+            total_gpu_kv_tokens_raw += gpu_kv_tokens_raw
+            total_cpu_kv_tokens_raw += cpu_kv_tokens_raw
+
+            nobj = {
+                "nodeId": node_id,
+                "parentId": parent_id,
+                "depth": int(depth),
+                "segmentLen": int(seg_len),
+                "prefixLen": int(prefix_len),
+                "numChildren": int(child_count),
+                "lockRef": int(getattr(node, "lock_ref", 0) or 0),
+                "hitCount": int(getattr(node, "hit_count", 0) or 0),
+                "agentHits": dict(getattr(node, "agent_hits", {}) or {}),
+                "evicted": evicted,
+                "backuped": backuped,
+                "cacheResidency": cache_residency,
+                "gpuKvTokens": gpu_kv_tokens,
+                "cpuKvTokens": cpu_kv_tokens,
+                "gpuKvTokensRaw": gpu_kv_tokens_raw,
+                "cpuKvTokensRaw": cpu_kv_tokens_raw,
+                "writePending": write_pending,
+                "loadPending": load_pending,
+            }
+            if include_segment:
+                nobj["segmentTokenIds"] = seg
+            if include_prefix:
+                nobj["prefixTokenIds"] = prefix
+
+            nodes.append(nobj)
+            if parent_id is not None:
+                edges.append({"parentId": parent_id, "childId": node_id})
+
+            if depth >= max_depth:
+                if child_count > 0:
+                    truncated = True
+                continue
+
+            try:
+                children = getattr(node, "children", {}) or {}
+                for _k, child in children.items():
+                    child_id = _node_id(child)
+                    if child_id < 0:
+                        continue
+                    q.append(
+                        (
+                            child,
+                            node_id,
+                            depth + 1,
+                            prefix if include_prefix else [],
+                        )
+                    )
+            except Exception:
+                continue
+
+        if q:
+            truncated = True
+
+        tree = {
+            "success": True,
+            "truncated": bool(truncated),
+            "maxNodes": max_nodes,
+            "maxDepth": max_depth,
+            "maxTokensPerNode": max_tokens_per_node,
+            "nodeCount": len(nodes),
+            "edgeCount": len(edges),
+            "strictSyncRequested": strict_sync,
+            "strictSyncConverged": strict_sync_converged,
+            "syncTimeoutSec": sync_timeout_s if strict_sync else 0.0,
+            "pendingWriteNodes": len(pending_write_ids),
+            "pendingLoadNodes": len(pending_load_ids),
+            "gpuKvTokens": int(total_gpu_kv_tokens),
+            "cpuKvTokens": int(total_cpu_kv_tokens),
+            "gpuKvTokensRaw": int(total_gpu_kv_tokens_raw),
+            "cpuKvTokensRaw": int(total_cpu_kv_tokens_raw),
+            "nodes": nodes,
+            "edges": edges,
+        }
+        return DumpRadixTreeReqOutput(success=True, message="ok", tree=tree)
 
     def set_internal_state(self, recv_req: SetInternalStateReq):
         server_args_dict = recv_req.server_args

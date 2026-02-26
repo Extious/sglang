@@ -1,0 +1,480 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prompt Trees - trace_sticky</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; }
+    .topbar { padding: 12px 16px; border-bottom: 1px solid #e5e5e5; background: #fff; position: sticky; top: 0; z-index: 10; }
+    .title { font-size: 16px; font-weight: 600; }
+    .muted { color: #666; font-size: 12px; }
+    .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+    select, input[type="text"], input[type="number"] { padding: 6px 8px; border: 1px solid #ddd; border-radius: 6px; }
+    input[type="text"] { width: 520px; max-width: 90vw; }
+    input[type="number"] { width: 110px; }
+    button { padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; background: #fafafa; cursor: pointer; }
+    button:hover { background: #f0f0f0; }
+    .layout { display: grid; grid-template-columns: 1fr 420px; gap: 0; height: calc(100vh - 86px); }
+    .canvas { border-right: 1px solid #e5e5e5; overflow: hidden; position: relative; }
+    .sidebar { padding: 12px 14px; overflow: auto; }
+    .err { color: #b00020; }
+    .kv { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: pre-wrap; }
+    .hint { font-size: 12px; color: #444; margin-top: 10px; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 6px; background: #f2f2f2; font-size: 12px; }
+    svg { width: 100%; height: 100%; }
+    .link { fill: none; stroke: #bbb; stroke-width: 1px; }
+    .node circle { fill: #fff; stroke: #444; stroke-width: 1px; }
+    .node text { font-size: 11px; fill: #111; }
+    .node .small { font-size: 10px; fill: #666; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="title">Prompt Trees - trace_sticky</div>
+    <div class="muted" id="meta"></div>
+    <div class="controls">
+      <label class="muted">Worker</label>
+      <select id="worker"></select>
+      <label class="muted">DP</label>
+      <select id="dp"></select>
+      <label class="muted">Filter</label>
+      <input id="filter" type="text" placeholder="Substring filter for prefixText or segmentText">
+      <label class="muted">Max nodes</label>
+      <input id="maxNodes" type="number" value="2000" min="1">
+      <label class="muted">DX</label>
+      <input id="dx" type="number" value="22" min="4">
+      <label class="muted">DY</label>
+      <input id="dy" type="number" value="220" min="40">
+      <label class="muted">Labels</label>
+      <input id="labels" type="checkbox">
+      <button id="apply">Apply</button>
+      <button id="fit">Fit</button>
+      <button id="resetZoom">Reset</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="canvas">
+      <svg id="svg"></svg>
+    </div>
+    <div class="sidebar">
+      <div class="muted">Selected node</div>
+      <div id="selMeta" style="margin-top: 6px;"></div>
+      <div class="hint">Click a node to show full texts in this panel.</div>
+      <div id="sel" class="kv" style="margin-top: 10px;"></div>
+    </div>
+  </div>
+
+  <script>
+    const DATA = {"strategy": "trace_sticky", "timestamp": 1770184861.8536065, "workers": {"http://gpu17:8000": {"success": true, "dp_trees": [{"success": true, "truncated": false, "maxNodes": 3000, "maxDepth": 128, "maxTokensPerNode": 8192, "nodeCount": 1, "edgeCount": 0, "nodes": [{"nodeId": 133, "parentId": null, "depth": 0, "segmentLen": 0, "prefixLen": 0, "numChildren": 0, "lockRef": 1, "hitCount": 0, "segmentTokenIds": [], "prefixTokenIds": [], "segmentText": "", "prefixText": ""}], "edges": []}]}, "http://gpu17:8001": {"success": true, "dp_trees": [{"success": true, "truncated": false, "maxNodes": 3000, "maxDepth": 128, "maxTokensPerNode": 8192, "nodeCount": 1, "edgeCount": 0, "nodes": [{"nodeId": 110, "parentId": null, "depth": 0, "segmentLen": 0, "prefixLen": 0, "numChildren": 0, "lockRef": 1, "hitCount": 0, "segmentTokenIds": [], "prefixTokenIds": [], "segmentText": "", "prefixText": ""}], "edges": []}]}, "http://gpu18:8002": {"success": true, "dp_trees": [{"success": true, "truncated": false, "maxNodes": 3000, "maxDepth": 128, "maxTokensPerNode": 8192, "nodeCount": 1, "edgeCount": 0, "nodes": [{"nodeId": 109, "parentId": null, "depth": 0, "segmentLen": 0, "prefixLen": 0, "numChildren": 0, "lockRef": 1, "hitCount": 0, "segmentTokenIds": [], "prefixTokenIds": [], "segmentText": "", "prefixText": ""}], "edges": []}]}, "http://gpu18:8003": {"success": true, "dp_trees": [{"success": true, "truncated": false, "maxNodes": 3000, "maxDepth": 128, "maxTokensPerNode": 8192, "nodeCount": 1, "edgeCount": 0, "nodes": [{"nodeId": 114, "parentId": null, "depth": 0, "segmentLen": 0, "prefixLen": 0, "numChildren": 0, "lockRef": 1, "hitCount": 0, "segmentTokenIds": [], "prefixTokenIds": [], "segmentText": "", "prefixText": ""}], "edges": []}]}, "http://gpu19:8004": {"success": true, "dp_trees": [{"success": true, "truncated": false, "maxNodes": 3000, "maxDepth": 128, "maxTokensPerNode": 8192, "nodeCount": 1, "edgeCount": 0, "nodes": [{"nodeId": 117, "parentId": null, "depth": 0, "segmentLen": 0, "prefixLen": 0, "numChildren": 0, "lockRef": 1, "hitCount": 0, "segmentTokenIds": [], "prefixTokenIds": [], "segmentText": "", "prefixText": ""}], "edges": []}]}}};
+
+    function keys(obj) {
+      return Object.keys(obj || {}).sort();
+    }
+
+    function nodeText(n) {
+      const p = (n && n.prefixText) ? String(n.prefixText) : "";
+      const s = (n && n.segmentText) ? String(n.segmentText) : "";
+      return (p + "\n" + s).trim();
+    }
+
+    function buildGraph(nodes, edges) {
+      const nodeMap = new Map();
+      for (const n of (nodes || [])) {
+        nodeMap.set(n.nodeId, n);
+      }
+      const children = new Map();
+      for (const n of (nodes || [])) {
+        children.set(n.nodeId, []);
+      }
+      for (const e of (edges || [])) {
+        if (!children.has(e.parentId)) children.set(e.parentId, []);
+        children.get(e.parentId).push(e.childId);
+      }
+      for (const [k, v] of children) {
+        v.sort((a, b) => a - b);
+      }
+      const roots = [];
+      for (const n of (nodes || [])) {
+        if (n.parentId === null || n.parentId === undefined) roots.push(n.nodeId);
+      }
+      roots.sort((a, b) => a - b);
+      return { nodeMap, children, roots };
+    }
+
+    function bfsLimit(roots, children, maxNodes) {
+      const out = new Set();
+      const q = [];
+      for (const r of roots) q.push(r);
+      while (q.length && out.size < maxNodes) {
+        const id = q.shift();
+        if (out.has(id)) continue;
+        out.add(id);
+        const kids = children.get(id) || [];
+        for (const k of kids) {
+          if (out.size >= maxNodes) break;
+          q.push(k);
+        }
+      }
+      return out;
+    }
+
+    function filterNodes(roots, nodeMap, children, filter) {
+      if (!filter) return null;
+      const f = String(filter).toLowerCase();
+      const keep = new Set();
+      const parent = new Map();
+
+      const q = [];
+      for (const r of roots) {
+        q.push(r);
+        parent.set(r, null);
+      }
+      while (q.length) {
+        const id = q.shift();
+        const kids = children.get(id) || [];
+        for (const k of kids) {
+          if (!parent.has(k)) parent.set(k, id);
+          q.push(k);
+        }
+      }
+
+      for (const [id, n] of nodeMap.entries()) {
+        const t = nodeText(n).toLowerCase();
+        if (t.includes(f)) {
+          let cur = id;
+          while (cur !== null && cur !== undefined) {
+            keep.add(cur);
+            cur = parent.get(cur);
+          }
+        }
+      }
+      return keep;
+    }
+
+    function buildHierarchy(roots, nodeMap, children, allowedSet) {
+      function build(id) {
+        const n = nodeMap.get(id) || {};
+        const kids = children.get(id) || [];
+        const nextKids = [];
+        for (const k of kids) {
+          if (!allowedSet || allowedSet.has(k)) {
+            nextKids.push(build(k));
+          }
+        }
+        const labelSrc = (n.segmentText || n.prefixText || "");
+        const oneLine = String(labelSrc).replace(/\s+/g, " ").slice(0, 60);
+        return {
+          id: id,
+          label: "node=" + id + " " + oneLine,
+          raw: n,
+          children: nextKids
+        };
+      }
+
+      const rootChildren = [];
+      for (const r of roots) {
+        if (!allowedSet || allowedSet.has(r)) {
+          rootChildren.push(build(r));
+        }
+      }
+      return {
+        id: -1,
+        label: "root",
+        raw: null,
+        children: rootChildren
+      };
+    }
+
+    const workerSel = document.getElementById("worker");
+    const dpSel = document.getElementById("dp");
+    const metaEl = document.getElementById("meta");
+    const selMeta = document.getElementById("selMeta");
+    const selEl = document.getElementById("sel");
+
+    function setSelected(node) {
+      if (!node) {
+        selMeta.innerHTML = "";
+        selEl.textContent = "";
+        return;
+      }
+      const n = node.raw ? node.raw : null;
+      if (!n) {
+        selMeta.innerHTML = "<span class=\"badge\">root</span>";
+        selEl.textContent = "";
+        return;
+      }
+      const parts = [];
+      parts.push("<span class=\"badge\">node=" + n.nodeId + "</span>");
+      parts.push("<span class=\"badge\">depth=" + n.depth + "</span>");
+      parts.push("<span class=\"badge\">segLen=" + n.segmentLen + "</span>");
+      parts.push("<span class=\"badge\">prefixLen=" + n.prefixLen + "</span>");
+      parts.push("<span class=\"badge\">children=" + n.numChildren + "</span>");
+      selMeta.innerHTML = parts.join(" ");
+
+      const lines = [];
+      if (n.segmentText) lines.push("segmentText\n" + n.segmentText);
+      if (n.prefixText) lines.push("prefixText\n" + n.prefixText);
+      if (n.segmentTokenIds) lines.push("segmentTokenIdsLen=" + n.segmentTokenIds.length);
+      if (n.prefixTokenIds) lines.push("prefixTokenIdsLen=" + n.prefixTokenIds.length);
+      selEl.textContent = lines.join("\n\n");
+    }
+
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const svg = document.getElementById("svg");
+    const gZoom = document.createElementNS(SVG_NS, "g");
+    const gLinks = document.createElementNS(SVG_NS, "g");
+    const gNodes = document.createElementNS(SVG_NS, "g");
+    gZoom.appendChild(gLinks);
+    gZoom.appendChild(gNodes);
+    svg.appendChild(gZoom);
+
+    let _scale = 1.0;
+    let _tx = 0.0;
+    let _ty = 0.0;
+    let _dragging = false;
+    let _dragStart = null;
+
+    function applyTransform() {
+      gZoom.setAttribute("transform", `translate(${_tx},${_ty}) scale(${_scale})`);
+    }
+
+    function clamp(v, lo, hi) {
+      return Math.max(lo, Math.min(hi, v));
+    }
+
+    svg.addEventListener("wheel", (ev) => {
+      ev.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const mx = ev.clientX - rect.left;
+      const my = ev.clientY - rect.top;
+      const k = ev.deltaY < 0 ? 1.1 : 0.9;
+      const newScale = clamp(_scale * k, 0.1, 5.0);
+      const sx = (mx - _tx) / _scale;
+      const sy = (my - _ty) / _scale;
+      _tx = mx - sx * newScale;
+      _ty = my - sy * newScale;
+      _scale = newScale;
+      applyTransform();
+    }, { passive: false });
+
+    svg.addEventListener("mousedown", (ev) => {
+      _dragging = true;
+      _dragStart = { x: ev.clientX, y: ev.clientY, tx: _tx, ty: _ty };
+    });
+
+    window.addEventListener("mousemove", (ev) => {
+      if (!_dragging || !_dragStart) return;
+      _tx = _dragStart.tx + (ev.clientX - _dragStart.x);
+      _ty = _dragStart.ty + (ev.clientY - _dragStart.y);
+      applyTransform();
+    });
+
+    window.addEventListener("mouseup", () => {
+      _dragging = false;
+      _dragStart = null;
+    });
+
+    function clearSvg() {
+      while (gLinks.firstChild) gLinks.removeChild(gLinks.firstChild);
+      while (gNodes.firstChild) gNodes.removeChild(gNodes.firstChild);
+      setSelected(null);
+    }
+
+    function fitToContent(padding = 20) {
+      const bbox = gZoom.getBBox();
+      const w = svg.clientWidth;
+      const h = svg.clientHeight;
+      if (bbox.width === 0 || bbox.height === 0) return;
+      if (!(w > 0 && h > 0)) return;
+      const scale = Math.min((w - padding * 2) / bbox.width, (h - padding * 2) / bbox.height);
+      const tx = (w / 2) - scale * (bbox.x + bbox.width / 2);
+      const ty = (h / 2) - scale * (bbox.y + bbox.height / 2);
+      if (!Number.isFinite(scale) || !Number.isFinite(tx) || !Number.isFinite(ty)) return;
+      _scale = clamp(scale, 0.1, 5.0);
+      _tx = tx;
+      _ty = ty;
+      applyTransform();
+    }
+
+    function computeLayout(root, dx, dy) {
+      let nextX = 0;
+
+      function post(node, depth) {
+        node.depth = depth;
+        if (!node.children || node.children.length === 0) {
+          node._x = nextX;
+          nextX += 1;
+          return;
+        }
+        for (const c of node.children) {
+          post(c, depth + 1);
+        }
+        let sum = 0;
+        for (const c of node.children) sum += c._x;
+        node._x = sum / node.children.length;
+      }
+
+      post(root, 0);
+
+      const placed = [];
+      const edges = [];
+
+      function walk(node) {
+        const x = node._x * dx;
+        const y = node.depth * dy;
+        placed.push({ ...node, x, y });
+        if (node.children) {
+          for (const c of node.children) {
+            edges.push({ from: node.id, to: c.id });
+            walk(c);
+          }
+        }
+      }
+
+      walk(root);
+      return { nodes: placed, edges };
+    }
+
+    function makePath(p0, p1) {
+      const mx = (p0.y + p1.y) / 2;
+      return `M ${p0.y} ${p0.x} C ${mx} ${p0.x}, ${mx} ${p1.x}, ${p1.y} ${p1.x}`;
+    }
+
+    function renderTree() {
+      clearSvg();
+      try {
+        const workerUrl = workerSel.value;
+        const dpIdx = Number(dpSel.value || 0);
+        const filter = document.getElementById("filter").value || "";
+        const maxNodes = Math.max(1, Number(document.getElementById("maxNodes").value || 2000));
+        const dx = Math.max(4, Number(document.getElementById("dx").value || 22));
+        const dy = Math.max(40, Number(document.getElementById("dy").value || 220));
+        const showLabels = !!document.getElementById("labels").checked;
+
+        const w = (DATA.workers || {})[workerUrl];
+        if (!w || !w.success) {
+          metaEl.textContent = "strategy=" + (DATA.strategy || "") + " worker=" + workerUrl + " status=error";
+          const txt = w && w.error ? String(w.error) : "unknown";
+          selMeta.innerHTML = "<span class=\"err\">error</span>";
+          selEl.textContent = txt;
+          return;
+        }
+        const t = (w.dp_trees || [])[dpIdx] || {};
+        const nodes = t.nodes || [];
+        const edges = t.edges || [];
+        metaEl.textContent = "strategy=" + (DATA.strategy || "") + " worker=" + workerUrl + " dp=" + dpIdx + " nodes=" + nodes.length + " truncated=" + String(!!t.truncated);
+
+        const { nodeMap, children, roots } = buildGraph(nodes, edges);
+        const limitSet = bfsLimit(roots, children, maxNodes);
+        const filterSet = filterNodes(roots, nodeMap, children, filter);
+        let allowed = limitSet;
+        if (filterSet) {
+          const inter = new Set();
+          for (const id of allowed) {
+            if (filterSet.has(id)) inter.add(id);
+          }
+          allowed = inter;
+        }
+
+        const treeData = buildHierarchy(roots, nodeMap, children, allowed);
+        const layout = computeLayout(treeData, dx, dy);
+
+        const pos = new Map();
+        for (const n of layout.nodes) {
+          pos.set(n.id, n);
+        }
+
+        for (const e of layout.edges) {
+          const p0 = pos.get(e.from);
+          const p1 = pos.get(e.to);
+          if (!p0 || !p1) continue;
+          const path = document.createElementNS(SVG_NS, "path");
+          path.setAttribute("class", "link");
+          path.setAttribute("d", makePath(p0, p1));
+          gLinks.appendChild(path);
+        }
+
+        for (const n of layout.nodes) {
+          const g = document.createElementNS(SVG_NS, "g");
+          g.setAttribute("class", "node");
+          g.setAttribute("transform", `translate(${n.y},${n.x})`);
+          g.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            setSelected(n);
+          });
+
+          const tt = document.createElementNS(SVG_NS, "title");
+          tt.textContent = n.label || "";
+          g.appendChild(tt);
+
+          const c = document.createElementNS(SVG_NS, "circle");
+          c.setAttribute("r", "4");
+          g.appendChild(c);
+
+          if (showLabels) {
+            const tx = document.createElementNS(SVG_NS, "text");
+            tx.setAttribute("dy", "0.32em");
+            tx.setAttribute("x", "8");
+            tx.textContent = (n.label || "").slice(0, 40);
+            g.appendChild(tx);
+          }
+
+          gNodes.appendChild(g);
+        }
+
+        fitToContent(30);
+      } catch (e) {
+        selMeta.innerHTML = "<span class=\"err\">render_error</span>";
+        selEl.textContent = String(e && e.stack ? e.stack : e);
+      }
+    }
+
+    function refreshDpOptions() {
+      const workerUrl = workerSel.value;
+      const w = (DATA.workers || {})[workerUrl];
+      const count = (w && w.success && Array.isArray(w.dp_trees)) ? w.dp_trees.length : 0;
+      dpSel.innerHTML = "";
+      for (let i = 0; i < Math.max(1, count); i++) {
+        const opt = document.createElement("option");
+        opt.value = String(i);
+        opt.textContent = String(i);
+        dpSel.appendChild(opt);
+      }
+    }
+
+    function init() {
+      const workers = keys(DATA.workers || {});
+      workerSel.innerHTML = "";
+      for (const w of workers) {
+        const opt = document.createElement("option");
+        opt.value = w;
+        opt.textContent = w;
+        workerSel.appendChild(opt);
+      }
+      if (workers.length) {
+        workerSel.value = workers[0];
+      }
+      refreshDpOptions();
+      renderTree();
+    }
+
+    document.getElementById("apply").addEventListener("click", renderTree);
+    document.getElementById("fit").addEventListener("click", () => fitToContent(30));
+    document.getElementById("resetZoom").addEventListener("click", () => {
+      _scale = 1.0;
+      _tx = 0.0;
+      _ty = 0.0;
+      applyTransform();
+    });
+    workerSel.addEventListener("change", () => {
+      refreshDpOptions();
+      renderTree();
+    });
+    dpSel.addEventListener("change", renderTree);
+    svg.addEventListener("click", () => setSelected(null));
+    init();
+  </script>
+</body>
+</html>

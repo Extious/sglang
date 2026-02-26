@@ -1,0 +1,30 @@
+[
+  {
+    "role": "User",
+    "content": "The impact of artificial intelligence on healthcare"
+  },
+  {
+    "role": "system",
+    "content": "Sequential awareness: Agent behind: Analyzer"
+  },
+  {
+    "role": "Researcher",
+    "content": "\"\""
+  },
+  {
+    "role": "system",
+    "content": "Sequential awareness: Agent ahead: Researcher | Agent behind: Writer"
+  },
+  {
+    "role": "Analyzer",
+    "content": "\"\""
+  },
+  {
+    "role": "system",
+    "content": "Sequential awareness: Agent ahead: Analyzer"
+  },
+  {
+    "role": "Writer",
+    "content": "\"\""
+  }
+]

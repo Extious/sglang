@@ -505,6 +505,20 @@ class HiRadixCache(RadixCache):
                 self.cache_controller.storage_backend.get_stats()
             )
 
+    def sync_hicache_events(self, timeout_s: float = 5.0) -> bool:
+        """Best-effort synchronize asynchronous HiCache events for a stable snapshot."""
+        timeout_s = max(float(timeout_s), 0.0)
+        deadline = time.monotonic() + timeout_s
+
+        while True:
+            self.check_hicache_events()
+            pending = len(self.ongoing_write_through) + len(self.ongoing_load_back)
+            if pending == 0:
+                return True
+            if timeout_s <= 0 or time.monotonic() >= deadline:
+                return False
+            time.sleep(0.001)
+
     def drain_storage_control_queues(self):
         """
         Combine prefetch revoke, backup ack, and host mem release checks
@@ -681,7 +695,11 @@ class HiRadixCache(RadixCache):
             page_aligned_len = len(key) // self.page_size * self.page_size
             key = key[:page_aligned_len]
 
-        value, last_node = self._match_prefix_helper(self.root_node, key)
+        agent_id = kwargs.get("agent_id", None)
+        agent_req_id = kwargs.get("agent_req_id", None)
+        value, last_node = self._match_prefix_helper(
+            self.root_node, key, agent_id=agent_id, agent_req_id=agent_req_id
+        )
         if value:
             value = torch.cat(value)
         else:
@@ -778,22 +796,32 @@ class HiRadixCache(RadixCache):
             node.children[child_key] = new_node
         return matched_length
 
-    def _match_prefix_helper(self, node: TreeNode, key: RadixKey):
-        node.last_access_time = time.monotonic()
+    def _match_prefix_helper(
+        self,
+        node: TreeNode,
+        key: RadixKey,
+        agent_id: Optional[str] = None,
+        agent_req_id: Optional[str] = None,
+    ):
+        access_time = time.monotonic()
+        node.last_access_time = access_time
+        self._inc_agent_hit(node, agent_id, agent_req_id)
         child_key = self.get_child_key_fn(key)
         value = []
 
         while len(key) > 0 and child_key in node.children.keys():
             child = node.children[child_key]
-            child.last_access_time = time.monotonic()
+            child.last_access_time = access_time
             prefix_len = self.key_match_fn(child.key, key)
             if prefix_len < len(child.key):
                 new_node = self._split_node(child.key, child, prefix_len)
+                self._inc_agent_hit(new_node, agent_id, agent_req_id)
                 if not new_node.evicted:
                     value.append(new_node.value)
                 node = new_node
                 break
             else:
+                self._inc_agent_hit(child, agent_id, agent_req_id)
                 if not child.evicted:
                     value.append(child.value)
                 node = child
@@ -807,6 +835,10 @@ class HiRadixCache(RadixCache):
     def _split_node(self, key: RadixKey, child: TreeNode, split_len: int):
         # child node split into new_node -> child
         new_node = TreeNode(priority=child.priority)
+        new_node.agent_hits = dict(child.agent_hits)
+        new_node.agent_recent_req_ids = {
+            k: list(v) for k, v in (child.agent_recent_req_ids or {}).items()
+        }
         new_node.children = {self.get_child_key_fn(key[split_len:]): child}
         new_node.parent = child.parent
         new_node.lock_ref = child.lock_ref
@@ -837,6 +869,8 @@ class HiRadixCache(RadixCache):
         value=None,
         chunked: bool = False,
         priority: int | None = None,
+        agent_id: Optional[str] = None,
+        agent_req_id: Optional[str] = None,
     ):
         if priority is None:
             priority = 0
@@ -850,16 +884,21 @@ class HiRadixCache(RadixCache):
             value = value[: len(key)]
 
         node = self.root_node
+        access_time = time.monotonic()
+        node.last_access_time = access_time
+        node.priority = max(node.priority, priority)
+        self._inc_agent_hit(node, agent_id, agent_req_id)
         child_key = self.get_child_key_fn(key)
         total_prefix_length = 0
 
         while len(key) > 0 and child_key in node.children.keys():
             node = node.children[child_key]
-            node.last_access_time = time.monotonic()
+            node.last_access_time = access_time
             node.priority = max(node.priority, priority)
             prefix_len = self.key_match_fn(node.key, key)
 
             if prefix_len == len(node.key):
+                self._inc_agent_hit(node, agent_id, agent_req_id)
                 if node.evicted:
                     # change the reference if the node is evicted
                     # this often happens in the case of KV cache recomputation
@@ -871,6 +910,7 @@ class HiRadixCache(RadixCache):
             else:
                 # partial match, split the node
                 new_node = self._split_node(node.key, node, prefix_len)
+                self._inc_agent_hit(new_node, agent_id, agent_req_id)
                 # shared-prefix node should also reflect max priority
                 new_node.priority = max(new_node.priority, priority)
                 if new_node.evicted:
@@ -889,6 +929,7 @@ class HiRadixCache(RadixCache):
 
         if len(key):
             new_node = TreeNode(priority=priority)
+            self._inc_agent_hit(new_node, agent_id, agent_req_id)
             new_node.parent = node
             new_node.key = key
             new_node.value = value

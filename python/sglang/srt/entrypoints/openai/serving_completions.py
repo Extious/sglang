@@ -93,6 +93,13 @@ class OpenAIServingCompletion(OpenAIServingBase):
         # Extract custom labels from raw request headers
         custom_labels = self.extract_custom_labels(raw_request)
 
+        # Agent attribution: prefer an explicit header, fall back to OpenAI 'user' field.
+        agent_id = None
+        if raw_request is not None:
+            agent_id = raw_request.headers.get("x-sglang-agent-id")
+        if not agent_id:
+            agent_id = getattr(request, "user", None)
+
         # Resolve LoRA adapter from model parameter or explicit lora_path
         lora_path = self._resolve_lora_path(request.model, request.lora_path)
         if lora_path:
@@ -123,6 +130,7 @@ class OpenAIServingCompletion(OpenAIServingBase):
             priority=request.priority,
             custom_labels=custom_labels,
             custom_logit_processor=request.custom_logit_processor,
+            agent_id=agent_id,
         )
 
         return adapted_request, request

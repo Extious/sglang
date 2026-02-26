@@ -82,6 +82,7 @@ from sglang.srt.managers.io_struct import (
     ConfigureLoggingReq,
     ContinueGenerationReqInput,
     DestroyWeightsUpdateGroupReqInput,
+    DumpRadixTreeReqInput,
     EmbeddingReqInput,
     GenerateReqInput,
     GetWeightsByNameReqInput,
@@ -578,6 +579,10 @@ async def set_internal_state(obj: SetInternalStateReq, request: Request):
 @app.api_route("/generate", methods=["POST", "PUT"])
 async def generate_request(obj: GenerateReqInput, request: Request):
     """Handle a generate request."""
+    if not getattr(obj, "agent_id", None) and request is not None:
+        agent_id = request.headers.get("x-sglang-agent-id")
+        if agent_id:
+            obj.agent_id = agent_id
     if obj.stream:
 
         async def stream_results() -> AsyncIterator[bytes]:
@@ -625,6 +630,10 @@ async def generate_from_file_request(file: UploadFile, request: Request):
             "max_new_tokens": 512,
         },
     )
+    if not getattr(obj, "agent_id", None) and request is not None:
+        agent_id = request.headers.get("x-sglang-agent-id")
+        if agent_id:
+            obj.agent_id = agent_id
 
     try:
         ret = await _global_state.tokenizer_manager.generate_request(
@@ -669,6 +678,61 @@ async def flush_cache():
         "(When there are running or waiting requests, the operation will not be performed.)\n",
         status_code=200 if ret.success else HTTPStatus.BAD_REQUEST,
     )
+
+
+@app.get("/radixtree")
+async def radixtree(
+    include_prefix: bool = True,
+    include_segment: bool = True,
+    include_text: bool = True,
+    max_nodes: int = 2000,
+    max_depth: int = 64,
+    max_tokens_per_node: int = 4096,
+    strict_sync: bool = True,
+    sync_timeout_s: float = 5.0,
+):
+    obj = DumpRadixTreeReqInput(
+        include_prefix=include_prefix,
+        include_segment=include_segment,
+        max_nodes=max_nodes,
+        max_depth=max_depth,
+        max_tokens_per_node=max_tokens_per_node,
+        strict_sync=strict_sync,
+        sync_timeout_s=sync_timeout_s,
+    )
+    trees = await _global_state.tokenizer_manager.dump_radix_tree(obj)
+
+    if not include_text:
+        return trees
+
+    tokenizer = getattr(_global_state.tokenizer_manager, "tokenizer", None)
+    if tokenizer is None:
+        return trees
+
+    def _decode(token_ids: List[int]) -> str:
+        try:
+            return tokenizer.decode(token_ids, skip_special_tokens=False)
+        except Exception:
+            try:
+                return tokenizer.decode(token_ids)
+            except Exception:
+                return ""
+
+    for tree in trees:
+        if not isinstance(tree, dict):
+            continue
+        nodes = tree.get("nodes", [])
+        if not isinstance(nodes, list):
+            continue
+        for n in nodes:
+            if not isinstance(n, dict):
+                continue
+            if "segmentTokenIds" in n and isinstance(n["segmentTokenIds"], list):
+                n["segmentText"] = _decode(n["segmentTokenIds"])
+            if "prefixTokenIds" in n and isinstance(n["prefixTokenIds"], list):
+                n["prefixText"] = _decode(n["prefixTokenIds"])
+
+    return trees
 
 
 @app.api_route("/clear_hicache_storage_backend", methods=["GET", "POST"])

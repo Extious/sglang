@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Radix Tree Cache Visualization</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .chart-container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .worker-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 10px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metric {
+            display: inline-block;
+            margin: 10px 20px;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2196F3;
+        }
+        .metric-label {
+            font-size: 12px;
+            color: #666;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Radix Tree Cache Visualization</h1>
+        <p style="text-align: center; color: #666;">Generated at: 2026-02-04 14:00:59</p>
+
+        <div class="chart-container">
+            <h2>Cache Hit Rate by Worker</h2>
+            <canvas id="cacheHitChart"></canvas>
+        </div>
+
+        <div class="chart-container">
+            <h2>Token Usage by Worker</h2>
+            <canvas id="tokenUsageChart"></canvas>
+        </div>
+
+        <div class="chart-container">
+            <h2>Request Distribution</h2>
+            <canvas id="requestChart"></canvas>
+        </div>
+
+        <h2>Worker Details</h2>
+
+        <div class="worker-card">
+            <h3>http://gpu17:8000</h3>
+            <div class="metric">
+                <div class="metric-value">14.2%</div>
+                <div class="metric-label">Cache Hit Rate</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">0.0%</div>
+                <div class="metric-label">Token Usage</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">15</div>
+                <div class="metric-label">Total Requests</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">0.0</div>
+                <div class="metric-label">Throughput (tok/s)</div>
+            </div>
+            <div style="margin-top: 15px;">
+                <label>Cache Usage:</label>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 0.0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="worker-card">
+            <h3>http://gpu17:8001</h3>
+            <div class="metric">
+                <div class="metric-value">13.8%</div>
+                <div class="metric-label">Cache Hit Rate</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">0.0%</div>
+                <div class="metric-label">Token Usage</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">8</div>
+                <div class="metric-label">Total Requests</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">0.0</div>
+                <div class="metric-label">Throughput (tok/s)</div>
+            </div>
+            <div style="margin-top: 15px;">
+                <label>Cache Usage:</label>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 0.0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="worker-card">
+            <h3>http://gpu18:8002</h3>
+            <div class="metric">
+                <div class="metric-value">12.5%</div>
+                <div class="metric-label">Cache Hit Rate</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">0.0%</div>
+                <div class="metric-label">Token Usage</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">7</div>
+                <div class="metric-label">Total Requests</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">0.0</div>
+                <div class="metric-label">Throughput (tok/s)</div>
+            </div>
+            <div style="margin-top: 15px;">
+                <label>Cache Usage:</label>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 0.0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="worker-card">
+            <h3>http://gpu18:8003</h3>
+            <div class="metric">
+                <div class="metric-value">13.5%</div>
+                <div class="metric-label">Cache Hit Rate</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">0.0%</div>
+                <div class="metric-label">Token Usage</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">8</div>
+                <div class="metric-label">Total Requests</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">0.0</div>
+                <div class="metric-label">Throughput (tok/s)</div>
+            </div>
+            <div style="margin-top: 15px;">
+                <label>Cache Usage:</label>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 0.0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="worker-card">
+            <h3>http://gpu19:8004</h3>
+            <div class="metric">
+                <div class="metric-value">11.7%</div>
+                <div class="metric-label">Cache Hit Rate</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">0.0%</div>
+                <div class="metric-label">Token Usage</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">7</div>
+                <div class="metric-label">Total Requests</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">0.0</div>
+                <div class="metric-label">Throughput (tok/s)</div>
+            </div>
+            <div style="margin-top: 15px;">
+                <label>Cache Usage:</label>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 0.0%"></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Cache Hit Rate Chart
+        new Chart(document.getElementById('cacheHitChart'), {
+            type: 'bar',
+            data: {
+                labels: ["gpu17:8000", "gpu17:8001", "gpu18:8002", "gpu18:8003", "gpu19:8004"],
+                datasets: [{
+                    label: 'Cache Hit Rate (%)',
+                    data: [14.23538399316946, 13.79128636481139, 12.469313872517647, 13.521911496839174, 11.749671388929459],
+                    backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                }
+            }
+        });
+
+        // Token Usage Chart
+        new Chart(document.getElementById('tokenUsageChart'), {
+            type: 'bar',
+            data: {
+                labels: ["gpu17:8000", "gpu17:8001", "gpu18:8002", "gpu18:8003", "gpu19:8004"],
+                datasets: [{
+                    label: 'Token Usage (%)',
+                    data: [0.0, 0.0, 0.0, 0.0, 0.0],
+                    backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                }
+            }
+        });
+
+        // Request Distribution Chart
+        new Chart(document.getElementById('requestChart'), {
+            type: 'pie',
+            data: {
+                labels: ["gpu17:8000", "gpu17:8001", "gpu18:8002", "gpu18:8003", "gpu19:8004"],
+                datasets: [{
+                    data: [15, 8, 7, 8, 7],
+                    backgroundColor: [
+                        'rgba(255, 99, 132, 0.6)',
+                        'rgba(54, 162, 235, 0.6)',
+                        'rgba(255, 206, 86, 0.6)',
+                        'rgba(75, 192, 192, 0.6)',
+                        'rgba(153, 102, 255, 0.6)'
+                    ]
+                }]
+            }
+        });
+    </script>
+</body>
+</html>

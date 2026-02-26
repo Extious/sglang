@@ -1,0 +1,442 @@
+{
+  "http://gpu17:8000": {
+    "snapshots": [
+      {
+        "timestamp": 1770183992.0530138,
+        "cache_hit_rate": 0.12074536360819722,
+        "token_usage": 0.0,
+        "num_cached_tokens": 0,
+        "num_total_tokens": 85881,
+        "num_running_reqs": 0,
+        "num_waiting_reqs": 0,
+        "gen_throughput": 0.0
+      }
+    ],
+    "request_history": [
+      {
+        "timestamp": 1770183417.703656,
+        "trace_id": 6,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183458.195754,
+        "trace_id": 6,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183561.3434594,
+        "trace_id": 7,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183638.1695912,
+        "trace_id": 11,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183650.247289,
+        "trace_id": 15,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183744.9400067,
+        "trace_id": 13,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183816.2323585,
+        "trace_id": 15,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183844.157437,
+        "trace_id": 19,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183943.3272471,
+        "trace_id": 16,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      }
+    ]
+  },
+  "http://gpu17:8001": {
+    "snapshots": [
+      {
+        "timestamp": 1770183992.0605814,
+        "cache_hit_rate": 0.13532181353218134,
+        "token_usage": 0.0,
+        "num_cached_tokens": 0,
+        "num_total_tokens": 85881,
+        "num_running_reqs": 0,
+        "num_waiting_reqs": 0,
+        "gen_throughput": 0.0
+      }
+    ],
+    "request_history": [
+      {
+        "timestamp": 1770183477.5065792,
+        "trace_id": 7,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183535.8678865,
+        "trace_id": 8,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183553.5142195,
+        "trace_id": 11,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183619.7349596,
+        "trace_id": 7,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183717.68172,
+        "trace_id": 11,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183723.6637704,
+        "trace_id": 14,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183813.8839502,
+        "trace_id": 13,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183861.4013867,
+        "trace_id": 20,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183921.6184905,
+        "trace_id": 20,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      }
+    ]
+  },
+  "http://gpu18:8002": {
+    "snapshots": [
+      {
+        "timestamp": 1770183992.0683537,
+        "cache_hit_rate": 0.12595563783468752,
+        "token_usage": 0.0,
+        "num_cached_tokens": 0,
+        "num_total_tokens": 85881,
+        "num_running_reqs": 0,
+        "num_waiting_reqs": 0,
+        "gen_throughput": 0.0
+      }
+    ],
+    "request_history": [
+      {
+        "timestamp": 1770183444.5660965,
+        "trace_id": 8,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183544.4828742,
+        "trace_id": 9,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183602.17929,
+        "trace_id": 8,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183653.5693405,
+        "trace_id": 12,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183675.7592776,
+        "trace_id": 14,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183772.6678421,
+        "trace_id": 16,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183831.3513627,
+        "trace_id": 17,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183897.6245832,
+        "trace_id": 17,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183992.0440817,
+        "trace_id": 18,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      }
+    ]
+  },
+  "http://gpu18:8003": {
+    "snapshots": [
+      {
+        "timestamp": 1770183992.0764732,
+        "cache_hit_rate": 0.1366945495745245,
+        "token_usage": 0.0,
+        "num_cached_tokens": 0,
+        "num_total_tokens": 85881,
+        "num_running_reqs": 0,
+        "num_waiting_reqs": 0,
+        "gen_throughput": 0.0
+      }
+    ],
+    "request_history": [
+      {
+        "timestamp": 1770183455.8770466,
+        "trace_id": 9,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183500.2449048,
+        "trace_id": 6,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183613.5692046,
+        "trace_id": 9,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183658.9463267,
+        "trace_id": 13,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183739.247494,
+        "trace_id": 15,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183759.6966243,
+        "trace_id": 17,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183856.7246683,
+        "trace_id": 16,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183911.997633,
+        "trace_id": 19,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183958.254194,
+        "trace_id": 19,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      }
+    ]
+  },
+  "http://gpu19:8004": {
+    "snapshots": [
+      {
+        "timestamp": 1770183992.084017,
+        "cache_hit_rate": 0.12137575621779072,
+        "token_usage": 0.0,
+        "num_cached_tokens": 0,
+        "num_total_tokens": 85881,
+        "num_running_reqs": 0,
+        "num_waiting_reqs": 0,
+        "gen_throughput": 0.0
+      }
+    ],
+    "request_history": [
+      {
+        "timestamp": 1770183465.7448294,
+        "trace_id": 10,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183552.681653,
+        "trace_id": 10,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183614.1465127,
+        "trace_id": 10,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183641.6432092,
+        "trace_id": 14,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183732.9426734,
+        "trace_id": 12,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183804.4742742,
+        "trace_id": 12,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183845.765167,
+        "trace_id": 18,
+        "agent_id": "agent1",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183909.1542325,
+        "trace_id": 18,
+        "agent_id": "agent2",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "timestamp": 1770183982.1261175,
+        "trace_id": 20,
+        "agent_id": "agent3",
+        "input_tokens": 0,
+        "cache_hit_tokens": 0,
+        "output_tokens": 0
+      }
+    ]
+  }
+}

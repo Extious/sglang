@@ -173,10 +173,15 @@ class SchedulePolicy:
         for r in waiting_queue:
             prefix_ids = r.origin_input_ids + r.output_ids
             extra_key = r.extra_key
+            agent_id = getattr(r, "agent_id", None)
+            agent_req_id = getattr(r, "rid", None)
 
             # NOTE: the prefix_indices must always be aligned with last_node
             match_result = self.tree_cache.match_prefix(
-                rid=r.rid, key=RadixKey(token_ids=prefix_ids, extra_key=extra_key)
+                rid=r.rid,
+                key=RadixKey(token_ids=prefix_ids, extra_key=extra_key),
+                agent_id=agent_id,
+                agent_req_id=agent_req_id,
             )
             (
                 r.prefix_indices,
@@ -201,6 +206,8 @@ class SchedulePolicy:
                 match_result = self.waiting_queue_radix_tree.match_prefix(
                     rid=r.rid,
                     key=RadixKey(token_ids=prefix_ids, extra_key=extra_key),
+                    agent_id=agent_id,
+                    agent_req_id=agent_req_id,
                 )
                 in_batch_matching_prefixes = match_result.device_indices
                 if (
@@ -213,6 +220,8 @@ class SchedulePolicy:
                     self.waiting_queue_radix_tree.insert(
                         RadixKey(token_ids=prefix_ids, extra_key=extra_key),
                         torch.empty(len(prefix_ids), dtype=torch.bool),
+                        agent_id=agent_id,
+                        agent_req_id=agent_req_id,
                     )
         return temporary_deprioritized
 

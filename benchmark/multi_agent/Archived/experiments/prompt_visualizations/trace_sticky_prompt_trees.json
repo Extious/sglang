@@ -1,0 +1,161 @@
+{
+  "strategy": "trace_sticky",
+  "timestamp": 1770184861.8536065,
+  "workers": {
+    "http://gpu17:8000": {
+      "success": true,
+      "dp_trees": [
+        {
+          "success": true,
+          "truncated": false,
+          "maxNodes": 3000,
+          "maxDepth": 128,
+          "maxTokensPerNode": 8192,
+          "nodeCount": 1,
+          "edgeCount": 0,
+          "nodes": [
+            {
+              "nodeId": 133,
+              "parentId": null,
+              "depth": 0,
+              "segmentLen": 0,
+              "prefixLen": 0,
+              "numChildren": 0,
+              "lockRef": 1,
+              "hitCount": 0,
+              "segmentTokenIds": [],
+              "prefixTokenIds": [],
+              "segmentText": "",
+              "prefixText": ""
+            }
+          ],
+          "edges": []
+        }
+      ]
+    },
+    "http://gpu17:8001": {
+      "success": true,
+      "dp_trees": [
+        {
+          "success": true,
+          "truncated": false,
+          "maxNodes": 3000,
+          "maxDepth": 128,
+          "maxTokensPerNode": 8192,
+          "nodeCount": 1,
+          "edgeCount": 0,
+          "nodes": [
+            {
+              "nodeId": 110,
+              "parentId": null,
+              "depth": 0,
+              "segmentLen": 0,
+              "prefixLen": 0,
+              "numChildren": 0,
+              "lockRef": 1,
+              "hitCount": 0,
+              "segmentTokenIds": [],
+              "prefixTokenIds": [],
+              "segmentText": "",
+              "prefixText": ""
+            }
+          ],
+          "edges": []
+        }
+      ]
+    },
+    "http://gpu18:8002": {
+      "success": true,
+      "dp_trees": [
+        {
+          "success": true,
+          "truncated": false,
+          "maxNodes": 3000,
+          "maxDepth": 128,
+          "maxTokensPerNode": 8192,
+          "nodeCount": 1,
+          "edgeCount": 0,
+          "nodes": [
+            {
+              "nodeId": 109,
+              "parentId": null,
+              "depth": 0,
+              "segmentLen": 0,
+              "prefixLen": 0,
+              "numChildren": 0,
+              "lockRef": 1,
+              "hitCount": 0,
+              "segmentTokenIds": [],
+              "prefixTokenIds": [],
+              "segmentText": "",
+              "prefixText": ""
+            }
+          ],
+          "edges": []
+        }
+      ]
+    },
+    "http://gpu18:8003": {
+      "success": true,
+      "dp_trees": [
+        {
+          "success": true,
+          "truncated": false,
+          "maxNodes": 3000,
+          "maxDepth": 128,
+          "maxTokensPerNode": 8192,
+          "nodeCount": 1,
+          "edgeCount": 0,
+          "nodes": [
+            {
+              "nodeId": 114,
+              "parentId": null,
+              "depth": 0,
+              "segmentLen": 0,
+              "prefixLen": 0,
+              "numChildren": 0,
+              "lockRef": 1,
+              "hitCount": 0,
+              "segmentTokenIds": [],
+              "prefixTokenIds": [],
+              "segmentText": "",
+              "prefixText": ""
+            }
+          ],
+          "edges": []
+        }
+      ]
+    },
+    "http://gpu19:8004": {
+      "success": true,
+      "dp_trees": [
+        {
+          "success": true,
+          "truncated": false,
+          "maxNodes": 3000,
+          "maxDepth": 128,
+          "maxTokensPerNode": 8192,
+          "nodeCount": 1,
+          "edgeCount": 0,
+          "nodes": [
+            {
+              "nodeId": 117,
+              "parentId": null,
+              "depth": 0,
+              "segmentLen": 0,
+              "prefixLen": 0,
+              "numChildren": 0,
+              "lockRef": 1,
+              "hitCount": 0,
+              "segmentTokenIds": [],
+              "prefixTokenIds": [],
+              "segmentText": "",
+              "prefixText": ""
+            }
+          ],
+          "edges": []
+        }
+      ]
+    }
+  }
+}

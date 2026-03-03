@@ -1,15 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=exp1_server
-#SBATCH --partition=long
-#SBATCH --gres=gpu:rtx4090:2
+#SBATCH --partition=short
+#SBATCH --nodes=1
+#SBATCH --gres=gpu:rtx4080:6
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=100G
+#SBATCH --cpus-per-task=48
+#SBATCH --mem=300G
 #SBATCH --time=24:00:00
-#SBATCH --exclusive
-#SBATCH --exclude=gpu[10-13]
-#SBATCH --output=/home/comp/zhanzhao/sglang/benchmark/multi_agent/logs/run_server_%j.out
-#SBATCH --error=/home/comp/zhanzhao/sglang/benchmark/multi_agent/logs/run_server_%j.err
+#SBATCH --output=/home/comp/%u/sglang/benchmark/multi_agent/logs/run_server_%j.out
+#SBATCH --error=/home/comp/%u/sglang/benchmark/multi_agent/logs/run_server_%j.err
 
 # Usage:
 #   sbatch [SBATCH_OPTIONS] run_server.slurm [SCRIPT_OPTIONS]
@@ -18,12 +17,12 @@
 #   --nodes=N             Number of nodes to allocate (REQUIRED)
 # Qwen/Qwen3-4B-Instruct-2507
 # Script Options:
-#   --model-path PATH     Model path (default: Qwen/Qwen3-4B-Thinking-2507)
-#   --num-workers N       Number of workers (default: 5)
+#   --model-path PATH     Model path (default: Qwen/Qwen3-4B-Instruct-2507)
+#   --num-workers N       Number of workers (default: 6)
 #   --worker-base-port P  Base port for workers (default: 8000)
-#   --workers-per-node N  Workers per node (default: 2)
+#   --workers-per-node N  Workers per node (default: 6)
 #   --tool-call-parser P  Tool call parser (default: qwen)
-#   --enable-hicache      Enable hierarchical KV cache (default: enabled)
+#   --enable-hicache      Enable hierarchical KV cache (currently forced OFF in this script)
 #   --disable-hicache     Disable hierarchical KV cache
 #   --hicache-size N      HiCache size per worker in GB (default: 8)
 #   --hicache-ratio R     HiCache ratio when hicache-size<=0 (default: 2.0)
@@ -42,12 +41,12 @@
 set -euo pipefail
 
 # Default values (can be overridden by environment variables or command line args)
-DEFAULT_MODEL_PATH="Qwen/Qwen3-4B-Thinking-2507"
-DEFAULT_NUM_WORKERS=5
+DEFAULT_MODEL_PATH="Qwen/Qwen3-4B-Instruct-2507"
+DEFAULT_NUM_WORKERS=6
 DEFAULT_WORKER_BASE_PORT=8000
-DEFAULT_WORKERS_PER_NODE=2
+DEFAULT_WORKERS_PER_NODE=6
 DEFAULT_TOOL_CALL_PARSER="qwen"
-DEFAULT_ENABLE_HICACHE=1
+DEFAULT_ENABLE_HICACHE=0
 DEFAULT_HICACHE_SIZE=8
 DEFAULT_HICACHE_RATIO=2.0
 
@@ -116,17 +115,30 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Force-disable HiCache to avoid kernel/JIT issues on current cluster environment.
 if [ "${ENABLE_HICACHE}" -eq 1 ]; then
-    HICACHE_FLAG="--enable-hicache"
+    echo "WARNING: --enable-hicache is ignored by this script; forcing HiCache OFF." >&2
+fi
+ENABLE_HICACHE=0
+HICACHE_FLAG="--disable-hicache"
+HICACHE_SIZE=0
+
+# Resolve repo path robustly in SLURM runtime.
+if [ -n "${SGLANG_REPO_ROOT:-}" ] && [ -d "${SGLANG_REPO_ROOT}/benchmark/multi_agent" ]; then
+    REPO_ROOT="${SGLANG_REPO_ROOT}"
+elif [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/benchmark/multi_agent" ]; then
+    REPO_ROOT="${SLURM_SUBMIT_DIR}"
+elif [ -d "$(pwd)/benchmark/multi_agent" ]; then
+    REPO_ROOT="$(pwd)"
 else
-    HICACHE_FLAG="--disable-hicache"
+    echo "ERROR: Cannot locate repo root." >&2
+    echo "  Set SGLANG_REPO_ROOT or submit from repo root containing benchmark/multi_agent." >&2
+    exit 1
 fi
 
-# Use hardcoded script directory (BASH_SOURCE may not work correctly in SLURM)
-SCRIPT_DIR="/home/comp/zhanzhao/sglang/benchmark/multi_agent"
+SCRIPT_DIR="${REPO_ROOT}/benchmark/multi_agent"
 cd "${SCRIPT_DIR}"
 
-REPO_ROOT="${SGLANG_REPO_ROOT:-/home/comp/zhanzhao/sglang}"
 LOG_DIR="${SCRIPT_DIR}/logs"
 VENV_DIR="${REPO_ROOT}/.venv"
 
@@ -135,6 +147,8 @@ mkdir -p "${LOG_DIR}"
 rm -f "${LOG_DIR}/worker_urls.txt"
 rm -f "${LOG_DIR}"/node_*/worker_urls.txt
 rm -f "${LOG_DIR}"/node_*/server_node.txt
+rm -f "${LOG_DIR}"/node_*/deploy.log
+rm -f "${LOG_DIR}"/node_*/worker_*.log
 
 # Activate virtual environment
 if [ -f "${VENV_DIR}/bin/activate" ]; then
@@ -195,6 +209,7 @@ BASE_PORT=${WORKER_BASE_PORT}
 # Start workers on each node
 SRUN_PIDS=()
 NODE_IDS=()
+NODE_NAMES=()
 for NODE_ID in $(seq 0 $((TOTAL_NODES - 1))); do
     if [ ${REMAINING_WORKERS} -le 0 ]; then
         break
@@ -210,39 +225,125 @@ for NODE_ID in $(seq 0 $((TOTAL_NODES - 1))); do
     
     echo "Node ${NODE_ID} (${NODE_NAME}): Starting ${NODE_WORKERS} workers (ports ${NODE_PORT}-$((NODE_PORT + NODE_WORKERS - 1)))"
     
-    srun -w "${NODE_NAME}" --nodes=1 --ntasks=1 \
-        bash -c "
-        # Activate virtual environment
-        if [ -f \"${VENV_DIR}/bin/activate\" ]; then
-            source \"${VENV_DIR}/bin/activate\"
-        elif [ -f \"${VENV_DIR}/Scripts/activate\" ]; then
-            source \"${VENV_DIR}/Scripts/activate\"
-        fi
-        
-        export PYTHONPATH=\"${REPO_ROOT}/python:${REPO_ROOT}:\${PYTHONPATH:-}\"
-        export NO_PROXY=\"localhost,127.0.0.1,0.0.0.0,::1\"
-        export no_proxy=\"localhost,127.0.0.1,0.0.0.0,::1\"
-        export LC_ALL=\"\${LC_ALL:-C.UTF-8}\"
-        export LANG=\"\${LANG:-C.UTF-8}\"
-        export PYTHONIOENCODING=\"\${PYTHONIOENCODING:-utf-8}\"
-        
-        cd ${SCRIPT_DIR}/src/server
-        mkdir -p \"${LOG_DIR}/node_${NODE_ID}\"
+    NODE_LOG_DIR="${LOG_DIR}/node_${NODE_ID}"
+    mkdir -p "${NODE_LOG_DIR}"
+    rm -f "${NODE_LOG_DIR}/worker_urls.txt" "${NODE_LOG_DIR}/server_node.txt" \
+          "${NODE_LOG_DIR}/deploy.log" "${NODE_LOG_DIR}"/worker_*.log
 
-        python deploy_server.py \
-            --model-path \"${MODEL_PATH}\" \
-            --num-workers ${NODE_WORKERS} \
-            --worker-base-port ${NODE_PORT} \
-            --tool-call-parser \"${TOOL_CALL_PARSER}\" \
-            ${HICACHE_FLAG} \
-            --hicache-size ${HICACHE_SIZE} \
-            --hicache-ratio ${HICACHE_RATIO} \
-            --output-dir \"${LOG_DIR}/node_${NODE_ID}\" \
-            > \"${LOG_DIR}/node_${NODE_ID}/deploy.log\" 2>&1
-    " &
+    srun -w "${NODE_NAME}" --nodes=1 --ntasks=1 --kill-on-bad-exit=0 \
+        env \
+            VENV_DIR="${VENV_DIR}" \
+            REPO_ROOT="${REPO_ROOT}" \
+            SCRIPT_DIR="${SCRIPT_DIR}" \
+            NODE_LOG_DIR="${NODE_LOG_DIR}" \
+            MODEL_PATH="${MODEL_PATH}" \
+            NODE_WORKERS="${NODE_WORKERS}" \
+            NODE_PORT="${NODE_PORT}" \
+            TOOL_CALL_PARSER="${TOOL_CALL_PARSER}" \
+            HICACHE_FLAG="${HICACHE_FLAG}" \
+            HICACHE_SIZE="${HICACHE_SIZE}" \
+            HICACHE_RATIO="${HICACHE_RATIO}" \
+            NODE_ID="${NODE_ID}" \
+        bash -lc '
+        set -euo pipefail
+
+        if [ -f "${VENV_DIR}/bin/activate" ]; then
+            source "${VENV_DIR}/bin/activate"
+        elif [ -f "${VENV_DIR}/Scripts/activate" ]; then
+            source "${VENV_DIR}/Scripts/activate"
+        fi
+
+        export PYTHONPATH="${REPO_ROOT}/python:${REPO_ROOT}:${PYTHONPATH:-}"
+        export NO_PROXY="localhost,127.0.0.1,0.0.0.0,::1"
+        export no_proxy="localhost,127.0.0.1,0.0.0.0,::1"
+        export LC_ALL="${LC_ALL:-C.UTF-8}"
+        export LANG="${LANG:-C.UTF-8}"
+        export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
+
+        cd "${SCRIPT_DIR}/src/server"
+        mkdir -p "${NODE_LOG_DIR}"
+
+        PY_BIN="python"
+        if [ -x "${VENV_DIR}/bin/python" ]; then
+            PY_BIN="${VENV_DIR}/bin/python"
+        fi
+
+        SITE_PACKAGES_DIR="${VENV_DIR}/lib/python3.12/site-packages"
+        PROBE_PATHS=(
+            "${SITE_PACKAGES_DIR}"
+            "${SITE_PACKAGES_DIR}/timm/models"
+            "${SITE_PACKAGES_DIR}/pygments/lexers"
+        )
+
+        preflight_python() {
+            "${PY_BIN}" - <<'"'"'PY'"'"' >/dev/null 2>&1
+import importlib.metadata
+import multiprocessing.spawn
+import pygments.lexers
+import subprocess
+import timm.models
+PY
+        }
+
+        for attempt in $(seq 1 8); do
+            for p in "${PROBE_PATHS[@]}"; do
+                if [ -e "${p}" ]; then
+                    touch "${p}" >/dev/null 2>&1 || true
+                    ls "${p}" >/dev/null 2>&1 || true
+                fi
+            done
+
+            if preflight_python; then
+                echo "[node ${NODE_ID}] Python import preflight OK (attempt ${attempt}/8)." >> "${NODE_LOG_DIR}/deploy.log"
+                break
+            fi
+
+            echo "[node ${NODE_ID}] Python import preflight failed (attempt ${attempt}/8), retrying..." >> "${NODE_LOG_DIR}/deploy.log"
+            if [ "${attempt}" -eq 8 ]; then
+                echo "[node ${NODE_ID}] Python import preflight failed after retries." >> "${NODE_LOG_DIR}/deploy.log"
+                exit 1
+            fi
+            sleep 3
+        done
+
+        for deploy_try in 1 2 3; do
+            rm -f "${NODE_LOG_DIR}/worker_urls.txt" "${NODE_LOG_DIR}/server_node.txt"
+            echo "[node ${NODE_ID}] Starting deploy_server.py (attempt ${deploy_try}/3)." >> "${NODE_LOG_DIR}/deploy.log"
+            set +e
+            "${PY_BIN}" deploy_server.py \
+                --model-path "${MODEL_PATH}" \
+                --num-workers "${NODE_WORKERS}" \
+                --worker-base-port "${NODE_PORT}" \
+                --tool-call-parser "${TOOL_CALL_PARSER}" \
+                ${HICACHE_FLAG} \
+                --hicache-size "${HICACHE_SIZE}" \
+                --hicache-ratio "${HICACHE_RATIO}" \
+                --output-dir "${NODE_LOG_DIR}" \
+                >> "${NODE_LOG_DIR}/deploy.log" 2>&1
+            rc=$?
+            set -e
+
+            if [ "${rc}" -eq 0 ]; then
+                exit 0
+            fi
+
+            if grep -q "OSError: \\[Errno 5\\]" "${NODE_LOG_DIR}/deploy.log"; then
+                echo "[node ${NODE_ID}] deploy_server.py hit transient Errno 5, retrying..." >> "${NODE_LOG_DIR}/deploy.log"
+                sleep 8
+                continue
+            fi
+
+            echo "[node ${NODE_ID}] deploy_server.py failed with exit ${rc} (non-retryable)." >> "${NODE_LOG_DIR}/deploy.log"
+            exit "${rc}"
+        done
+
+        echo "[node ${NODE_ID}] deploy_server.py failed after retries." >> "${NODE_LOG_DIR}/deploy.log"
+        exit 1
+    ' &
     
     SRUN_PIDS+=($!)
     NODE_IDS+=(${NODE_ID})
+    NODE_NAMES+=("${NODE_NAME}")
     WORKER_ID=$((WORKER_ID + NODE_WORKERS))
     REMAINING_WORKERS=$((REMAINING_WORKERS - NODE_WORKERS))
 done
@@ -253,7 +354,10 @@ WAIT_TIMEOUT=1800
 WAIT_START=$(date +%s)
 FAILED_NODES=()
 
-for NODE_ID in "${NODE_IDS[@]}"; do
+for idx in "${!NODE_IDS[@]}"; do
+    NODE_ID="${NODE_IDS[$idx]}"
+    NODE_NAME="${NODE_NAMES[$idx]}"
+    SRUN_PID="${SRUN_PIDS[$idx]}"
     URLS_FILE="${LOG_DIR}/node_${NODE_ID}/worker_urls.txt"
     echo "  Waiting for node ${NODE_ID} workers..."
     while true; do
@@ -267,6 +371,20 @@ for NODE_ID in "${NODE_IDS[@]}"; do
             echo "  Node ${NODE_ID} workers ready."
             break
         fi
+        if ! kill -0 "${SRUN_PID}" >/dev/null 2>&1; then
+            set +e
+            wait "${SRUN_PID}"
+            SRUN_RC=$?
+            set -e
+            echo "ERROR: Node ${NODE_ID} (${NODE_NAME}) exited before workers became ready (exit=${SRUN_RC})." >&2
+            if [ -f "${LOG_DIR}/node_${NODE_ID}/deploy.log" ]; then
+                echo "----- tail: ${LOG_DIR}/node_${NODE_ID}/deploy.log -----" >&2
+                tail -n 80 "${LOG_DIR}/node_${NODE_ID}/deploy.log" >&2 || true
+                echo "--------------------------------------------------------" >&2
+            fi
+            FAILED_NODES+=(${NODE_ID})
+            break
+        fi
         sleep 5
     done
 done
@@ -276,7 +394,7 @@ WORKER_URLS_FILE="${LOG_DIR}/worker_urls.txt"
 : > "${WORKER_URLS_FILE}"
 
 SUCCESS_COUNT=0
-for NODE_ID in $(seq 0 $((TOTAL_NODES - 1))); do
+for NODE_ID in "${NODE_IDS[@]}"; do
     NODE_URLS_FILE="${LOG_DIR}/node_${NODE_ID}/worker_urls.txt"
     if [ -f "${NODE_URLS_FILE}" ] && [ -s "${NODE_URLS_FILE}" ]; then
         echo "Node ${NODE_ID} worker URLs:"
@@ -299,12 +417,15 @@ if [ ${SUCCESS_COUNT} -eq ${NUM_WORKERS} ]; then
     echo "Workers are running. Job will stay alive until cancelled (scancel) or timeout."
     echo "Press Ctrl+C or use 'scancel ${SLURM_JOB_ID}' to stop."
 
-    # Keep the job running - wait indefinitely
-    # This allows the worker processes to continue serving requests
-    while true; do
-        sleep 60
-        echo "[$(date)] Workers still running..."
-    done
+    echo "Waiting on deploy processes..."
+    set +e
+    wait "${SRUN_PIDS[@]}"
+    WAIT_RC=$?
+    set -e
+    if [ "${WAIT_RC}" -ne 0 ]; then
+        echo "ERROR: One or more deploy processes exited unexpectedly (rc=${WAIT_RC})." >&2
+        exit "${WAIT_RC}"
+    fi
 else
     echo "WARNING: Only ${SUCCESS_COUNT}/${NUM_WORKERS} workers started" >&2
     if [ ${#FAILED_NODES[@]} -gt 0 ]; then

@@ -11,14 +11,264 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import os
+import re
+import signal
 import socket
+import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 
-from marble_exp import ClusterConfig, SGLangCluster
+import requests
+
+
+def _ensure_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+
+
+@dataclasses.dataclass(frozen=True)
+class WorkerEndpoint:
+    gpu_id: int
+    url: str
+    port: int
+
+
+@dataclasses.dataclass
+class ClusterConfig:
+    model_path: str
+    num_workers: int = 10
+    worker_base_port: int = 8000
+    router_port: int = 30000
+    host: str = "127.0.0.1"
+    python_bin: str = "python"
+    python_flags: List[str] = dataclasses.field(default_factory=list)
+    extra_pythonpath: Optional[str] = None
+    include_repo_python: bool = True
+    worker_common_args: List[str] = dataclasses.field(default_factory=list)
+    worker_startup_delay_s: int = 12
+    worker_start_check_s: int = 30
+    worker_start_retries: int = 3
+    worker_retry_delay_s: int = 10
+    wait_ready_timeout_s: int = 180
+    wait_ready_poll_s: float = 2.0
+
+
+class SGLangCluster:
+    def __init__(self, repo_root: Path, cfg: ClusterConfig, log_dir: Path):
+        self.repo_root = repo_root
+        self.cfg = cfg
+        self.log_dir = log_dir
+        _ensure_dir(self.log_dir)
+
+        self.worker_procs: Dict[int, subprocess.Popen] = {}
+        self._extra_args_by_gpu: Dict[int, List[str]] = {}
+        self._extra_env_by_gpu: Dict[int, Dict[str, str]] = {}
+        self._errno5_pattern = re.compile(
+            r"OSError:\s*\[Errno 5\]\s*Input/output error:\s*['\"]([^'\"]+)['\"]"
+        )
+
+    def worker_endpoints(self) -> List[WorkerEndpoint]:
+        eps: List[WorkerEndpoint] = []
+        for gpu_id in range(self.cfg.num_workers):
+            port = self.cfg.worker_base_port + gpu_id
+            eps.append(
+                WorkerEndpoint(
+                    gpu_id=gpu_id,
+                    port=port,
+                    url=f"http://{self.cfg.host}:{port}",
+                )
+            )
+        return eps
+
+    def _base_env(self) -> Dict[str, str]:
+        env = os.environ.copy()
+        pp_parts = []
+        if self.cfg.extra_pythonpath:
+            pp_parts.append(self.cfg.extra_pythonpath)
+        if self.cfg.include_repo_python:
+            pp_parts.append(str(self.repo_root / "python"))
+        existing_pp = env.get("PYTHONPATH", "")
+        if existing_pp:
+            pp_parts.append(existing_pp)
+        env["PYTHONPATH"] = ":".join(pp_parts)
+        env["NO_PROXY"] = "localhost,127.0.0.1,0.0.0.0,::1"
+        env["no_proxy"] = "localhost,127.0.0.1,0.0.0.0,::1"
+        env.setdefault("LC_ALL", "C.UTF-8")
+        env.setdefault("LANG", "C.UTF-8")
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        return env
+
+    def start_workers(
+        self,
+        extra_args_by_gpu: Optional[Dict[int, List[str]]] = None,
+        extra_env_by_gpu: Optional[Dict[int, Dict[str, str]]] = None,
+    ) -> None:
+        extra_args_by_gpu = extra_args_by_gpu or {}
+        extra_env_by_gpu = extra_env_by_gpu or {}
+        self._extra_args_by_gpu = {k: list(v) for k, v in extra_args_by_gpu.items()}
+        self._extra_env_by_gpu = {k: dict(v) for k, v in extra_env_by_gpu.items()}
+
+        for gpu_id in range(self.cfg.num_workers):
+            print(
+                f"  Starting worker {gpu_id} (port {self.cfg.worker_base_port + gpu_id})..."
+            )
+            self._start_one_worker(
+                gpu_id,
+                extra_args=extra_args_by_gpu.get(gpu_id, []),
+                extra_env=extra_env_by_gpu.get(gpu_id, {}),
+                truncate_log=True,
+            )
+
+        print(
+            f"  Waiting for all {self.cfg.num_workers} workers to be ready "
+            f"(health check, timeout={self.cfg.wait_ready_timeout_s}s)..."
+        )
+        self.wait_until_ready()
+        print("  All workers ready.")
+
+    def _start_one_worker(
+        self,
+        gpu_id: int,
+        *,
+        extra_args: List[str],
+        extra_env: Dict[str, str],
+        truncate_log: bool,
+    ) -> None:
+        port = self.cfg.worker_base_port + gpu_id
+        log_path = self.log_dir / f"worker_{gpu_id}.log"
+        if truncate_log:
+            log_path.write_text("")
+
+        env = self._base_env()
+        env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        env.update(extra_env)
+
+        args = [
+            self.cfg.python_bin,
+            *self.cfg.python_flags,
+            "-m",
+            "sglang.launch_server",
+            "--model-path",
+            self.cfg.model_path,
+            "--tp",
+            "1",
+            "--host",
+            self.cfg.host,
+            "--port",
+            str(port),
+            "--enable-metrics",
+        ]
+        args.extend(self.cfg.worker_common_args)
+        args.extend(extra_args)
+
+        proc: Optional[subprocess.Popen] = None
+        for attempt in range(1, self.cfg.worker_start_retries + 1):
+            proc = subprocess.Popen(
+                args,
+                env=env,
+                stdout=log_path.open("ab"),
+                stderr=subprocess.STDOUT,
+            )
+            time.sleep(self.cfg.worker_start_check_s)
+            if proc.poll() is None:
+                self.worker_procs[gpu_id] = proc
+                break
+
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                pass
+
+            self._mitigate_errno5_from_log(log_path, gpu_id, attempt)
+            if attempt < self.cfg.worker_start_retries:
+                time.sleep(self.cfg.worker_retry_delay_s)
+
+        if proc is None or proc.poll() is not None:
+            raise RuntimeError(
+                f"Worker {gpu_id} failed to start. Check {log_path} for details."
+            )
+
+        time.sleep(self.cfg.worker_startup_delay_s)
+
+    def _mitigate_errno5_from_log(self, log_path: Path, gpu_id: int, attempt: int) -> None:
+        try:
+            text = log_path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            return
+
+        matches = self._errno5_pattern.findall(text)
+        if not matches:
+            return
+
+        touched = 0
+        seen = set()
+        for raw in reversed(matches):
+            if raw in seen:
+                continue
+            seen.add(raw)
+            if self._touch_errno5_path(Path(raw)):
+                touched += 1
+
+        if touched > 0:
+            print(
+                f"    Worker {gpu_id}: detected Errno 5 and touched {touched} path(s) "
+                f"after failed attempt {attempt}."
+            )
+
+    @staticmethod
+    def _touch_errno5_path(path: Path) -> bool:
+        try:
+            if path.exists():
+                os.utime(path, None)
+                return True
+        except Exception:
+            pass
+
+        try:
+            probe_dir = path if path.is_dir() else path.parent
+            if probe_dir and probe_dir.exists():
+                probe = probe_dir / ".sglang_errno5_probe"
+                probe.touch(exist_ok=True)
+                os.utime(probe_dir, None)
+                return True
+        except Exception:
+            pass
+
+        return False
+
+    def wait_until_ready(self) -> None:
+        deadline = time.time() + self.cfg.wait_ready_timeout_s
+        endpoints = self.worker_endpoints()
+        for ep in endpoints:
+            ok = False
+            while time.time() < deadline:
+                try:
+                    r = requests.get(f"{ep.url}/health", timeout=5)
+                    if r.status_code == 200:
+                        ok = True
+                        break
+                except Exception:
+                    pass
+                time.sleep(self.cfg.wait_ready_poll_s)
+            if not ok:
+                raise TimeoutError(
+                    f"Timeout waiting for worker GPU {ep.gpu_id} to be ready at {ep.url}"
+                )
+            print(f"    Worker {ep.gpu_id} ready.")
+
+    def stop_workers(self) -> None:
+        for _, proc in list(self.worker_procs.items()):
+            if proc.poll() is None:
+                proc.send_signal(signal.SIGTERM)
+        for _, proc in list(self.worker_procs.items()):
+            try:
+                proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        self.worker_procs.clear()
 
 
 def _script_dir() -> Path:

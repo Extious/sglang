@@ -1,2 +1,6 @@
-http://gpu14:8000
-http://gpu14:8001
+http://hkbugpusrv10:8000
+http://hkbugpusrv10:8001
+http://hkbugpusrv10:8002
+http://hkbugpusrv10:8003
+http://hkbugpusrv10:8004
+http://hkbugpusrv10:8005

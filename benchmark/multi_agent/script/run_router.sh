@@ -8,7 +8,7 @@ REPO_ROOT="${SGLANG_REPO_ROOT:-$(cd "${SCRIPT_DIR}/../../.." && pwd)}"
 MODEL_PATH="${MODEL_PATH:-Qwen/Qwen3-4B-Instruct-2507}"
 ROUTER_PORT="${ROUTER_PORT:-30000}"
 ROUTER_HOST="${ROUTER_HOST:-0.0.0.0}"
-ROUTER_POLICY="${ROUTER_POLICY:-round_robin}"
+ROUTER_POLICY="${ROUTER_POLICY:-cache_aware}"
 PROMETHEUS_PORT="${PROMETHEUS_PORT:-29000}"
 PROMETHEUS_HOST="${PROMETHEUS_HOST:-0.0.0.0}"
 
@@ -276,6 +276,13 @@ echo "  policy: ${ROUTER_POLICY}"
 echo "  model: ${MODEL_PATH}"
 echo "  workers: ${WORKER_URLS}"
 echo "  NO_PROXY: ${NO_PROXY}"
+echo ""
+echo "Optimized timeout settings for fault tolerance:"
+echo "  request-timeout: 5s"
+echo "  health-check-interval: 5s"
+echo "  health-failure-threshold: 2"
+echo "  health-success-threshold: 2"
+echo "  retry-max-retries: 2"
 
 python -m sglang_router.launch_router \
     --worker-urls "${WORKER_URLS_ARR[@]}" \
@@ -284,7 +291,13 @@ python -m sglang_router.launch_router \
     --port "${ROUTER_PORT}" \
     --prometheus-host "${PROMETHEUS_HOST}" \
     --prometheus-port "${PROMETHEUS_PORT}" \
-    --model-path "${MODEL_PATH}" &
+    --model-path "${MODEL_PATH}" \
+    --request-timeout-secs 5 \
+    --health-check-interval-secs 5 \
+    --health-failure-threshold 2 \
+    --health-success-threshold 2 \
+    --retry-max-retries 2 \
+    --retry-initial-backoff-ms 50 &
 ROUTER_PID=$!
 
 READY=0

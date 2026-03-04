@@ -220,12 +220,21 @@ class OpenAIServingResponses(OpenAIServingChat):
                 "streaming mode"
             )
 
-        # Agent attribution: prefer an explicit header, fall back to OpenAI 'user' field.
+        # Agent attribution:
+        # 1) explicit header, 2) OpenAI user, 3) safety_identifier, 4) metadata hint.
         agent_id = None
         if raw_request is not None:
             agent_id = raw_request.headers.get("x-sglang-agent-id")
         if not agent_id:
             agent_id = getattr(request, "user", None)
+        if not agent_id:
+            agent_id = getattr(request, "safety_identifier", None)
+        if not agent_id:
+            metadata = getattr(request, "metadata", None)
+            if isinstance(metadata, dict):
+                agent_id = metadata.get("agent_id") or metadata.get(
+                    "x_sglang_agent_id"
+                )
 
         # Schedule the request and get the result generator
         generators: list[AsyncGenerator[Any, None]] = []

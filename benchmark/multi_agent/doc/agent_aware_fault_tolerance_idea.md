@@ -11,7 +11,7 @@
 若关键路径上某个 Agent 请求集中在单个 worker，而该 worker 故障，则重试请求会被路由到其它 worker。由于目标 worker 缺少对应前缀的 KV Cache，请求需要重新 prefill，导致恢复阶段时延显著上升。
 
 ## 2. 核心想法
-提出 **Agent-Aware Router**：在保持负载可控的前提下，优先保障关键路径 Agent 的跨 worker Cache 覆盖。
+提出 **Cache **：在保持负载可控的前提下，优先保障关键路径 Agent 的跨 worker Cache 覆盖。
 
 与传统 Cache-Aware（按当前命中/负载贪心）不同，Agent-Aware 在长期分布上显式约束“哪些 Agent 应该出现在哪些 worker”，从而在故障后仍可复用 system prompt 等公共前缀缓存。
 
@@ -37,34 +37,6 @@
    - 关键路径时延（尤其 P95）下降
    - 故障后恢复曲线更平滑
    - 总任务完成时间抖动减小
-
-## 5. 与基线方法的对比定义
-- **Baseline**: Official Cache-Aware Router
-- **Proposed**: Agent-Aware Router（显式 Agent-Worker 覆盖约束）
-
-公平性原则：
-1. 相同 worker 部署与模型配置。
-2. 每轮实验前统一 flush KV Cache。
-3. 相同任务集与并发设置。
-4. 相同故障注入流程（仅在 router 层注入）。
-
-## 6. 失效与恢复模型（用于实验）
-- 故障注入：router 暂时不可达某个 worker（逻辑 down）。
-- 注入时机：执行到指定任务进度（例如完成 40 或 50 个 task）后触发。
-- 恢复时机：故障后固定时间恢复（例如 30s）。
-
-该模型模拟线上常见场景：单机短暂失效、网络隔离、节点重启。
-
-## 7. 关键评估指标
-建议至少报告以下指标：
-1. Task 完成时延：mean / P50 / P95
-2. 关键路径时延：A+C+F 聚合时延（尤其 P95）
-3. 故障后窗口时延：post-failure P95
-4. 请求级缓存复用：
-   - 每 task-每 agent 的 cache hit rate
-   - 全局 prefill cached_tokens / prompt_tokens
-5. 路由容错行为：failover 请求数、失败重试成功率
-6. worker 负载分布：按 worker 请求量与 prefill token 分布
 
 ## 8. 论文主张（可检验）
 本文主张：

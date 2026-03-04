@@ -22,6 +22,8 @@
 #   --worker-base-port P  Base port for workers (default: 8000)
 #   --workers-per-node N  Workers per node (default: 6)
 #   --tool-call-parser P  Tool call parser (default: qwen)
+#   --enable-cache-report Return cached tokens in OpenAI usage
+#   --disable-cache-report Disable cached token reporting
 #   --enable-hicache      Enable hierarchical KV cache (currently forced OFF in this script)
 #   --disable-hicache     Disable hierarchical KV cache
 #   --hicache-size N      HiCache size per worker in GB (default: 8)
@@ -46,6 +48,7 @@ DEFAULT_NUM_WORKERS=6
 DEFAULT_WORKER_BASE_PORT=8000
 DEFAULT_WORKERS_PER_NODE=6
 DEFAULT_TOOL_CALL_PARSER="qwen"
+DEFAULT_ENABLE_CACHE_REPORT=1
 DEFAULT_ENABLE_HICACHE=0
 DEFAULT_HICACHE_SIZE=8
 DEFAULT_HICACHE_RATIO=2.0
@@ -62,6 +65,7 @@ NUM_WORKERS="${NUM_WORKERS:-${DEFAULT_NUM_WORKERS}}"
 WORKER_BASE_PORT="${WORKER_BASE_PORT:-${DEFAULT_WORKER_BASE_PORT}}"
 WORKERS_PER_NODE="${WORKERS_PER_NODE:-${DEFAULT_WORKERS_PER_NODE}}"
 TOOL_CALL_PARSER="${TOOL_CALL_PARSER:-${DEFAULT_TOOL_CALL_PARSER}}"
+ENABLE_CACHE_REPORT="${ENABLE_CACHE_REPORT:-${DEFAULT_ENABLE_CACHE_REPORT}}"
 ENABLE_HICACHE="${ENABLE_HICACHE:-${DEFAULT_ENABLE_HICACHE}}"
 HICACHE_SIZE="${HICACHE_SIZE:-${DEFAULT_HICACHE_SIZE}}"
 HICACHE_RATIO="${HICACHE_RATIO:-${DEFAULT_HICACHE_RATIO}}"
@@ -87,6 +91,14 @@ while [[ $# -gt 0 ]]; do
         --tool-call-parser)
             TOOL_CALL_PARSER="$2"
             shift 2
+            ;;
+        --enable-cache-report)
+            ENABLE_CACHE_REPORT=1
+            shift
+            ;;
+        --disable-cache-report)
+            ENABLE_CACHE_REPORT=0
+            shift
             ;;
         --enable-hicache)
             ENABLE_HICACHE=1
@@ -122,6 +134,11 @@ fi
 ENABLE_HICACHE=0
 HICACHE_FLAG="--disable-hicache"
 HICACHE_SIZE=0
+if [ "${ENABLE_CACHE_REPORT}" -eq 1 ]; then
+    CACHE_REPORT_FLAG="--enable-cache-report"
+else
+    CACHE_REPORT_FLAG="--disable-cache-report"
+fi
 
 # Resolve repo path robustly in SLURM runtime.
 if [ -n "${SGLANG_REPO_ROOT:-}" ] && [ -d "${SGLANG_REPO_ROOT}/benchmark/multi_agent" ]; then
@@ -186,6 +203,7 @@ echo "Total workers: ${NUM_WORKERS}"
 echo "Workers per node: ${WORKERS_PER_NODE}"
 echo "Model: ${MODEL_PATH}"
 echo "Tool call parser: ${TOOL_CALL_PARSER}"
+echo "Cache report: ${ENABLE_CACHE_REPORT}"
 echo "HiCache: ${ENABLE_HICACHE}"
 if [ "${ENABLE_HICACHE}" -eq 1 ]; then
     if [ "${HICACHE_SIZE}" -gt 0 ]; then
@@ -240,6 +258,8 @@ for NODE_ID in $(seq 0 $((TOTAL_NODES - 1))); do
             NODE_WORKERS="${NODE_WORKERS}" \
             NODE_PORT="${NODE_PORT}" \
             TOOL_CALL_PARSER="${TOOL_CALL_PARSER}" \
+            ENABLE_CACHE_REPORT="${ENABLE_CACHE_REPORT}" \
+            CACHE_REPORT_FLAG="${CACHE_REPORT_FLAG}" \
             HICACHE_FLAG="${HICACHE_FLAG}" \
             HICACHE_SIZE="${HICACHE_SIZE}" \
             HICACHE_RATIO="${HICACHE_RATIO}" \
@@ -315,6 +335,7 @@ PY
                 --num-workers "${NODE_WORKERS}" \
                 --worker-base-port "${NODE_PORT}" \
                 --tool-call-parser "${TOOL_CALL_PARSER}" \
+                ${CACHE_REPORT_FLAG} \
                 ${HICACHE_FLAG} \
                 --hicache-size "${HICACHE_SIZE}" \
                 --hicache-ratio "${HICACHE_RATIO}" \

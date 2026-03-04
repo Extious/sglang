@@ -347,9 +347,25 @@ def main() -> int:
         action="store_true",
         help="Exit immediately after starting workers (for use in scripts)",
     )
+    parser.add_argument(
+        "--enable-cache-report",
+        dest="enable_cache_report",
+        action="store_true",
+        help="Enable usage.prompt_tokens_details.cached_tokens in OpenAI responses.",
+    )
+    parser.add_argument(
+        "--disable-cache-report",
+        dest="enable_cache_report",
+        action="store_false",
+        help="Disable usage.prompt_tokens_details.cached_tokens in OpenAI responses.",
+    )
     parser.set_defaults(
         enable_hicache=os.getenv("ENABLE_HICACHE", "1").strip().lower()
-        not in {"0", "false", "no"}
+        not in {"0", "false", "no"},
+        enable_cache_report=os.getenv(
+            "ENABLE_CACHE_REPORT", "1"
+        ).strip().lower()
+        not in {"0", "false", "no"},
     )
     args = parser.parse_args()
 
@@ -380,6 +396,8 @@ def main() -> int:
         "--enable-metrics",
         "--tool-call-parser", args.tool_call_parser,
     ]
+    if args.enable_cache_report:
+        worker_common_args.append("--enable-cache-report")
     if args.enable_hicache:
         worker_common_args.append("--enable-hierarchical-cache")
         if args.hicache_size > 0:
@@ -406,6 +424,7 @@ def main() -> int:
     print(f"Worker base port: {args.worker_base_port}")
     print(f"Log directory: {log_dir}")
     print(f"HiCache enabled: {args.enable_hicache}")
+    print(f"Cache report enabled: {args.enable_cache_report}")
     if args.enable_hicache:
         if args.hicache_size > 0:
             print(f"HiCache size per worker: {args.hicache_size} GB")

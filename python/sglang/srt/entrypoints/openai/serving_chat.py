@@ -183,13 +183,21 @@ class OpenAIServingChat(OpenAIServingBase):
         # Extract custom labels from raw request headers
         custom_labels = self.extract_custom_labels(raw_request)
 
-        # Agent attribution: prefer an explicit header, fall back to OpenAI 'user' field.
-        # The header is less ambiguous (OpenAI 'user' is meant for end-user attribution).
+        # Agent attribution:
+        # 1) explicit header, 2) OpenAI user, 3) safety_identifier, 4) metadata hint.
         agent_id = None
         if raw_request is not None:
             agent_id = raw_request.headers.get("x-sglang-agent-id")
         if not agent_id:
             agent_id = request.user
+        if not agent_id:
+            agent_id = getattr(request, "safety_identifier", None)
+        if not agent_id:
+            metadata = getattr(request, "metadata", None)
+            if isinstance(metadata, dict):
+                agent_id = metadata.get("agent_id") or metadata.get(
+                    "x_sglang_agent_id"
+                )
 
         # Resolve LoRA adapter from model parameter or explicit lora_path
         lora_path = self._resolve_lora_path(request.model, request.lora_path)

@@ -246,6 +246,8 @@ class CompletionRequest(BaseModel):
     temperature: float = 1.0
     top_p: float = 1.0
     user: Optional[str] = None
+    # Optional caller-specified identifier. Useful when proxy/router strips custom headers.
+    safety_identifier: Optional[str] = None
     return_hidden_states: bool = False
 
     # Extra parameters for SRT backend only and will be ignored by OpenAI models.
@@ -499,6 +501,8 @@ class ChatCompletionRequest(BaseModel):
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     user: Optional[str] = None
+    # Optional caller-specified identifier. Useful when proxy/router strips custom headers.
+    safety_identifier: Optional[str] = None
     tools: Optional[List[Tool]] = Field(default=None, examples=[None])
     tool_choice: Union[ToolChoice, Literal["auto", "required", "none"]] = Field(
         default="auto", examples=["none"]
@@ -997,6 +1001,8 @@ class ResponsesRequest(BaseModel):
     top_p: Optional[float] = None
     truncation: Optional[Literal["auto", "disabled"]] = "disabled"
     user: Optional[str] = None
+    # Optional caller-specified identifier. Useful when proxy/router strips custom headers.
+    safety_identifier: Optional[str] = None
 
     # Extra SGLang parameters
     request_id: str = Field(

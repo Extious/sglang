@@ -1,6 +1,6 @@
-http://hkbugpusrv10:8000
-http://hkbugpusrv10:8001
-http://hkbugpusrv10:8002
-http://hkbugpusrv10:8003
-http://hkbugpusrv10:8004
-http://hkbugpusrv10:8005
+http://hkbugpusrv09:8000
+http://hkbugpusrv09:8001
+http://hkbugpusrv09:8002
+http://hkbugpusrv09:8003
+http://hkbugpusrv09:8004
+http://hkbugpusrv09:8005

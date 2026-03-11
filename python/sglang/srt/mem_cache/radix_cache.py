@@ -675,8 +675,8 @@ class RadixCache(BasePrefixCache):
             if agent_req_id in recent:
                 return
             recent.append(agent_req_id)
-            if len(recent) > 8:
-                del recent[0 : len(recent) - 8]
+            if len(recent) > 50:
+                del recent[0 : len(recent) - 50]
         node.agent_hits[agent_id] = node.agent_hits.get(agent_id, 0) + 1
 
     def _match_prefix_helper(

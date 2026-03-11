@@ -141,6 +141,10 @@ else
 fi
 
 # Resolve repo path robustly in SLURM runtime.
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
+export SGLANG_REPO_ROOT="${SGLANG_REPO_ROOT:-$(cd "${SCRIPT_DIR}/../../.." && pwd)}"
+
 if [ -n "${SGLANG_REPO_ROOT:-}" ] && [ -d "${SGLANG_REPO_ROOT}/benchmark/multi_agent" ]; then
     REPO_ROOT="${SGLANG_REPO_ROOT}"
 elif [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/benchmark/multi_agent" ]; then

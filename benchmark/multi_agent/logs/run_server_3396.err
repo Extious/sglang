@@ -1,3 +1,0 @@
-srun: Job step aborted: Waiting up to 32 seconds for job step to finish.
-[2026-03-03T09:50:33.241] error: *** JOB 3396 ON hkbugpusrv09 CANCELLED AT 2026-03-03T09:50:33 DUE to SIGNAL Terminated ***
-[2026-03-03T09:50:33.242] error: *** STEP 3396.0 ON hkbugpusrv09 CANCELLED AT 2026-03-03T09:50:33 DUE to SIGNAL Terminated ***

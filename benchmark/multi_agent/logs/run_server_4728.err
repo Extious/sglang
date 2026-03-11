@@ -1,0 +1,2 @@
+ERROR: Cannot locate repo root.
+  Set SGLANG_REPO_ROOT or submit from repo root containing benchmark/multi_agent.

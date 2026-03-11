@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
+import yaml
+
 sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "swarms")
 )
@@ -25,14 +27,8 @@ try:
 except ModuleNotFoundError:
     HeavySwarm = None
 
-MODEL_NAME = "openai/Qwen/Qwen3-4B-Instruct-2507"
-ROUTER_HOST = os.getenv("ROUTER_HOST", "127.0.0.1")
-ROUTER_PORT = os.getenv("ROUTER_PORT", "30000")
-TIMING_OUTPUT_DIR = (
-    Path(__file__).resolve().parent
-    / "agent_workspace"
-    / "timing_reports"
-)
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_DEFAULT_CONFIG_PATH = _SCRIPT_DIR / "heavy_swarm_config.yaml"
 
 AGENT_ORDER = [
     "question",
@@ -59,19 +55,149 @@ AGENT_ALIASES = {
 }
 
 
-def _normalize_base_url(raw: str) -> str:
+def _load_yaml_config(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh)
+    return data if isinstance(data, dict) else {}
+
+
+def _cfg_str(cfg: Dict[str, Any], key: str, env_key: str, default: str) -> str:
+    env_val = os.getenv(env_key, "").strip()
+    if env_val:
+        return env_val
+    val = cfg.get(key)
+    if val is not None and str(val).strip():
+        return str(val).strip()
+    return default
+
+
+def _cfg_int(cfg: Dict[str, Any], key: str, env_key: str, default: int) -> int:
+    env_val = os.getenv(env_key, "").strip()
+    if env_val:
+        return int(env_val)
+    val = cfg.get(key)
+    if val is not None:
+        return int(val)
+    return default
+
+
+def _cfg_bool(cfg: Dict[str, Any], key: str, env_key: str, default: bool) -> bool:
+    env_val = os.getenv(env_key, "").strip()
+    if env_val:
+        return env_val == "1" or env_val.lower() == "true"
+    val = cfg.get(key)
+    if val is not None:
+        if isinstance(val, bool):
+            return val
+        return str(val).strip().lower() in ("1", "true", "yes")
+    return default
+
+
+def _build_config() -> Dict[str, Any]:
+    config_path = os.getenv("HEAVY_SWARM_CONFIG", "").strip()
+    if config_path:
+        config_path = Path(config_path).expanduser()
+        if not config_path.is_absolute():
+            config_path = (Path.cwd() / config_path).resolve()
+    else:
+        config_path = _DEFAULT_CONFIG_PATH
+
+    raw = _load_yaml_config(config_path)
+
+    router_host = _cfg_str(raw, "router_host", "ROUTER_HOST", "127.0.0.1")
+    router_port = _cfg_str(raw, "router_port", "ROUTER_PORT", "30000")
+    default_base_url = f"http://{router_host}:{router_port}/v1"
+
+    model_name = _cfg_str(
+        raw, "model_name", "HEAVY_SWARM_MODEL_NAME",
+        "openai/Qwen/Qwen3-4B-Instruct-2507",
+    )
+    model_max_tokens = _cfg_int(
+        raw, "model_max_tokens", "HEAVY_SWARM_MODEL_MAX_TOKENS", 32768,
+    )
+    llm_base_url_raw = _cfg_str(raw, "llm_base_url", "LLM_BASE_URL", "")
+    if not llm_base_url_raw:
+        llm_base_url_raw = default_base_url
+
+    llm_api_key = (
+        os.getenv("LLM_API_KEY", "").strip()
+        or os.getenv("OPENAI_API_KEY", "").strip()
+        or os.getenv("OPENROUTER_API_KEY", "").strip()
+        or _cfg_str(raw, "llm_api_key", "", "")
+        or "sk-local"
+    )
+
+    agent_max_tokens_default = {
+        "question": 32768,
+        "research": 32768,
+        "analysis": 32768,
+        "alternatives": 32768,
+        "verification": 32768,
+        "synthesis": 32768,
+    }
+    raw_amt = raw.get("agent_max_tokens")
+    if isinstance(raw_amt, dict):
+        for k, v in raw_amt.items():
+            if k in agent_max_tokens_default and v is not None:
+                agent_max_tokens_default[k] = int(v)
+
+    timing_dir_raw = _cfg_str(raw, "timing_output_dir", "HEAVY_SWARM_TIMING_OUTPUT_DIR", "")
+    if timing_dir_raw:
+        timing_output_dir = Path(timing_dir_raw).expanduser()
+        if not timing_output_dir.is_absolute():
+            timing_output_dir = (Path.cwd() / timing_output_dir).resolve()
+    else:
+        timing_output_dir = _SCRIPT_DIR / "agent_workspace" / "timing_reports"
+
+    return {
+        "model_name": model_name,
+        "model_max_tokens": model_max_tokens,
+        "router_host": router_host,
+        "router_port": router_port,
+        "llm_base_url_raw": llm_base_url_raw,
+        "llm_api_key": llm_api_key,
+        "task_processes": max(1, _cfg_int(raw, "task_processes", "HEAVY_SWARM_TASK_PROCESSES", 6)),
+        "task_limit": max(1, _cfg_int(raw, "task_limit", "HEAVY_SWARM_TASK_LIMIT", 80)),
+        "task_start_offset": max(0, _cfg_int(raw, "task_start_offset", "HEAVY_SWARM_TASK_START_OFFSET", 0)),
+        "tasks_file": _cfg_str(raw, "tasks_file", "HEAVY_SWARM_TASKS_FILE", ""),
+        "swarm_name": _cfg_str(raw, "swarm_name", "HEAVY_SWARM_NAME", "Research Team"),
+        "swarm_description": _cfg_str(raw, "swarm_description", "HEAVY_SWARM_DESCRIPTION", "Multi-agent analysis system"),
+        "swarm_timeout": _cfg_int(raw, "swarm_timeout", "HEAVY_SWARM_TIMEOUT", 300),
+        "swarm_aggregation_strategy": _cfg_str(raw, "swarm_aggregation_strategy", "HEAVY_SWARM_AGGREGATION_STRATEGY", "synthesis"),
+        "swarm_loops_per_agent": _cfg_int(raw, "swarm_loops_per_agent", "HEAVY_SWARM_LOOPS_PER_AGENT", 1),
+        "swarm_max_loops": _cfg_int(raw, "swarm_max_loops", "HEAVY_SWARM_MAX_LOOPS", 1),
+        "swarm_max_workers": _cfg_int(raw, "swarm_max_workers", "HEAVY_SWARM_MAX_WORKERS", 4),
+        "swarm_show_dashboard": _cfg_bool(raw, "swarm_show_dashboard", "HEAVY_SWARM_SHOW_DASHBOARD", False),
+        "swarm_streaming_on": _cfg_bool(raw, "swarm_streaming_on", "HEAVY_SWARM_STREAMING", True),
+        "swarm_agent_prints_on": _cfg_bool(raw, "swarm_agent_prints_on", "HEAVY_SWARM_AGENT_PRINTS_ON", False),
+        "swarm_output_type": _cfg_str(raw, "swarm_output_type", "HEAVY_SWARM_OUTPUT_TYPE", "dict-all-except-first"),
+        "swarm_random_loops_per_agent": _cfg_bool(raw, "swarm_random_loops_per_agent", "HEAVY_SWARM_RANDOM_LOOPS_PER_AGENT", False),
+        "swarm_verbose": _cfg_bool(raw, "swarm_verbose", "HEAVY_SWARM_VERBOSE", False),
+        "agent_max_tokens": agent_max_tokens_default,
+        "enable_timing_reports": _cfg_bool(raw, "enable_timing_reports", "HEAVY_SWARM_ENABLE_TIMING_REPORTS", True),
+        "results_path": _cfg_str(raw, "results_path", "HEAVY_SWARM_RESULTS_PATH", ""),
+        "summary_csv_for_plot": _cfg_str(raw, "summary_csv_for_plot", "HEAVY_SWARM_SUMMARY_CSV_FOR_PLOT", ""),
+        "timing_output_dir": timing_output_dir,
+    }
+
+
+CFG = _build_config()
+
+
+def _normalize_base_url(raw: str, fallback_host: str = "127.0.0.1", fallback_port: str = "30000") -> str:
     text = (raw or "").strip()
     if not text:
-        text = f"http://{ROUTER_HOST}:{ROUTER_PORT}/v1"
+        text = f"http://{fallback_host}:{fallback_port}/v1"
 
-    # Handle accidental multi-line / multi-value env content by taking first token.
     text = text.split()[0].split(",")[0].strip()
     if "://" not in text:
         text = f"http://{text}"
 
     parsed = urlparse(text)
     if not parsed.hostname:
-        return f"http://{ROUTER_HOST}:{ROUTER_PORT}/v1"
+        return f"http://{fallback_host}:{fallback_port}/v1"
 
     scheme = parsed.scheme or "http"
     host = parsed.hostname
@@ -315,17 +441,18 @@ class TimingRecorder:
         }
 
 
-LLM_BASE_URL = _normalize_base_url(
-    os.getenv("LLM_BASE_URL", f"http://{ROUTER_HOST}:{ROUTER_PORT}/v1")
-)
-LLM_API_KEY = (
-    os.getenv("LLM_API_KEY")
-    or os.getenv("OPENAI_API_KEY")
-    or os.getenv("OPENROUTER_API_KEY")
-    or "sk-local"
-)
+MODEL_NAME = CFG["model_name"]
+ROUTER_HOST = CFG["router_host"]
+ROUTER_PORT = CFG["router_port"]
+LLM_BASE_URL = _normalize_base_url(CFG["llm_base_url_raw"], ROUTER_HOST, ROUTER_PORT)
+LLM_API_KEY = CFG["llm_api_key"]
+TIMING_OUTPUT_DIR = CFG["timing_output_dir"]
 
-# Route local router traffic directly: disable external proxies.
+TASK_PROCESSES = CFG["task_processes"]
+TASK_LIMIT = CFG["task_limit"]
+TASK_START_OFFSET = CFG["task_start_offset"]
+ENABLE_TIMING_REPORTS = CFG["enable_timing_reports"]
+
 for key in (
     "http_proxy",
     "https_proxy",
@@ -336,16 +463,15 @@ for key in (
 ):
     os.environ[key] = ""
 
-# Must set no_proxy before client initialization.
-router_host = urlparse(LLM_BASE_URL).hostname or ""
+_router_host_parsed = urlparse(LLM_BASE_URL).hostname or ""
 for key in ("no_proxy", "NO_PROXY"):
     existing = [
         item.strip()
         for item in os.environ.get(key, "").split(",")
         if item.strip()
     ]
-    if router_host and router_host not in existing:
-        existing.append(router_host)
+    if _router_host_parsed and _router_host_parsed not in existing:
+        existing.append(_router_host_parsed)
     for fixed in ("127.0.0.1", "localhost", "0.0.0.0", "::1"):
         if fixed not in existing:
             existing.append(fixed)
@@ -353,7 +479,7 @@ for key in ("no_proxy", "NO_PROXY"):
 
 if litellm is not None:
     litellm.model_cost[MODEL_NAME] = {
-        "max_tokens": 32768,
+        "max_tokens": CFG["model_max_tokens"],
         "input_cost_per_token": 0,
         "output_cost_per_token": 0,
     }
@@ -366,132 +492,35 @@ os.environ["OPENAI_API_KEY"] = LLM_API_KEY
 print(f"[heavy_swarm] OPENAI_BASE_URL={LLM_BASE_URL}")
 print(f"[heavy_swarm] OPENAI_API_KEY set={bool(LLM_API_KEY)}")
 
-TASK_PROCESSES = max(
-    1, int(os.getenv("HEAVY_SWARM_TASK_PROCESSES", "6"))
-)
-TASK_LIMIT = max(1, int(os.getenv("HEAVY_SWARM_TASK_LIMIT", "80")))
-SHOW_DASHBOARD = (
-    os.getenv("HEAVY_SWARM_SHOW_DASHBOARD", "0").strip() == "1"
-)
-ENABLE_TIMING_REPORTS = (
-    os.getenv("HEAVY_SWARM_ENABLE_TIMING_REPORTS", "1").strip()
-    == "1"
-)
+TASKS_FILE = _SCRIPT_DIR / "tasks.txt"
 
-tasks = [
-    "Analyze the impact of AI on healthcare",
-    # --- Economy & Business ---
-    "Analyze the impact of AI on retail and e-commerce",
-    "Analyze the impact of AI on manufacturing and automation",
-    "Analyze the impact of AI on supply chain management",
-    "Analyze the impact of AI on marketing and advertising",
-    "Analyze the impact of AI on human resources and recruitment",
-    # --- Society & Law ---
-    "Analyze the impact of AI on the legal system",
-    "Analyze the impact of AI on public safety and surveillance",
-    "Analyze the impact of AI on privacy and data security",
-    "Analyze the impact of AI on journalism and media",
-    "Analyze the impact of AI on cybersecurity",
-    # --- Science & Environment ---
-    "Analyze the impact of AI on environmental sustainability",
-    "Analyze the impact of AI on agriculture and food production",
-    "Analyze the impact of AI on energy management",
-    "Analyze the impact of AI on space exploration",
-    "Analyze the impact of AI on pharmaceutical drug discovery",
-    # --- Culture & Creative ---
-    "Analyze the impact of AI on the entertainment industry",
-    "Analyze the impact of AI on visual arts and design",
-    "Analyze the impact of AI on music composition and production",
-    "Analyze the impact of AI on gaming and interactive media",
-    "Analyze the impact of AI on language translation and linguistics",
-    # --- Education & Learning ---
-    "Analyze the impact of AI on higher education and online learning",
-    "Analyze the impact of AI on K-12 education and personalized learning",
-    "Analyze the impact of AI on skill development and professional training",
-    "Analyze the impact of AI on academic research and scientific discovery",
-    # --- Finance & Banking ---
-    "Analyze the impact of AI on banking and financial services",
-    "Analyze the impact of AI on investment and trading",
-    "Analyze the impact of AI on fraud detection and risk management",
-    "Analyze the impact of AI on insurance industry",
-    # --- Transportation & Logistics ---
-    "Analyze the impact of AI on autonomous vehicles and transportation",
-    "Analyze the impact of AI on drone delivery and logistics",
-    "Analyze the impact of AI on traffic management and urban planning",
-    "Analyze the impact of AI on aviation and pilot assistance",
-    # --- Communication & Social ---
-    "Analyze the impact of AI on social media and content moderation",
-    "Analyze the impact of AI on customer service and chatbots",
-    "Analyze the impact of AI on natural language processing",
-    "Analyze the impact of AI on accessibility and assistive technologies",
-    # --- Real Estate & Construction ---
-    "Analyze the impact of AI on real estate and property valuation",
-    "Analyze the impact of AI on architecture and building design",
-    "Analyze the impact of AI on construction management and safety",
-    # --- Sports & Recreation ---
-    "Analyze the impact of AI on sports analytics and performance optimization",
-    "Analyze the impact of AI on fitness tracking and health monitoring",
-    "Analyze the impact of AI on sports training and coaching",
-    # --- Fashion & Retail ---
-    "Analyze the impact of AI on fashion design and trend forecasting",
-    "Analyze the impact of AI on personal styling and recommendation systems",
-    "Analyze the impact of AI on inventory management in retail",
-    # --- Travel & Hospitality ---
-    "Analyze the impact of AI on travel booking and recommendation engines",
-    "Analyze the impact of AI on hotel management and customer experience",
-    "Analyze the impact of AI on tourism and destination planning",
-    # --- Manufacturing & Quality ---
-    "Analyze the impact of AI on quality control and defect detection",
-    "Analyze the impact of AI on predictive maintenance in factories",
-    "Analyze the impact of AI on robotics and industrial automation",
-    # --- Government & Public Sector ---
-    "Analyze the impact of AI on government efficiency and public services",
-    "Analyze the impact of AI on tax compliance and revenue management",
-    "Analyze the impact of AI on disaster response and emergency management",
-    # --- Ethics & Philosophy ---
-    "Analyze the ethical implications of AI decision-making systems",
-    "Analyze the impact of AI on human autonomy and free will",
-    "Analyze the impact of AI on bias and fairness in decision systems",
-    # --- Additional Healthcare Applications ---
-    "Analyze the impact of AI on medical imaging and diagnostics",
-    "Analyze the impact of AI on personalized medicine and treatment plans",
-    "Analyze the impact of AI on mental health and psychological support",
-    "Analyze the impact of AI on elderly care and nursing assistance",
-    # --- Additional Environmental Applications ---
-    "Analyze the impact of AI on climate change prediction and modeling",
-    "Analyze the impact of AI on wildlife conservation and monitoring",
-    "Analyze the impact of AI on water resource management",
-    "Analyze the impact of AI on renewable energy optimization",
-    # --- Additional Scientific Research Applications ---
-    "Analyze the impact of AI on genomics and genetic research",
-    "Analyze the impact of AI on materials science and discovery",
-    "Analyze the impact of AI on particle physics and cosmology",
-    "Analyze the impact of AI on neuroscience and brain research",
-    # --- Additional Social & Cultural Applications ---
-    "Analyze the impact of AI on language preservation and revitalization",
-    "Analyze the impact of AI on cultural heritage preservation",
-    "Analyze the impact of AI on social inequality and digital divide",
-    "Analyze the impact of AI on human creativity and expression",
-    "Analyze the impact of AI on interpersonal communication and relationships",
-    # --- Additional Education Applications ---
-    "Analyze the impact of AI on special education and inclusive learning",
-    "Analyze the impact of AI on educational assessment and testing",
-    "Analyze the impact of AI on lifelong learning and adult education",
-    "Analyze the impact of AI on educational administration and policy",
-    "Analyze the impact of AI on language learning and acquisition",
-    # --- Additional Finance Applications ---
-    "Analyze the impact of AI on cryptocurrency and blockchain technology",
-    "Analyze the impact of AI on financial inclusion and microfinance",
-    "Analyze the impact of AI on central banking and monetary policy",
-    "Analyze the impact of AI on financial literacy and education",
-    "Analyze the impact of AI on wealth management and financial planning",
-    # -- Additional Transportation Applications ---
-    "Analyze the impact of AI on public transportation and transit systems",
-    "Analyze the impact of AI on maritime transportation and shipping",
-    "Analyze the impact of AI on logistics and supply chain optimization",
-    "Analyze the impact of AI on traffic safety and accident prevention",
-    "Analyze the impact of AI on urban mobility and smart cities",
-]
+
+def _load_tasks(filepath: Path = TASKS_FILE) -> List[str]:
+    custom = CFG["tasks_file"]
+    if custom:
+        filepath = Path(custom).expanduser()
+        if not filepath.is_absolute():
+            filepath = (Path.cwd() / filepath).resolve()
+
+    if not filepath.exists():
+        raise FileNotFoundError(
+            f"Tasks file not found: {filepath}. "
+            "Create one with one task per line, or set tasks_file in config."
+        )
+
+    items: List[str] = []
+    with filepath.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                items.append(stripped)
+    if not items:
+        raise ValueError(f"Tasks file is empty: {filepath}")
+    return items
+
+
+tasks = _load_tasks()
+
 
 def _build_swarm() -> HeavySwarm:
     if HeavySwarm is None:
@@ -500,15 +529,24 @@ def _build_swarm() -> HeavySwarm:
             "dependencies before executing HeavySwarm tasks."
         )
     return HeavySwarm(
-        name="Research Team",
-        description="Multi-agent analysis system",
+        name=CFG["swarm_name"],
+        description=CFG["swarm_description"],
         worker_model_name=MODEL_NAME,
         question_agent_model_name=MODEL_NAME,
-        show_dashboard=SHOW_DASHBOARD,
+        timeout=CFG["swarm_timeout"],
+        aggregation_strategy=CFG["swarm_aggregation_strategy"],
+        loops_per_agent=CFG["swarm_loops_per_agent"],
+        max_loops=CFG["swarm_max_loops"],
+        max_workers=CFG["swarm_max_workers"],
+        show_dashboard=CFG["swarm_show_dashboard"],
+        streaming_on=CFG["swarm_streaming_on"],
+        agent_prints_on=CFG["swarm_agent_prints_on"],
+        output_type=CFG["swarm_output_type"],
+        random_loops_per_agent=CFG["swarm_random_loops_per_agent"],
+        verbose=CFG["swarm_verbose"],
         llm_base_url=LLM_BASE_URL,
         llm_api_key=LLM_API_KEY,
-        max_workers=4,
-        streaming_on=True,  # Enable streaming for faster fault detection
+        agent_max_tokens=CFG["agent_max_tokens"],
     )
 
 
@@ -521,11 +559,44 @@ def _run_one_task(task_item: Tuple[int, str]) -> Dict[str, Any]:
 
     original_completion = litellm_wrapper.completion
 
+    def _wrap_streaming_response(gen, agent, start):
+        """Wrap a streaming generator to record timing after all chunks."""
+        last_chunk = None
+        recorded = False
+        try:
+            for chunk in gen:
+                last_chunk = chunk
+                yield chunk
+        except Exception as exc:
+            recorded = True
+            recorder.record_request(
+                agent=agent,
+                latency_seconds=time.perf_counter() - start,
+                response=None,
+                error=str(exc),
+            )
+            raise
+        finally:
+            if not recorded:
+                recorder.record_request(
+                    agent=agent,
+                    latency_seconds=time.perf_counter() - start,
+                    response=last_chunk,
+                )
+
     def timed_completion(*args, **kwargs):
         agent = _extract_agent_from_kwargs(kwargs)
+        if kwargs.get("stream"):
+            kwargs.setdefault(
+                "stream_options", {"include_usage": True}
+            )
         start = time.perf_counter()
         try:
             response = original_completion(*args, **kwargs)
+            if kwargs.get("stream"):
+                return _wrap_streaming_response(
+                    response, agent, start
+                )
             recorder.record_request(
                 agent=agent,
                 latency_seconds=time.perf_counter() - start,
@@ -1179,9 +1250,7 @@ def _save_timing_reports(results: List[Dict[str, Any]]) -> None:
 
 
 def main() -> None:
-    summary_csv_for_plot = os.getenv(
-        "HEAVY_SWARM_SUMMARY_CSV_FOR_PLOT", ""
-    ).strip()
+    summary_csv_for_plot = CFG["summary_csv_for_plot"]
     if summary_csv_for_plot:
         summary_csv_path = Path(summary_csv_for_plot).expanduser()
         if not summary_csv_path.is_absolute():
@@ -1220,7 +1289,8 @@ def main() -> None:
             )
         return
 
-    selected_tasks = tasks[:TASK_LIMIT]
+    all_candidate_tasks = tasks[:TASK_START_OFFSET + TASK_LIMIT]
+    selected_tasks = all_candidate_tasks[TASK_START_OFFSET:]
     if not selected_tasks:
         print("[heavy_swarm] No tasks selected.")
         return
@@ -1238,8 +1308,16 @@ def main() -> None:
         )
         return
 
-    indexed_tasks = list(enumerate(selected_tasks))
+    indexed_tasks = [
+        (TASK_START_OFFSET + i, task)
+        for i, task in enumerate(selected_tasks)
+    ]
     workers = min(TASK_PROCESSES, len(indexed_tasks))
+    if TASK_START_OFFSET > 0:
+        print(
+            f"[heavy_swarm] Task start offset: {TASK_START_OFFSET} "
+            f"(skipping first {TASK_START_OFFSET} tasks)"
+        )
     print(
         f"[heavy_swarm] Running {len(indexed_tasks)} task(s) "
         f"with {workers} process(es)."
@@ -1253,7 +1331,7 @@ def main() -> None:
 
     results = sorted(results, key=lambda item: item["task_index"])
 
-    output_path = os.getenv("HEAVY_SWARM_RESULTS_PATH", "").strip()
+    output_path = CFG["results_path"]
     if output_path:
         with open(output_path, "w", encoding="utf-8") as handle:
             json.dump(results, handle, ensure_ascii=False, indent=2)

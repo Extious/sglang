@@ -43,6 +43,8 @@ if str(_SCRIPT_DIR / "src" / "router") not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR / "src" / "router"))
 if str(_SCRIPT_DIR / "script") not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR / "script"))
+if str(_SCRIPT_DIR / "script" / "kvcache") not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR / "script" / "kvcache"))
 
 from metrics_collector import MetricsCollector, RequestMetrics, load_worker_urls
 from radix_tree_visualizer import RadixTreeVisualizer

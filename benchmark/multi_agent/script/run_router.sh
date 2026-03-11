@@ -19,6 +19,10 @@ WORKER_URLS_FILE="${WORKER_URLS_FILE:-${SCRIPT_DIR}/../logs/worker_urls.txt}"
 WORKER_URLS="${WORKER_URLS:-}"
 AUTO_PORT_PICK="${AUTO_PORT_PICK:-1}"
 KILL_EXISTING_ROUTER="${KILL_EXISTING_ROUTER:-0}"
+USE_PYTHON_ROUTER="${USE_PYTHON_ROUTER:-1}"
+CHUNK_TIMEOUT_SECS="${CHUNK_TIMEOUT_SECS:-60}"
+REQUEST_TIMEOUT_SECS="${REQUEST_TIMEOUT_SECS:-300}"
+PYTHON_ROUTER_CACHE_AWARE_PRESET="${PYTHON_ROUTER_CACHE_AWARE_PRESET:-python}"
 
 usage() {
     cat <<EOF
@@ -39,6 +43,13 @@ Options:
   --worker-url-host HOST      Fallback worker host
   --kill-existing-router      Kill existing sglang::router that owns conflicted port(s)
   --no-auto-port              Disable automatic free-port fallback
+  --use-python-router         Use Python router instead of Rust sglang_router
+  --python-router-cache-aware-preset PRESET
+                              Cache-aware preset for Python router: python|deploy
+                              python -> python_router.py defaults
+                              deploy -> align to deploy/Rust cache-aware defaults
+  --chunk-timeout-secs SECS   Chunk idle timeout for Python router (default: 60)
+  --request-timeout-secs SECS Request timeout (default: 300)
   -h, --help                  Show this help
 EOF
 }
@@ -97,6 +108,22 @@ while [[ $# -gt 0 ]]; do
             AUTO_PORT_PICK=0
             shift
             ;;
+        --use-python-router)
+            USE_PYTHON_ROUTER=1
+            shift
+            ;;
+        --python-router-cache-aware-preset)
+            PYTHON_ROUTER_CACHE_AWARE_PRESET="$2"
+            shift 2
+            ;;
+        --chunk-timeout-secs)
+            CHUNK_TIMEOUT_SECS="$2"
+            shift 2
+            ;;
+        --request-timeout-secs)
+            REQUEST_TIMEOUT_SECS="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             exit 0
@@ -108,6 +135,35 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+PY_CACHE_THRESHOLD_DEFAULT="0.5"
+PY_BALANCE_ABS_THRESHOLD_DEFAULT="32"
+PY_BALANCE_REL_THRESHOLD_DEFAULT="1.1"
+PY_EVICTION_INTERVAL_SECS_DEFAULT="30"
+PY_MAX_TREE_SIZE_DEFAULT="$((2 ** 20))"
+
+case "${PYTHON_ROUTER_CACHE_AWARE_PRESET}" in
+    python)
+        ;;
+    deploy)
+        PY_CACHE_THRESHOLD_DEFAULT="0.3"
+        PY_BALANCE_ABS_THRESHOLD_DEFAULT="64"
+        PY_BALANCE_REL_THRESHOLD_DEFAULT="1.5"
+        PY_EVICTION_INTERVAL_SECS_DEFAULT="120"
+        PY_MAX_TREE_SIZE_DEFAULT="$((2 ** 26))"
+        ;;
+    *)
+        echo "ERROR: invalid --python-router-cache-aware-preset: ${PYTHON_ROUTER_CACHE_AWARE_PRESET}" >&2
+        echo "Valid values: python, deploy" >&2
+        exit 1
+        ;;
+esac
+
+PY_CACHE_THRESHOLD="${PY_CACHE_THRESHOLD:-${PY_CACHE_THRESHOLD_DEFAULT}}"
+PY_BALANCE_ABS_THRESHOLD="${PY_BALANCE_ABS_THRESHOLD:-${PY_BALANCE_ABS_THRESHOLD_DEFAULT}}"
+PY_BALANCE_REL_THRESHOLD="${PY_BALANCE_REL_THRESHOLD:-${PY_BALANCE_REL_THRESHOLD_DEFAULT}}"
+PY_EVICTION_INTERVAL_SECS="${PY_EVICTION_INTERVAL_SECS:-${PY_EVICTION_INTERVAL_SECS_DEFAULT}}"
+PY_MAX_TREE_SIZE="${PY_MAX_TREE_SIZE:-${PY_MAX_TREE_SIZE_DEFAULT}}"
 
 export PYTHONPATH="${REPO_ROOT}/python:${PYTHONPATH:-}"
 export LC_ALL="${LC_ALL:-C.UTF-8}"
@@ -275,29 +331,67 @@ echo "  prometheus: ${PROMETHEUS_HOST}:${PROMETHEUS_PORT}"
 echo "  policy: ${ROUTER_POLICY}"
 echo "  model: ${MODEL_PATH}"
 echo "  workers: ${WORKER_URLS}"
+echo "  backend: $([ "${USE_PYTHON_ROUTER}" -eq 1 ] && echo 'python' || echo 'rust')"
 echo "  NO_PROXY: ${NO_PROXY}"
 echo ""
-echo "Optimized timeout settings for fault tolerance:"
-echo "  request-timeout: 5s"
+echo "Timeout settings:"
+echo "  request-timeout: ${REQUEST_TIMEOUT_SECS}s"
+echo "  chunk-timeout: ${CHUNK_TIMEOUT_SECS}s (python router only)"
 echo "  health-check-interval: 5s"
 echo "  health-failure-threshold: 2"
 echo "  health-success-threshold: 2"
 echo "  retry-max-retries: 2"
+if [ "${USE_PYTHON_ROUTER}" -eq 1 ]; then
+    echo "Python cache-aware settings:"
+    echo "  preset: ${PYTHON_ROUTER_CACHE_AWARE_PRESET}"
+    echo "  cache-threshold: ${PY_CACHE_THRESHOLD}"
+    echo "  balance-abs-threshold: ${PY_BALANCE_ABS_THRESHOLD}"
+    echo "  balance-rel-threshold: ${PY_BALANCE_REL_THRESHOLD}"
+    echo "  eviction-interval-secs: ${PY_EVICTION_INTERVAL_SECS}"
+    echo "  max-tree-size: ${PY_MAX_TREE_SIZE}"
+fi
 
-python -m sglang_router.launch_router \
-    --worker-urls "${WORKER_URLS_ARR[@]}" \
-    --policy "${ROUTER_POLICY}" \
-    --host "${ROUTER_HOST}" \
-    --port "${ROUTER_PORT}" \
-    --prometheus-host "${PROMETHEUS_HOST}" \
-    --prometheus-port "${PROMETHEUS_PORT}" \
-    --model-path "${MODEL_PATH}" \
-    --request-timeout-secs 5 \
-    --health-check-interval-secs 5 \
-    --health-failure-threshold 2 \
-    --health-success-threshold 2 \
-    --retry-max-retries 2 \
-    --retry-initial-backoff-ms 50 &
+if [ "${USE_PYTHON_ROUTER}" -eq 1 ]; then
+    PYTHON_ROUTER_SCRIPT="${SCRIPT_DIR}/../src/router/python_router.py"
+    if [ ! -f "${PYTHON_ROUTER_SCRIPT}" ]; then
+        echo "ERROR: Python router not found at ${PYTHON_ROUTER_SCRIPT}" >&2
+        exit 1
+    fi
+    python "${PYTHON_ROUTER_SCRIPT}" \
+        --worker-urls "${WORKER_URLS_ARR[@]}" \
+        --host "${ROUTER_HOST}" \
+        --port "${ROUTER_PORT}" \
+        --model-path "${MODEL_PATH}" \
+        --cache-threshold "${PY_CACHE_THRESHOLD}" \
+        --balance-abs-threshold "${PY_BALANCE_ABS_THRESHOLD}" \
+        --balance-rel-threshold "${PY_BALANCE_REL_THRESHOLD}" \
+        --eviction-interval-secs "${PY_EVICTION_INTERVAL_SECS}" \
+        --max-tree-size "${PY_MAX_TREE_SIZE}" \
+        --request-timeout-secs "${REQUEST_TIMEOUT_SECS}" \
+        --chunk-timeout-secs "${CHUNK_TIMEOUT_SECS}" \
+        --health-check-interval-secs 5 \
+        --health-failure-threshold 2 \
+        --health-success-threshold 2 \
+        --retry-max-retries 2 \
+        --retry-initial-backoff-ms 50 \
+        --prometheus-host "${PROMETHEUS_HOST}" \
+        --prometheus-port "${PROMETHEUS_PORT}" &
+else
+    python -m sglang_router.launch_router \
+        --worker-urls "${WORKER_URLS_ARR[@]}" \
+        --policy "${ROUTER_POLICY}" \
+        --host "${ROUTER_HOST}" \
+        --port "${ROUTER_PORT}" \
+        --prometheus-host "${PROMETHEUS_HOST}" \
+        --prometheus-port "${PROMETHEUS_PORT}" \
+        --model-path "${MODEL_PATH}" \
+        --request-timeout-secs "${REQUEST_TIMEOUT_SECS}" \
+        --health-check-interval-secs 5 \
+        --health-failure-threshold 2 \
+        --health-success-threshold 2 \
+        --retry-max-retries 2 \
+        --retry-initial-backoff-ms 50 &
+fi
 ROUTER_PID=$!
 
 READY=0

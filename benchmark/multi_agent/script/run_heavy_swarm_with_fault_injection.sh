@@ -61,7 +61,7 @@ ROUTER_BASE_URL="${ROUTER_BASE_URL:-http://${ROUTER_HOST}:${ROUTER_PORT}}"
 
 # Python configuration
 PYTHON_BIN="${PYTHON_BIN:-python3}"
-HEAVY_SWARM_SCRIPT="${HEAVY_SWARM_SCRIPT:-${SCRIPT_DIR}/../src/application/swarms/heavy_swarm.py}"
+HEAVY_SWARM_SCRIPT="${HEAVY_SWARM_SCRIPT:-${HOME}/swarms/heavy_swarm.py}"
 
 # Output configuration
 RESULTS_PATH="${RESULTS_PATH:-}"

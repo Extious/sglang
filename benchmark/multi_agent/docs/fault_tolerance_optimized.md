@@ -50,6 +50,7 @@ cd /home/comp/25482351/sglang/benchmark/multi_agent/script
 
 # 运行完整测试（自动重启路由器 + 故障注入）
 ./run_fault_tolerance_test.sh
+# 注意：swarms 子项目已移至 ~/swarms/
 ```
 
 这个脚本会：
@@ -67,6 +68,7 @@ pkill -f "sglang::router"
 # 启动优化配置的路由器
 cd /home/comp/25482351/sglang/benchmark/multi_agent/script
 ./run_router.sh --worker-urls-file ../logs/worker_urls.txt
+# 注意：swarms 子项目已移至 ~/swarms/
 ```
 
 #### 步骤 2：运行故障注入测试
@@ -129,18 +131,18 @@ T+40s+: Worker 重新接收请求
 
 ### 路由器日志
 ```bash
-tail -f /home/comp/25482351/sglang/benchmark/multi_agent/logs/router_optimized.log
+tail -f ~/sglang/benchmark/multi_agent/logs/router_optimized.log
 ```
 
 ### 故障注入日志
 ```bash
-tail -f /home/comp/25482351/sglang/benchmark/multi_agent/logs/fault_injection_optimized_*.log
+tail -f ~/sglang/benchmark/multi_agent/logs/fault_injection_optimized_*.log
 ```
 
 ### 性能报告
 测试完成后查看：
 ```bash
-ls -lt /home/comp/25482351/sglang/benchmark/multi_agent/src/application/swarms/agent_workspace/timing_reports/
+ls -lt ~/swarms/agent_workspace/timing_reports/
 ```
 
 ## 故障排查
@@ -169,7 +171,7 @@ export HEAVY_SWARM_TASK_PROCESSES=3  # 从 6 减少到 3
 
 检查 HeavySwarm 是否支持 `streaming_on` 参数：
 ```bash
-grep -A5 "streaming_on" /home/comp/25482351/sglang/benchmark/multi_agent/src/application/swarms/swarms/swarms/structs/heavy_swarm.py
+grep -A5 "streaming_on" ~/swarms/swarms/swarms/structs/heavy_swarm.py
 ```
 
 如果不支持，可以移除该参数，优化的超时配置仍然有效。
@@ -190,7 +192,8 @@ cd /home/comp/25482351/sglang/benchmark/multi_agent/script
 git diff run_router.sh
 git checkout run_router.sh
 
-cd ../src/application/swarms
+# swarms 子项目已移至 ~/swarms/
+cd ~/swarms
 git diff heavy_swarm.py
 git checkout heavy_swarm.py
 ```

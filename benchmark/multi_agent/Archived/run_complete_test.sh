@@ -226,7 +226,7 @@ run_fault_injection_test() {
 analyze_results() {
     log_info "Step 4: Analyzing results..."
 
-    local timing_dir="${REPO_ROOT}/benchmark/multi_agent/src/application/swarms/agent_workspace/timing_reports"
+    local timing_dir="${HOME}/swarms/agent_workspace/timing_reports"
 
     if [ ! -d "$timing_dir" ]; then
         log_warning "Timing reports directory not found"
@@ -322,7 +322,7 @@ main() {
     log_success "Pipeline completed successfully!"
     echo ""
     echo "Next steps:"
-    echo "  1. Check timing reports: ls -lt ${REPO_ROOT}/benchmark/multi_agent/src/application/swarms/agent_workspace/timing_reports/"
+    echo "  1. Check timing reports: ls -lt ${HOME}/swarms/agent_workspace/timing_reports/"
     echo "  2. View logs: ls -lt ${REPO_ROOT}/benchmark/multi_agent/logs/"
     echo "  3. Stop workers: scancel \$(cat ${SCRIPT_DIR}/../logs/current_slurm_job_id.txt)"
 }

@@ -45,7 +45,6 @@ def apply_torchao_config_to_model(
     if torchao_config == "" or torchao_config is None:
         return model
 
-    # Lazy import to suppress some warnings; only needed when quantization is enabled.
     try:
         from torchao.quantization import (
             float8_dynamic_activation_float8_weight,

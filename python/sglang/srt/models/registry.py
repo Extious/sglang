@@ -19,8 +19,10 @@ class _ModelRegistry:
     # Keyed by model_arch
     models: Dict[str, Union[Type[nn.Module], str]] = field(default_factory=dict)
 
-    def register(self, package_name: str, overwrite: bool = False):
-        new_models = import_model_classes(package_name)
+    def register(
+        self, package_name: str, overwrite: bool = False, strict: bool = False
+    ):
+        new_models = import_model_classes(package_name, strict=strict)
         if overwrite:
             self.models.update(new_models)
         else:
@@ -88,7 +90,7 @@ class _ModelRegistry:
 
 
 @lru_cache()
-def import_model_classes(package_name: str):
+def import_model_classes(package_name: str, strict: bool = False):
     model_arch_name_to_cls = {}
     package = importlib.import_module(package_name)
     def _try_register_module(mod_name: str) -> None:
@@ -147,5 +149,5 @@ def import_model_classes(package_name: str):
 ModelRegistry = _ModelRegistry()
 ModelRegistry.register("sglang.srt.models")
 
-if envs.SGLANG_EXTERNAL_MODEL_PACKAGE.value:
-    ModelRegistry.register(envs.SGLANG_EXTERNAL_MODEL_PACKAGE.value, overwrite=True)
+if external_pkg := envs.SGLANG_EXTERNAL_MODEL_PACKAGE.get():
+    ModelRegistry.register(external_pkg, overwrite=True)

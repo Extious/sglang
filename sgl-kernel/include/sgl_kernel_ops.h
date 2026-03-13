@@ -401,7 +401,8 @@ void fused_qk_norm_rope(
     double factor,
     double low,
     double high,
-    double attention_factor);
+    double attention_factor,
+    int64_t rotary_dim);
 
 void cutlass_fp4_group_mm(
     torch::Tensor& output,
@@ -934,15 +935,6 @@ void es_sm100_mxfp8_blockscaled_grouped_quant(
     const torch::Tensor& blockscale_offsets,
     torch::Tensor& quant_output,
     torch::Tensor& scale_factor);
-
-/*
- * From fast-hadamard-transform
- */
-torch::Tensor fast_hadamard_transform(torch::Tensor& x, double scale);
-torch::Tensor fast_hadamard_transform_12N(torch::Tensor& x, double scale);
-torch::Tensor fast_hadamard_transform_20N(torch::Tensor& x, double scale);
-torch::Tensor fast_hadamard_transform_28N(torch::Tensor& x, double scale);
-torch::Tensor fast_hadamard_transform_40N(torch::Tensor& x, double scale);
 
 /*
  * From flashmla

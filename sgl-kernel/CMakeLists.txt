@@ -92,7 +92,7 @@ FetchContent_Populate(repo-flashinfer)
 FetchContent_Declare(
     repo-flash-attention
     GIT_REPOSITORY https://github.com/sgl-project/sgl-attn
-    GIT_TAG        f20a52329482ddca4a627b2f028f88c2959ee299
+    GIT_TAG        f866ec34002250e74c8bbcbcffa0e1ae71300b2d
     GIT_SHALLOW    OFF
 )
 FetchContent_Populate(repo-flash-attention)
@@ -106,15 +106,6 @@ FetchContent_Declare(
 )
 FetchContent_Populate(repo-mscclpp)
 
-# fast-hadamard-transform
-FetchContent_Declare(
-    repo-fast-hadamard-transform
-    GIT_REPOSITORY https://github.com/sgl-project/fast-hadamard-transform.git
-    GIT_TAG 48f3c13764dc2ec662ade842a4696a90a137f1bc
-    GIT_SHALLOW OFF
-)
-FetchContent_Populate(repo-fast-hadamard-transform)
-
 # ccache option
 option(ENABLE_CCACHE "Whether to use ccache" ON)
 find_program(CCACHE_FOUND ccache)
@@ -124,13 +115,15 @@ if(CCACHE_FOUND AND ENABLE_CCACHE AND DEFINED ENV{CCACHE_DIR})
     set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK "ccache")
 endif()
 
-# Enable gencode below SM90
-option(ENABLE_BELOW_SM90 "Enable below SM90" ON)
-
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-    set(ENABLE_BELOW_SM90 OFF)
+# Configure gencode below SM90
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+    set(DEFAULT_ENABLE_BELOW_SM90 OFF)
     message(STATUS "For aarch64, disable gencode below SM90 by default")
+else()
+    set(DEFAULT_ENABLE_BELOW_SM90 ON)
 endif()
+
+option(ENABLE_BELOW_SM90 "Enable gencode below SM90" ${DEFAULT_ENABLE_BELOW_SM90})
 
 include_directories(
     ${PROJECT_SOURCE_DIR}/include
@@ -341,9 +334,6 @@ set(SOURCES
     "${repo-flashinfer_SOURCE_DIR}/csrc/renorm.cu"
     "${repo-flashinfer_SOURCE_DIR}/csrc/sampling.cu"
 
-    "${repo-fast-hadamard-transform_SOURCE_DIR}/csrc/fast_hadamard_transform_cuda.cu"
-    "${repo-fast-hadamard-transform_SOURCE_DIR}/csrc/fast_hadamard_transform.cpp"
-
     "${repo-flash-attention_SOURCE_DIR}/csrc/flash_attn/src/flash_fwd_sparse_hdim128_bf16_causal_sm80.cu"
     "${repo-flash-attention_SOURCE_DIR}/csrc/flash_attn/src/flash_fwd_sparse_hdim128_bf16_sm80.cu"
     "${repo-flash-attention_SOURCE_DIR}/csrc/flash_attn/src/flash_fwd_sparse_hdim128_fp16_causal_sm80.cu"
@@ -454,6 +444,8 @@ if (SGL_KERNEL_ENABLE_FA3)
         "-DCUTLASS_TEST_LEVEL=0"
         "-DCUTLASS_TEST_ENABLE_CACHED_RESULTS=1"
         "-DCUTLASS_DEBUG_TRACE_LEVEL=0"
+        "-DCUTLASS_ENABLE_GDC_FOR_SM90"  # For PDL
+        "-DCUTE_SM90_EXTENDED_MMA_SHAPES_ENABLED"  # Necessary for the WGMMA shapes that we use
         "--expt-relaxed-constexpr"
         "--expt-extended-lambda"
         "--use_fast_math"

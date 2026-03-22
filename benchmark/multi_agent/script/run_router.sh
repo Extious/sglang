@@ -20,9 +20,11 @@ WORKER_URLS="${WORKER_URLS:-}"
 AUTO_PORT_PICK="${AUTO_PORT_PICK:-1}"
 KILL_EXISTING_ROUTER="${KILL_EXISTING_ROUTER:-0}"
 USE_PYTHON_ROUTER="${USE_PYTHON_ROUTER:-1}"
-CHUNK_TIMEOUT_SECS="${CHUNK_TIMEOUT_SECS:-60}"
+CHUNK_TIMEOUT_SECS="${CHUNK_TIMEOUT_SECS:-20}"
+PREFILL_TIMEOUT_SECS="${PREFILL_TIMEOUT_SECS:-0}"
 REQUEST_TIMEOUT_SECS="${REQUEST_TIMEOUT_SECS:-300}"
 PYTHON_ROUTER_CACHE_AWARE_PRESET="${PYTHON_ROUTER_CACHE_AWARE_PRESET:-python}"
+ENABLE_FAULT_TOLERANCE="${ENABLE_FAULT_TOLERANCE:-0}"
 
 usage() {
     cat <<EOF
@@ -48,9 +50,26 @@ Options:
                               Cache-aware preset for Python router: python|deploy
                               python -> python_router.py defaults
                               deploy -> align to deploy/Rust cache-aware defaults
-  --chunk-timeout-secs SECS   Chunk idle timeout for Python router (default: 60)
+  --chunk-timeout-secs SECS   Chunk idle timeout for Python router (default: 20)
+  --prefill-timeout-secs SECS Prefill / first-token timeout (default: 0 = same as chunk)
   --request-timeout-secs SECS Request timeout (default: 300)
+  --enable-fault-tolerance    Enable ring failover for peer KV cache replication
   -h, --help                  Show this help
+
+Fault Tolerance:
+  When workers are started with --enable-peer-replication (via deploy_server.py
+  or the SLURM script), each worker replicates its KV cache to the ring
+  neighbor. Pass --enable-fault-tolerance to the router so that on worker
+  failure it routes to the neighbor that already has the failed worker's
+  KV cache replicas, avoiding costly re-prefill.
+
+  Example:
+    # 1. Start workers with peer replication enabled
+    sbatch run_server_qwen_4b.slurm --enable-peer-replication
+
+    # 2. Start router with fault tolerance enabled
+    ./run_router.sh --worker-urls-file ../logs/worker_urls.txt \\
+                    --enable-fault-tolerance
 EOF
 }
 
@@ -120,9 +139,17 @@ while [[ $# -gt 0 ]]; do
             CHUNK_TIMEOUT_SECS="$2"
             shift 2
             ;;
+        --prefill-timeout-secs)
+            PREFILL_TIMEOUT_SECS="$2"
+            shift 2
+            ;;
         --request-timeout-secs)
             REQUEST_TIMEOUT_SECS="$2"
             shift 2
+            ;;
+        --enable-fault-tolerance)
+            ENABLE_FAULT_TOLERANCE=1
+            shift
             ;;
         -h|--help)
             usage
@@ -332,6 +359,7 @@ echo "  policy: ${ROUTER_POLICY}"
 echo "  model: ${MODEL_PATH}"
 echo "  workers: ${WORKER_URLS}"
 echo "  backend: $([ "${USE_PYTHON_ROUTER}" -eq 1 ] && echo 'python' || echo 'rust')"
+echo "  fault-tolerance: $([ "${ENABLE_FAULT_TOLERANCE}" -eq 1 ] && echo 'enabled (ring failover)' || echo 'disabled')"
 echo "  NO_PROXY: ${NO_PROXY}"
 echo ""
 echo "Timeout settings:"
@@ -357,6 +385,10 @@ if [ "${USE_PYTHON_ROUTER}" -eq 1 ]; then
         echo "ERROR: Python router not found at ${PYTHON_ROUTER_SCRIPT}" >&2
         exit 1
     fi
+    FAULT_TOLERANCE_FLAG=""
+    if [ "${ENABLE_FAULT_TOLERANCE}" -eq 1 ]; then
+        FAULT_TOLERANCE_FLAG="--enable-fault-tolerance"
+    fi
     python "${PYTHON_ROUTER_SCRIPT}" \
         --worker-urls "${WORKER_URLS_ARR[@]}" \
         --host "${ROUTER_HOST}" \
@@ -369,11 +401,13 @@ if [ "${USE_PYTHON_ROUTER}" -eq 1 ]; then
         --max-tree-size "${PY_MAX_TREE_SIZE}" \
         --request-timeout-secs "${REQUEST_TIMEOUT_SECS}" \
         --chunk-timeout-secs "${CHUNK_TIMEOUT_SECS}" \
+        --prefill-timeout-secs "${PREFILL_TIMEOUT_SECS}" \
         --health-check-interval-secs 5 \
         --health-failure-threshold 2 \
         --health-success-threshold 2 \
         --retry-max-retries 2 \
         --retry-initial-backoff-ms 50 \
+        ${FAULT_TOLERANCE_FLAG} \
         --prometheus-host "${PROMETHEUS_HOST}" \
         --prometheus-port "${PROMETHEUS_PORT}" &
 else

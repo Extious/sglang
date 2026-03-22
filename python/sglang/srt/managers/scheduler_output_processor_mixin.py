@@ -472,6 +472,10 @@ class SchedulerOutputProcessorMixin:
             if req.finished():
                 self.maybe_collect_routed_experts(req)
 
+                _replicator = getattr(self.tree_cache, "decode_kv_replicator", None)
+                if _replicator is not None:
+                    _replicator.on_request_finished(req)
+
                 if self.server_args.disaggregation_decode_enable_offload_kvcache:
                     # Asynchronously offload KV cache; release_kv_cache will be called after Device->Host transfer completes
                     if not self.decode_offload_manager.offload_kv_cache(req):
@@ -525,6 +529,10 @@ class SchedulerOutputProcessorMixin:
                     )
                     self.abort_request(AbortReq(rid=req.rid))
                 req.grammar.finished = req.finished()
+
+        _replicator = getattr(self.tree_cache, "decode_kv_replicator", None)
+        if _replicator is not None:
+            _replicator.on_decode_step(batch)
 
         self.stream_output(batch.reqs, batch.return_logprob)
         self.token_to_kv_pool_allocator.free_group_end()

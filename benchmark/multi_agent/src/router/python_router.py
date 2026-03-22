@@ -315,6 +315,7 @@ class RouterConfig:
     # Timeouts
     request_timeout_secs: int = 300
     chunk_timeout_secs: float = 60.0
+    prefill_timeout_secs: float = 0
     connect_timeout_secs: int = 10
     # Health check
     health_check_interval_secs: int = 10
@@ -327,6 +328,8 @@ class RouterConfig:
     retry_max_backoff_ms: int = 5000
     retry_backoff_multiplier: float = 1.5
     retry_jitter_factor: float = 0.2
+    # Fault tolerance
+    enable_fault_tolerance: bool = False
     # Prometheus
     prometheus_host: str = "0.0.0.0"
     prometheus_port: int = 29000
@@ -357,6 +360,8 @@ class PythonRouter:
             "retries_total": 0,
             "chunk_timeouts": 0,
         }
+        self._retry_records: List[Dict[str, Any]] = []
+        self._normal_latencies: List[float] = []
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -373,10 +378,21 @@ class PythonRouter:
     def _healthy_indices(self) -> List[int]:
         return [i for i, w in enumerate(self.workers) if w.healthy]
 
-    def select_worker(self, request_text: str) -> Optional[int]:
+    def select_worker(
+        self, request_text: str, failed_worker_idx: Optional[int] = None
+    ) -> Optional[int]:
         healthy = self._healthy_indices()
         if not healthy:
             return None
+
+        if (
+            self.config.enable_fault_tolerance
+            and failed_worker_idx is not None
+        ):
+            ring_target = (failed_worker_idx + 1) % len(self.workers)
+            if ring_target in healthy:
+                self.tree.insert(request_text, self.workers[ring_target].url)
+                return ring_target
 
         loads = [(i, self.workers[i].load) for i in healthy]
         min_load = min(l for _, l in loads)
@@ -456,6 +472,11 @@ class PythonRouter:
     ) -> JSONResponse:
         self._stats["requests_total"] += 1
         excluded = excluded or set()
+        last_failed_idx: Optional[int] = None
+        req_start = time.monotonic()
+        fault_detected_at: Optional[float] = None
+        failed_worker_url = ""
+        user_tag = body.get("user", "")
 
         for attempt in range(1 + self.config.retry_max_retries):
             healthy_available = [
@@ -469,7 +490,7 @@ class PythonRouter:
                     {"error": "No healthy workers available"}, status_code=503
                 )
 
-            idx = self.select_worker(request_text)
+            idx = self.select_worker(request_text, failed_worker_idx=last_failed_idx)
             if idx is None or idx in excluded:
                 idx = min(healthy_available, key=lambda i: self.workers[i].load)
             worker = self.workers[idx]
@@ -483,11 +504,37 @@ class PythonRouter:
                 ) as resp:
                     resp_body = await resp.read()
                     if resp.status in self.config.RETRYABLE_STATUSES:
+                        if fault_detected_at is None:
+                            fault_detected_at = time.monotonic()
+                            failed_worker_url = worker.url
+                        last_failed_idx = idx
                         excluded.add(idx)
                         self._stats["retries_total"] += 1
                         if attempt < self.config.retry_max_retries:
                             await asyncio.sleep(self._backoff(attempt))
                             continue
+                    elapsed_ms = (time.monotonic() - req_start) * 1000
+                    if fault_detected_at is not None:
+                        retry_ms = (time.monotonic() - fault_detected_at) * 1000
+                        record = {
+                            "tokens_before_fault": 0,
+                            "tokens_total": 0,
+                            "total_ms": round(elapsed_ms, 1),
+                            "retry_ms": round(retry_ms, 1),
+                            "from_worker": failed_worker_url,
+                            "to_worker": worker.url,
+                            "mode": "non_stream",
+                            "user": user_tag,
+                        }
+                        self._retry_records.append(record)
+                        logger.info(
+                            "REQUEST_METRIC retried=true mode=non_stream "
+                            "total_ms=%.0f retry_ms=%.0f from=%s to=%s user=%s",
+                            elapsed_ms, retry_ms,
+                            failed_worker_url, worker.url, user_tag,
+                        )
+                    else:
+                        self._normal_latencies.append(elapsed_ms)
                     return JSONResponse(
                         content=None,
                         status_code=resp.status,
@@ -500,6 +547,10 @@ class PythonRouter:
                     )
             except Exception as exc:
                 logger.warning("Worker %s failed: %s", worker.url, exc)
+                if fault_detected_at is None:
+                    fault_detected_at = time.monotonic()
+                    failed_worker_url = worker.url
+                last_failed_idx = idx
                 excluded.add(idx)
                 self._stats["retries_total"] += 1
                 if attempt < self.config.retry_max_retries:
@@ -518,8 +569,31 @@ class PythonRouter:
     ) -> StreamingResponse:
         self._stats["requests_total"] += 1
         excluded: Set[int] = set()
+        last_failed_idx: Optional[int] = None
+        user_tag = body.get("user", "")
 
         async def _try_stream():
+            nonlocal last_failed_idx
+
+            accumulated_text = ""
+            accumulated_tokens = 0
+            orig_max_tokens = body.get("max_tokens") or body.get(
+                "max_completion_tokens"
+            )
+            current_body = body
+
+            req_start = time.monotonic()
+            fault_detected_at: Optional[float] = None
+            tokens_at_fault = 0
+            failed_worker_url = ""
+
+            def _mark_fault(w_url: str) -> None:
+                nonlocal fault_detected_at, tokens_at_fault, failed_worker_url
+                if fault_detected_at is None:
+                    fault_detected_at = time.monotonic()
+                    tokens_at_fault = accumulated_tokens
+                    failed_worker_url = w_url
+
             for attempt in range(1 + self.config.retry_max_retries):
                 healthy_available = [
                     i for i in self._healthy_indices() if i not in excluded
@@ -531,25 +605,35 @@ class PythonRouter:
                     yield _sse_error("No healthy workers available")
                     return
 
-                idx = self.select_worker(request_text)
+                if (
+                    orig_max_tokens is not None
+                    and accumulated_tokens >= orig_max_tokens
+                ):
+                    yield b"data: [DONE]\n\n"
+                    return
+
+                idx = self.select_worker(request_text, failed_worker_idx=last_failed_idx)
                 if idx is None or idx in excluded:
                     idx = min(healthy_available, key=lambda i: self.workers[i].load)
                 worker = self.workers[idx]
                 worker.load += 1
                 try:
+                    prefill_to = self.config.prefill_timeout_secs or self.config.chunk_timeout_secs
                     session = await self._get_session()
                     resp = await session.post(
                         f"{worker.url}{path}",
-                        json=body,
+                        json=current_body,
                         timeout=aiohttp.ClientTimeout(
                             total=None,
                             connect=self.config.connect_timeout_secs,
-                            sock_read=self.config.chunk_timeout_secs,
+                            sock_read=prefill_to,
                         ),
                     )
                     if resp.status >= 400 and resp.status in self.config.RETRYABLE_STATUSES:
                         await resp.release()
                         worker.load -= 1
+                        _mark_fault(worker.url)
+                        last_failed_idx = idx
                         excluded.add(idx)
                         self._stats["retries_total"] += 1
                         if attempt < self.config.retry_max_retries:
@@ -559,21 +643,48 @@ class PythonRouter:
                         return
 
                     try:
-                        async for chunk in resp.content.iter_any():
+                        chunk_to = self.config.chunk_timeout_secs
+                        cur_timeout = prefill_to
+                        while not resp.content.at_eof():
+                            chunk = await asyncio.wait_for(
+                                resp.content.readany(), timeout=cur_timeout
+                            )
                             if chunk:
+                                if not worker.healthy:
+                                    logger.warning(
+                                        "Worker %s removed mid-stream, triggering retry "
+                                        "(accumulated %d tokens)",
+                                        worker.url,
+                                        accumulated_tokens,
+                                    )
+                                    raise RuntimeError(
+                                        f"Worker {worker.url} removed mid-stream"
+                                    )
+                                cur_timeout = chunk_to
+                                text, tokens = _extract_sse_content(chunk)
+                                accumulated_text += text
+                                accumulated_tokens += tokens
                                 yield chunk
                     except asyncio.TimeoutError:
                         self._stats["chunk_timeouts"] += 1
+                        _mark_fault(worker.url)
                         logger.warning(
-                            "Chunk idle timeout (%.0fs) on worker %s, attempt %d/%d",
+                            "Chunk idle timeout (%.0fs) on worker %s, attempt %d/%d "
+                            "(accumulated %d tokens so far)",
                             self.config.chunk_timeout_secs,
                             worker.url,
                             attempt + 1,
                             1 + self.config.retry_max_retries,
+                            accumulated_tokens,
                         )
+                        last_failed_idx = idx
                         excluded.add(idx)
                         self._stats["retries_total"] += 1
                         if attempt < self.config.retry_max_retries:
+                            if accumulated_text:
+                                current_body = _patch_body_for_resume(
+                                    body, accumulated_text, accumulated_tokens,
+                                )
                             await asyncio.sleep(self._backoff(attempt))
                             continue
                         yield _sse_error(
@@ -581,17 +692,62 @@ class PythonRouter:
                         )
                         return
                     except Exception as exc:
+                        _mark_fault(worker.url)
                         logger.warning(
                             "Stream error on worker %s: %s", worker.url, exc
                         )
+                        last_failed_idx = idx
                         excluded.add(idx)
                         self._stats["retries_total"] += 1
                         if attempt < self.config.retry_max_retries:
+                            if accumulated_text:
+                                current_body = _patch_body_for_resume(
+                                    body, accumulated_text, accumulated_tokens,
+                                )
                             await asyncio.sleep(self._backoff(attempt))
                             continue
                         yield _sse_error(str(exc))
                         return
                     else:
+                        elapsed_ms = (time.monotonic() - req_start) * 1000
+                        if fault_detected_at is not None:
+                            retry_ms = (time.monotonic() - fault_detected_at) * 1000
+                            record = {
+                                "tokens_before_fault": tokens_at_fault,
+                                "tokens_total": accumulated_tokens,
+                                "total_ms": round(elapsed_ms, 1),
+                                "retry_ms": round(retry_ms, 1),
+                                "from_worker": failed_worker_url,
+                                "to_worker": worker.url,
+                                "mode": "stream",
+                                "user": user_tag,
+                            }
+                            self._retry_records.append(record)
+                            logger.info(
+                                "REQUEST_METRIC retried=true mode=stream "
+                                "tokens_before_fault=%d tokens_after_retry=%d "
+                                "tokens_total=%d total_ms=%.0f retry_ms=%.0f "
+                                "from=%s to=%s user=%s",
+                                tokens_at_fault,
+                                accumulated_tokens - tokens_at_fault,
+                                accumulated_tokens,
+                                elapsed_ms,
+                                retry_ms,
+                                failed_worker_url,
+                                worker.url,
+                                user_tag,
+                            )
+                        else:
+                            self._normal_latencies.append(elapsed_ms)
+                            if len(self._normal_latencies) % 50 == 0:
+                                logger.info(
+                                    "REQUEST_METRIC retried=false "
+                                    "tokens=%d total_ms=%.0f worker=%s "
+                                    "(sample, every 50th)",
+                                    accumulated_tokens,
+                                    elapsed_ms,
+                                    worker.url,
+                                )
                         return
                     finally:
                         worker.load -= 1
@@ -601,20 +757,32 @@ class PythonRouter:
                             pass
                 except asyncio.TimeoutError:
                     worker.load -= 1
+                    _mark_fault(worker.url)
                     self._stats["chunk_timeouts"] += 1
+                    last_failed_idx = idx
                     excluded.add(idx)
                     self._stats["retries_total"] += 1
                     if attempt < self.config.retry_max_retries:
+                        if accumulated_text:
+                            current_body = _patch_body_for_resume(
+                                body, accumulated_text, accumulated_tokens,
+                            )
                         await asyncio.sleep(self._backoff(attempt))
                         continue
                     yield _sse_error("Connection timeout")
                     return
                 except Exception as exc:
                     worker.load -= 1
+                    _mark_fault(worker.url)
                     logger.warning("Worker %s stream failed: %s", worker.url, exc)
+                    last_failed_idx = idx
                     excluded.add(idx)
                     self._stats["retries_total"] += 1
                     if attempt < self.config.retry_max_retries:
+                        if accumulated_text:
+                            current_body = _patch_body_for_resume(
+                                body, accumulated_text, accumulated_tokens,
+                            )
                         await asyncio.sleep(self._backoff(attempt))
                         continue
                     yield _sse_error(str(exc))
@@ -698,6 +866,71 @@ def _sse_error(msg: str) -> bytes:
     return f"data: {payload}\n\ndata: [DONE]\n\n".encode()
 
 
+def _extract_sse_content(raw: bytes) -> Tuple[str, int]:
+    """Extract accumulated delta text and completion token count from SSE bytes.
+
+    Parses ``data: {...}`` lines from an SSE chunk (which may contain
+    multiple events) and returns ``(text, token_count)``.
+    """
+    import json as _json
+
+    text_parts: List[str] = []
+    token_count = 0
+    for line in raw.split(b"\n"):
+        line = line.strip()
+        if not line.startswith(b"data: "):
+            continue
+        payload = line[6:]
+        if payload == b"[DONE]":
+            continue
+        try:
+            obj = _json.loads(payload)
+        except Exception:
+            continue
+        for choice in obj.get("choices", []):
+            delta = choice.get("delta") or {}
+            content = delta.get("content")
+            if content:
+                text_parts.append(content)
+                token_count += 1
+        usage = obj.get("usage")
+        if usage and usage.get("completion_tokens"):
+            token_count = max(token_count, int(usage["completion_tokens"]))
+    return "".join(text_parts), token_count
+
+
+def _patch_body_for_resume(
+    body: Dict[str, Any],
+    partial_text: str,
+    generated_tokens: int,
+) -> Dict[str, Any]:
+    """Return a copy of *body* adjusted for resume after partial generation.
+
+    - Appends the partial output as an assistant message with
+      ``continue_final_message=True`` so the next worker continues
+      seamlessly.
+    - Reduces ``max_tokens`` by the number of tokens already generated
+      (they become prefill tokens in the retry).
+    """
+    import copy
+
+    new_body = copy.deepcopy(body)
+    messages = new_body.get("messages")
+    if messages is not None and partial_text:
+        messages.append({"role": "assistant", "content": partial_text})
+        new_body["continue_final_message"] = True
+
+    orig_max = new_body.get("max_tokens") or new_body.get("max_completion_tokens")
+    if orig_max is not None and generated_tokens > 0:
+        remaining = max(1, int(orig_max) - generated_tokens)
+        if "max_tokens" in new_body:
+            new_body["max_tokens"] = remaining
+        if "max_completion_tokens" in new_body:
+            new_body["max_completion_tokens"] = remaining
+
+    return new_body
+
+
 # ---------------------------------------------------------------------------
 # FastAPI application
 # ---------------------------------------------------------------------------
@@ -711,8 +944,9 @@ def create_app(config: RouterConfig) -> FastAPI:
         await router.start_background_tasks()
         logger.info(
             "Python router ready — workers=%s, policy=cache_aware, "
-            "chunk_timeout=%.0fs, request_timeout=%ds",
+            "prefill_timeout=%.0fs, chunk_timeout=%.0fs, request_timeout=%ds",
             [w.url for w in router.workers],
+            config.prefill_timeout_secs or config.chunk_timeout_secs,
             config.chunk_timeout_secs,
             config.request_timeout_secs,
         )
@@ -751,11 +985,43 @@ def create_app(config: RouterConfig) -> FastAPI:
             {"url": w.url, "healthy": w.healthy, "load": w.load}
             for w in router.workers
         ]
+        normal_lats = router._normal_latencies
+        retry_recs = router._retry_records
+        retry_summary = {}
+        if retry_recs:
+            retry_summary = {
+                "retried_requests": len(retry_recs),
+                "avg_tokens_before_fault": round(
+                    sum(r["tokens_before_fault"] for r in retry_recs) / len(retry_recs)
+                ),
+                "avg_tokens_total": round(
+                    sum(r["tokens_total"] for r in retry_recs) / len(retry_recs)
+                ),
+                "avg_total_ms": round(
+                    sum(r["total_ms"] for r in retry_recs) / len(retry_recs), 1
+                ),
+                "avg_retry_ms": round(
+                    sum(r["retry_ms"] for r in retry_recs) / len(retry_recs), 1
+                ),
+                "retry_records": retry_recs,
+            }
+        normal_summary = {}
+        if normal_lats:
+            normal_summary = {
+                "normal_requests": len(normal_lats),
+                "avg_latency_ms": round(sum(normal_lats) / len(normal_lats), 1),
+                "p50_latency_ms": round(sorted(normal_lats)[len(normal_lats) // 2], 1),
+                "p99_latency_ms": round(
+                    sorted(normal_lats)[int(len(normal_lats) * 0.99)], 1
+                ),
+            }
         return JSONResponse(
             {
                 "workers": worker_info,
                 "tree_size": router.tree.size,
                 **router._stats,
+                "normal_request_stats": normal_summary,
+                "retry_request_stats": retry_summary,
             }
         )
 
@@ -765,6 +1031,34 @@ def create_app(config: RouterConfig) -> FastAPI:
         router.tree.reset()
         logger.info("Radix tree flushed (old_size=%d)", old_size)
         return JSONResponse({"status": "ok", "evicted_size": old_size})
+
+    @app.post("/remove_worker")
+    async def remove_worker(request: Request):
+        body = await request.json()
+        url = body.get("url", "").rstrip("/")
+        for w in router.workers:
+            if w.url.rstrip("/") == url:
+                w.healthy = False
+                w.consecutive_failures = router.config.health_failure_threshold
+                w.consecutive_successes = 0
+                router.tree.remove_tenant(w.url)
+                logger.info("Worker %s removed (unhealthy + radix cleared)", url)
+                return JSONResponse({"status": "ok", "url": url})
+        return JSONResponse({"status": "error", "message": f"worker {url} not found"}, status_code=404)
+
+    @app.post("/add_worker")
+    async def add_worker(request: Request):
+        body = await request.json()
+        url = body.get("url", "").rstrip("/")
+        for w in router.workers:
+            if w.url.rstrip("/") == url:
+                w.healthy = True
+                w.consecutive_failures = 0
+                w.consecutive_successes = router.config.health_success_threshold
+                router.tree.insert("", w.url)
+                logger.info("Worker %s added (healthy + radix registered)", url)
+                return JSONResponse({"status": "ok", "url": url})
+        return JSONResponse({"status": "error", "message": f"worker {url} not found"}, status_code=404)
 
     async def _handle_openai(request: Request, path: str):
         body = await request.json()
@@ -844,6 +1138,13 @@ def parse_args(argv: Optional[List[str]] = None) -> RouterConfig:
         default=60.0,
         help="Idle timeout between consecutive streaming chunks (seconds)",
     )
+    parser.add_argument(
+        "--prefill-timeout-secs",
+        type=float,
+        default=0,
+        help="Timeout for the first chunk / prefill (seconds). "
+        "0 means use chunk-timeout-secs for both.",
+    )
     parser.add_argument("--connect-timeout-secs", type=int, default=10)
     parser.add_argument("--health-check-interval-secs", type=int, default=10)
     parser.add_argument("--health-check-timeout-secs", type=int, default=5)
@@ -854,6 +1155,14 @@ def parse_args(argv: Optional[List[str]] = None) -> RouterConfig:
     parser.add_argument("--retry-max-backoff-ms", type=int, default=5000)
     parser.add_argument("--retry-backoff-multiplier", type=float, default=1.5)
     parser.add_argument("--retry-jitter-factor", type=float, default=0.2)
+    parser.add_argument(
+        "--enable-fault-tolerance",
+        action="store_true",
+        default=False,
+        help="Enable ring failover for peer KV cache replication. "
+        "When a worker fails, the router prefers routing to the ring "
+        "neighbor (i+1)%%N which holds the failed worker's KV replicas.",
+    )
     parser.add_argument("--prometheus-host", default="0.0.0.0")
     parser.add_argument("--prometheus-port", type=int, default=29000)
     args = parser.parse_args(argv)
@@ -869,6 +1178,7 @@ def parse_args(argv: Optional[List[str]] = None) -> RouterConfig:
         max_tree_size=args.max_tree_size,
         request_timeout_secs=args.request_timeout_secs,
         chunk_timeout_secs=args.chunk_timeout_secs,
+        prefill_timeout_secs=args.prefill_timeout_secs,
         connect_timeout_secs=args.connect_timeout_secs,
         health_check_interval_secs=args.health_check_interval_secs,
         health_check_timeout_secs=args.health_check_timeout_secs,
@@ -879,6 +1189,7 @@ def parse_args(argv: Optional[List[str]] = None) -> RouterConfig:
         retry_max_backoff_ms=args.retry_max_backoff_ms,
         retry_backoff_multiplier=args.retry_backoff_multiplier,
         retry_jitter_factor=args.retry_jitter_factor,
+        enable_fault_tolerance=args.enable_fault_tolerance,
         prometheus_host=args.prometheus_host,
         prometheus_port=args.prometheus_port,
     )

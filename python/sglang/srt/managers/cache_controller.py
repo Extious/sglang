@@ -472,7 +472,7 @@ class HiCacheController:
             self.page_get_func = self._generic_page_get
             self.page_set_func = self._generic_page_set
 
-            if (self.storage_backend_type in ["hf3fs", "mooncake", "eic", "nixl"]) or (
+            if (self.storage_backend_type in ["hf3fs", "mooncake", "eic", "nixl", "peer"]) or (
                 self.storage_backend_type == "dynamic"
                 and bool(self.storage_config.extra_config.get("interface_v1", 0))
             ):
@@ -934,23 +934,29 @@ class HiCacheController:
                     storage_hit_count = storage_hit_count_tensor.item()
 
                 if storage_hit_count < self.prefetch_threshold:
-                    # not to prefetch if not enough benefits
                     self.prefetch_revoke_queue.put(operation.request_id)
                     self.append_host_mem_release(operation.host_indices)
-                    logger.debug(
-                        f"Revoking prefetch for request {operation.request_id} due to insufficient hits ({storage_hit_count})."
+                    logger.info(
+                        "Prefetch REVOKED for request %s: only %d storage hits "
+                        "(threshold=%d)",
+                        operation.request_id,
+                        storage_hit_count,
+                        self.prefetch_threshold,
                     )
                 else:
                     operation.hash_value = hash_value[
                         : (storage_hit_count // self.page_size)
                     ]
-                    # free the pre-allocated memory for pages that are not hit
                     self.append_host_mem_release(
                         operation.host_indices[storage_hit_count:]
                     )
                     operation.host_indices = operation.host_indices[:storage_hit_count]
-                    logger.debug(
-                        f"Prefetching {len(operation.hash_value)} pages for request {operation.request_id}."
+                    logger.info(
+                        "Prefetch ACCEPTED for request %s: %d pages "
+                        "(%d tokens) from peer storage",
+                        operation.request_id,
+                        len(operation.hash_value),
+                        storage_hit_count,
                     )
                     self.prefetch_buffer.put(operation)
 

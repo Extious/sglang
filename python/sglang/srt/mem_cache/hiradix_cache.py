@@ -165,6 +165,22 @@ class HiRadixCache(RadixCache):
 
         self.evictable_host_leaves = set()
 
+        self.decode_kv_replicator = None
+        if self.enable_storage and server_args.hicache_storage_backend == "peer":
+            from sglang.srt.mem_cache.decode_kv_replicator import DecodeKVReplicator
+
+            self.decode_kv_replicator = DecodeKVReplicator(
+                cache_controller=self.cache_controller,
+                req_to_token_pool=params.req_to_token_pool,
+                page_size=self.page_size,
+                tree_cache=self,
+            )
+            logger.info(
+                "DecodeKVReplicator enabled (page_size=%d, flush_size=%d)",
+                self.page_size,
+                self.decode_kv_replicator._flush_size,
+            )
+
         super().__init__(params=params)
 
     def shutdown(self):
@@ -649,14 +665,12 @@ class HiRadixCache(RadixCache):
         node.protect_host()
 
     def _inc_hit_count(self, node: TreeNode, chunked=False):
-        # skip the hit count update for chunked requests
         if self.cache_controller.write_policy == "write_back" or chunked:
             return
         node.hit_count += 1
 
         if not node.backuped:
             if node.hit_count >= self.write_through_threshold:
-                # write to host if the node is not backuped
                 self.write_backup(node)
 
     def writing_check(self, write_back=False):
@@ -696,6 +710,11 @@ class HiRadixCache(RadixCache):
             _, finish_event, ack_list = self.cache_controller.ack_write_queue.pop(0)
             finish_event.synchronize()
             for ack_id in ack_list:
+                if (
+                    self.decode_kv_replicator is not None
+                    and self.decode_kv_replicator.on_write_complete(ack_id)
+                ):
+                    continue
                 backuped_node = self.ongoing_write_through.pop(ack_id)
                 self.dec_lock_ref(backuped_node)
                 if self.enable_storage:
@@ -1111,9 +1130,18 @@ class HiRadixCache(RadixCache):
         del self.ongoing_prefetch[req_id]
         self.cache_controller.prefetch_tokens_occupied -= len(token_ids)
 
-        # Track tokens actually loaded from storage for this request (L3 hits)
         loaded_from_storage = min_completed_tokens - matched_length
         self.prefetch_loaded_tokens_by_reqid[req_id] = loaded_from_storage
+
+        if loaded_from_storage > 0:
+            logger.info(
+                "Prefetch LOADED for %s: %d tokens from peer storage (L3), "
+                "%d tokens already in host (L2), total prefetched=%d",
+                req_id,
+                loaded_from_storage,
+                matched_length,
+                min_completed_tokens,
+            )
 
         if self.enable_storage_metrics:
             self.storage_metrics_collector.log_prefetched_tokens(loaded_from_storage)
@@ -1137,6 +1165,28 @@ class HiRadixCache(RadixCache):
         """
         return self.prefetch_loaded_tokens_by_reqid.pop(req_id, 0)
 
+    def get_last_hash_for_req(self, token_ids) -> Optional[str]:
+        """Return the last page hash from the radix tree for a token prefix.
+
+        Used by DecodeKVReplicator to seed the hash chain for decode pages.
+        """
+        key = RadixKey(token_ids=token_ids)
+        key, _ = self.maybe_bigram_convert(key)
+        if self.disable or len(key) == 0:
+            return None
+
+        if self.page_size != 1:
+            page_aligned_len = len(key) // self.page_size * self.page_size
+            key = key[:page_aligned_len]
+
+        _, last_node = self._match_prefix_helper(self.root_node, key)
+        while last_node.evicted and last_node.parent is not None:
+            last_node = last_node.parent
+
+        if last_node.hash_value and len(last_node.hash_value) > 0:
+            return last_node.hash_value[-1]
+        return None
+
     def match_prefix(self, params: MatchPrefixParams):
         key = params.key
         empty_value = torch.empty((0,), dtype=torch.int64, device=self.device)
@@ -1153,8 +1203,8 @@ class HiRadixCache(RadixCache):
             page_aligned_len = len(key) // self.page_size * self.page_size
             key = key[:page_aligned_len]
 
-        agent_id = kwargs.get("agent_id", None)
-        agent_req_id = kwargs.get("agent_req_id", None)
+        agent_id = params.agent_id
+        agent_req_id = params.agent_req_id
         value, last_node = self._match_prefix_helper(
             self.root_node, key, agent_id=agent_id, agent_req_id=agent_req_id
         )

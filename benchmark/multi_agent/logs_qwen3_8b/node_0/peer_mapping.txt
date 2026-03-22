@@ -1,0 +1,2 @@
+worker_0 -> peer_server_1 (:29000 -> hkbugpusrv12:29001)
+worker_1 -> peer_server_0 (:29001 -> hkbugpusrv12:29000)

@@ -43,6 +43,7 @@ class ClusterConfig:
     worker_base_port: int = 8000
     router_port: int = 30000
     host: str = "127.0.0.1"
+    tp_size: int = 1
     python_bin: str = "python"
     python_flags: List[str] = dataclasses.field(default_factory=list)
     extra_pythonpath: Optional[str] = None
@@ -143,7 +144,15 @@ class SGLangCluster:
             log_path.write_text("")
 
         env = self._base_env()
-        env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        tp = self.cfg.tp_size
+        slurm_gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+        if slurm_gpus:
+            available = [g.strip() for g in slurm_gpus.split(",") if g.strip()]
+            selected = [available[gpu_id * tp + i] for i in range(tp)]
+            env["CUDA_VISIBLE_DEVICES"] = ",".join(selected)
+        else:
+            gpu_ids = [gpu_id * tp + i for i in range(tp)]
+            env["CUDA_VISIBLE_DEVICES"] = ",".join(str(g) for g in gpu_ids)
         env.update(extra_env)
 
         args = [
@@ -154,7 +163,7 @@ class SGLangCluster:
             "--model-path",
             self.cfg.model_path,
             "--tp",
-            "1",
+            str(tp),
             "--host",
             self.cfg.host,
             "--port",
@@ -299,7 +308,14 @@ def main() -> int:
         "--num-workers",
         type=int,
         default=int(os.getenv("NUM_WORKERS", "2")),
-        help="Number of workers (GPUs)",
+        help="Number of worker instances (server processes).",
+    )
+    parser.add_argument(
+        "--tp-size",
+        type=int,
+        default=int(os.getenv("TP_SIZE", "1")),
+        help="Tensor parallelism size — GPUs per worker (default: 1). "
+        "Total GPUs used = num_workers * tp_size.",
     )
     parser.add_argument(
         "--worker-base-port",
@@ -359,6 +375,32 @@ def main() -> int:
         action="store_false",
         help="Disable usage.prompt_tokens_details.cached_tokens in OpenAI responses.",
     )
+    parser.add_argument(
+        "--enable-peer-replication",
+        action="store_true",
+        default=os.getenv("ENABLE_PEER_REPLICATION", "0").strip().lower()
+        in {"1", "true", "yes"},
+        help="Enable peer KV cache replication for fault tolerance. "
+        "Automatically sets --hicache-storage-backend peer and computes "
+        "ring peer mapping for all workers.",
+    )
+    parser.add_argument(
+        "--peer-port-base",
+        type=int,
+        default=int(os.getenv("PEER_PORT_BASE", "9000")),
+        help="Base port for PeerCacheServer TCP listeners (default: 9000).",
+    )
+    parser.add_argument(
+        "--peer-buffer-size-gb",
+        type=float,
+        default=float(os.getenv("PEER_BUFFER_SIZE_GB", "8")),
+        help="Max DRAM per worker for peer replica buffer in GB (default: 8).",
+    )
+    parser.add_argument(
+        "--quantization",
+        default=os.getenv("QUANTIZATION", ""),
+        help="Quantization method (e.g., fp8, awq, gptq). Empty = no quantization.",
+    )
     parser.set_defaults(
         enable_hicache=os.getenv("ENABLE_HICACHE", "1").strip().lower()
         not in {"0", "false", "no"},
@@ -404,12 +446,22 @@ def main() -> int:
             worker_common_args.extend(["--hicache-size", str(args.hicache_size)])
         elif args.hicache_ratio > 0:
             worker_common_args.extend(["--hicache-ratio", str(args.hicache_ratio)])
+    if args.quantization:
+        worker_common_args.extend(["--quantization", args.quantization])
+    if args.enable_peer_replication:
+        if not args.enable_hicache:
+            print("WARNING: --enable-peer-replication requires HiCache. Enabling HiCache.")
+            worker_common_args.append("--enable-hierarchical-cache")
+            if args.hicache_size > 0:
+                worker_common_args.extend(["--hicache-size", str(args.hicache_size)])
+        worker_common_args.extend(["--hicache-storage-backend", "peer"])
 
     cluster_cfg = ClusterConfig(
         model_path=args.model_path,
         num_workers=args.num_workers,
         worker_base_port=args.worker_base_port,
         host="0.0.0.0",
+        tp_size=args.tp_size,
         python_bin=python_bin,
         extra_pythonpath=extra_pythonpath or None,
         include_repo_python=True,
@@ -421,6 +473,7 @@ def main() -> int:
 
     print(f"Deploying {args.num_workers} SGLang workers on {worker_host}")
     print(f"Model: {args.model_path}")
+    print(f"TP size: {args.tp_size} (total GPUs: {args.num_workers * args.tp_size})")
     print(f"Worker base port: {args.worker_base_port}")
     print(f"Log directory: {log_dir}")
     print(f"HiCache enabled: {args.enable_hicache}")
@@ -430,11 +483,32 @@ def main() -> int:
             print(f"HiCache size per worker: {args.hicache_size} GB")
         else:
             print(f"HiCache ratio: {args.hicache_ratio}")
+    print(f"Peer replication: {args.enable_peer_replication}")
+
+    extra_env_by_gpu: Dict[int, Dict[str, str]] = {}
+    if args.enable_peer_replication:
+        tp_size = args.tp_size
+        print(f"Peer port base: {args.peer_port_base}")
+        print(f"Peer buffer size: {args.peer_buffer_size_gb} GB")
+        print(f"Peer ports per worker: {tp_size} (one per TP rank)")
+        for gpu_id in range(args.num_workers):
+            peer_port_base = args.peer_port_base + gpu_id * tp_size
+            neighbor_gpu = (gpu_id + 1) % args.num_workers
+            neighbor_port_base = args.peer_port_base + neighbor_gpu * tp_size
+            peer_target_url = f"{worker_host}:{neighbor_port_base}"
+            extra_env_by_gpu[gpu_id] = {
+                "SGLANG_PEER_CACHE_PORT": str(peer_port_base),
+                "SGLANG_PEER_TARGET_URL": peer_target_url,
+                "SGLANG_PEER_BUFFER_SIZE_GB": str(args.peer_buffer_size_gb),
+            }
+            port_range = f"{peer_port_base}-{peer_port_base + tp_size - 1}" if tp_size > 1 else str(peer_port_base)
+            target_range = f"{neighbor_port_base}-{neighbor_port_base + tp_size - 1}" if tp_size > 1 else str(neighbor_port_base)
+            print(f"  Worker {gpu_id}: PeerServer :{port_range} → replicate to {worker_host}:{target_range}")
 
     cluster = SGLangCluster(repo_root=repo_root, cfg=cluster_cfg, log_dir=log_dir)
     
     try:
-        cluster.start_workers()
+        cluster.start_workers(extra_env_by_gpu=extra_env_by_gpu)
         worker_endpoints = cluster.worker_endpoints()
 
         worker_urls: List[str] = []
@@ -453,6 +527,24 @@ def main() -> int:
         server_node_file = output_dir / "server_node.txt"
         server_node_file.write_text(f"{worker_host}\n")
         print(f"\nServer node written to: {server_node_file}")
+
+        if args.enable_peer_replication:
+            peer_lines = []
+            for gpu_id in range(args.num_workers):
+                neighbor_gpu = (gpu_id + 1) % args.num_workers
+                peer_port = args.peer_port_base + gpu_id
+                neighbor_port = args.peer_port_base + neighbor_gpu
+                peer_lines.append(
+                    f"worker_{gpu_id} -> peer_server_{neighbor_gpu} "
+                    f"(:{peer_port} -> {worker_host}:{neighbor_port})"
+                )
+            peer_mapping_file = output_dir / "peer_mapping.txt"
+            peer_mapping_file.write_text("\n".join(peer_lines) + "\n")
+            print(f"Peer mapping written to: {peer_mapping_file}")
+
+            router_config_file = output_dir / "router_extra_args.txt"
+            router_config_file.write_text("--enable-fault-tolerance\n")
+            print(f"Router extra args written to: {router_config_file}")
 
         if args.no_wait:
             print("\nWorkers started. Exiting (workers will continue running).")

@@ -1,0 +1,6 @@
+worker_0 -> peer_server_1 (:9000 -> hkbugpusrv09:9001)
+worker_1 -> peer_server_2 (:9001 -> hkbugpusrv09:9002)
+worker_2 -> peer_server_3 (:9002 -> hkbugpusrv09:9003)
+worker_3 -> peer_server_4 (:9003 -> hkbugpusrv09:9004)
+worker_4 -> peer_server_5 (:9004 -> hkbugpusrv09:9005)
+worker_5 -> peer_server_0 (:9005 -> hkbugpusrv09:9000)

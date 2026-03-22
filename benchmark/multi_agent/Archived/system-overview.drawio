@@ -1,0 +1,429 @@
+<mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1200" pageHeight="800" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+
+    <!-- ======== LAYER LABELS ======== -->
+    <mxCell id="L1" value="&lt;b&gt;Applications&lt;/b&gt;" style="text;html=1;fontSize=14;fontFamily=Helvetica;fontColor=#333333;align=left;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="15" y="125" width="115" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="L2" value="&lt;b&gt;Router&lt;/b&gt;" style="text;html=1;fontSize=14;fontFamily=Helvetica;fontColor=#333333;align=left;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="15" y="340" width="80" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="L3" value="&lt;b&gt;LLM Engine&lt;/b&gt;" style="text;html=1;fontSize=14;fontFamily=Helvetica;fontColor=#333333;align=left;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="15" y="555" width="115" height="30" as="geometry"/>
+    </mxCell>
+
+    <!-- ======== SEPARATOR LINES ======== -->
+    <mxCell id="S1" value="" style="endArrow=none;dashed=1;dashPattern=6 4;strokeColor=#AAAAAA;strokeWidth=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="10" y="310" as="sourcePoint"/>
+        <mxPoint x="1030" y="310" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="S2" value="" style="endArrow=none;dashed=1;dashPattern=6 4;strokeColor=#AAAAAA;strokeWidth=1;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="10" y="405" as="sourcePoint"/>
+        <mxPoint x="1030" y="405" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- ======== APPLICATIONS LAYER: AGENT DAG ======== -->
+
+    <!-- Question Agent (A) - CRITICAL PATH -->
+    <mxCell id="QA" value="Question Agent" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fontFamily=Helvetica;strokeColor=#CC0000;strokeWidth=2;fillColor=#FFFFFF;" vertex="1" parent="1">
+      <mxGeometry x="150" y="115" width="125" height="40" as="geometry"/>
+    </mxCell>
+    <mxCell id="LA" value="&lt;font color=&quot;#CC0000&quot;&gt;A&lt;/font&gt;" style="text;html=1;fontSize=11;fontFamily=Helvetica;align=center;" vertex="1" parent="1">
+      <mxGeometry x="197" y="157" width="30" height="18" as="geometry"/>
+    </mxCell>
+
+    <!-- Retry after Question Agent -->
+    <mxCell id="RQA" value="Retry" style="rounded=0;whiteSpace=wrap;html=1;fontSize=9;fontFamily=Helvetica;fillColor=#FFE0E0;strokeColor=#CC0000;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="295" y="121" width="48" height="28" as="geometry"/>
+    </mxCell>
+
+    <!-- Research Agent (B) - Non-critical -->
+    <mxCell id="RA" value="Research Agent" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fontFamily=Helvetica;strokeColor=#333333;strokeWidth=1;fillColor=#FFFFFF;" vertex="1" parent="1">
+      <mxGeometry x="400" y="37" width="130" height="36" as="geometry"/>
+    </mxCell>
+    <mxCell id="LB" value="&lt;font color=&quot;#CC0000&quot;&gt;B&lt;/font&gt;" style="text;html=1;fontSize=11;fontFamily=Helvetica;align=center;" vertex="1" parent="1">
+      <mxGeometry x="450" y="75" width="30" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="RRA" value="Retry" style="rounded=0;whiteSpace=wrap;html=1;fontSize=9;fontFamily=Helvetica;fillColor=#FFE0E0;strokeColor=#CC0000;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="545" y="41" width="48" height="28" as="geometry"/>
+    </mxCell>
+
+    <!-- Analysis Agent (C) - CRITICAL PATH -->
+    <mxCell id="AA" value="Analysis Agent" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fontFamily=Helvetica;strokeColor=#CC0000;strokeWidth=2;fillColor=#FFFFFF;" vertex="1" parent="1">
+      <mxGeometry x="400" y="115" width="130" height="40" as="geometry"/>
+    </mxCell>
+    <mxCell id="LC" value="&lt;font color=&quot;#CC0000&quot;&gt;C&lt;/font&gt;" style="text;html=1;fontSize=11;fontFamily=Helvetica;align=center;" vertex="1" parent="1">
+      <mxGeometry x="450" y="157" width="30" height="18" as="geometry"/>
+    </mxCell>
+
+    <!-- Retry between Analysis and Synthesis (critical path) -->
+    <mxCell id="RAA" value="Retry" style="rounded=0;whiteSpace=wrap;html=1;fontSize=9;fontFamily=Helvetica;fillColor=#FFE0E0;strokeColor=#CC0000;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="600" y="121" width="48" height="28" as="geometry"/>
+    </mxCell>
+
+    <!-- Alternatives Agent (D) - Non-critical -->
+    <mxCell id="ALTA" value="Alternatives Agent" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fontFamily=Helvetica;strokeColor=#333333;strokeWidth=1;fillColor=#FFFFFF;" vertex="1" parent="1">
+      <mxGeometry x="400" y="195" width="130" height="36" as="geometry"/>
+    </mxCell>
+    <mxCell id="LD" value="&lt;font color=&quot;#CC0000&quot;&gt;D&lt;/font&gt;" style="text;html=1;fontSize=11;fontFamily=Helvetica;align=center;" vertex="1" parent="1">
+      <mxGeometry x="450" y="233" width="30" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="RALTA" value="Retry" style="rounded=0;whiteSpace=wrap;html=1;fontSize=9;fontFamily=Helvetica;fillColor=#FFE0E0;strokeColor=#CC0000;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="545" y="199" width="48" height="28" as="geometry"/>
+    </mxCell>
+
+    <!-- Verification Agent (E) - Non-critical -->
+    <mxCell id="VA2" value="Verification Agent" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fontFamily=Helvetica;strokeColor=#333333;strokeWidth=1;fillColor=#FFFFFF;" vertex="1" parent="1">
+      <mxGeometry x="400" y="258" width="130" height="36" as="geometry"/>
+    </mxCell>
+    <mxCell id="LE" value="&lt;font color=&quot;#CC0000&quot;&gt;E&lt;/font&gt;" style="text;html=1;fontSize=11;fontFamily=Helvetica;align=center;" vertex="1" parent="1">
+      <mxGeometry x="450" y="296" width="30" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="RVA" value="Retry" style="rounded=0;whiteSpace=wrap;html=1;fontSize=9;fontFamily=Helvetica;fillColor=#FFE0E0;strokeColor=#CC0000;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="545" y="262" width="48" height="28" as="geometry"/>
+    </mxCell>
+
+    <!-- Synthesis Agent (F) - CRITICAL PATH -->
+    <mxCell id="SA" value="Synthesis Agent" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fontFamily=Helvetica;strokeColor=#CC0000;strokeWidth=2;fillColor=#FFFFFF;" vertex="1" parent="1">
+      <mxGeometry x="720" y="115" width="130" height="40" as="geometry"/>
+    </mxCell>
+    <mxCell id="LF" value="&lt;font color=&quot;#CC0000&quot;&gt;F&lt;/font&gt;" style="text;html=1;fontSize=11;fontFamily=Helvetica;align=center;" vertex="1" parent="1">
+      <mxGeometry x="770" y="157" width="30" height="18" as="geometry"/>
+    </mxCell>
+
+    <!-- Retry after Synthesis -->
+    <mxCell id="RSA" value="Retry" style="rounded=0;whiteSpace=wrap;html=1;fontSize=9;fontFamily=Helvetica;fillColor=#FFE0E0;strokeColor=#CC0000;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="865" y="121" width="48" height="28" as="geometry"/>
+    </mxCell>
+
+    <!-- "Critical Agent" label -->
+    <mxCell id="LCA" value="&lt;font color=&quot;#CC0000&quot;&gt;&lt;b&gt;Critical Agent&lt;/b&gt;&lt;/font&gt;" style="text;html=1;fontSize=12;fontFamily=Helvetica;align=left;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="922" y="120" width="108" height="30" as="geometry"/>
+    </mxCell>
+
+    <!-- ======== CRITICAL PATH EDGES (red, thick) ======== -->
+    <!-- QA -> Retry_QA -->
+    <mxCell id="E1" value="" style="endArrow=block;endFill=1;strokeColor=#CC0000;strokeWidth=2;endSize=6;" edge="1" source="QA" target="RQA" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <!-- Retry_QA -> Analysis Agent -->
+    <mxCell id="E2" value="" style="endArrow=block;endFill=1;strokeColor=#CC0000;strokeWidth=2;endSize=6;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="RQA" target="AA" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <!-- Analysis Agent -> Retry_AA -->
+    <mxCell id="E3" value="" style="endArrow=block;endFill=1;strokeColor=#CC0000;strokeWidth=2;endSize=6;" edge="1" source="AA" target="RAA" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <!-- Retry_AA -> Synthesis Agent -->
+    <mxCell id="E4" value="" style="endArrow=block;endFill=1;strokeColor=#CC0000;strokeWidth=2;endSize=6;" edge="1" source="RAA" target="SA" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <!-- Synthesis Agent -> Retry_SA -->
+    <mxCell id="E5" value="" style="endArrow=block;endFill=1;strokeColor=#CC0000;strokeWidth=2;endSize=6;" edge="1" source="SA" target="RSA" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- ======== NON-CRITICAL EDGES (gray, thin) ======== -->
+    <!-- Retry_QA -> Research Agent -->
+    <mxCell id="E6" value="" style="endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1;endSize=4;exitX=0.8;exitY=0;entryX=0;entryY=0.5;" edge="1" source="RQA" target="RA" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <!-- Retry_QA -> Alternatives Agent -->
+    <mxCell id="E7" value="" style="endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1;endSize=4;exitX=1;exitY=1;entryX=0;entryY=0.5;" edge="1" source="RQA" target="ALTA" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <!-- Retry_QA -> Verification Agent -->
+    <mxCell id="E8" value="" style="endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1;endSize=4;exitX=0.5;exitY=1;entryX=0;entryY=0.5;" edge="1" source="RQA" target="VA2" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <!-- Research -> Retry_RA -->
+    <mxCell id="E9" value="" style="endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1;endSize=4;" edge="1" source="RA" target="RRA" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <!-- Alternatives -> Retry_AltA -->
+    <mxCell id="E10" value="" style="endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1;endSize=4;" edge="1" source="ALTA" target="RALTA" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <!-- Verification -> Retry_VA -->
+    <mxCell id="E11" value="" style="endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1;endSize=4;" edge="1" source="VA2" target="RVA" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <!-- Retry_RA -> Synthesis Agent -->
+    <mxCell id="E12" value="" style="endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1;endSize=4;entryX=0.05;entryY=0;" edge="1" source="RRA" target="SA" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <!-- Retry_AltA -> Synthesis Agent -->
+    <mxCell id="E13" value="" style="endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1;endSize=4;entryX=0;entryY=0.85;" edge="1" source="RALTA" target="SA" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <!-- Retry_VA -> Synthesis Agent -->
+    <mxCell id="E14" value="" style="endArrow=block;endFill=1;strokeColor=#555555;strokeWidth=1;endSize=4;entryX=0.15;entryY=1;" edge="1" source="RVA" target="SA" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- ======== ROUTER LAYER ======== -->
+    <mxCell id="RTR" value="Prefix-Aware Router" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fontFamily=Helvetica;strokeColor=#333333;strokeWidth=1.5;fillColor=#F5F5F5;" vertex="1" parent="1">
+      <mxGeometry x="300" y="338" width="400" height="38" as="geometry"/>
+    </mxCell>
+
+    <!-- DAG area -> Router -->
+    <mxCell id="ER1" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;endSize=6;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="500" y="296" as="sourcePoint"/>
+        <mxPoint x="500" y="338" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- ======== LLM ENGINE LAYER: WORKERS ======== -->
+
+    <!-- Worker 1 -->
+    <mxCell id="W1" value="worker&#8321;" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fontFamily=Helvetica;strokeColor=#4472C4;strokeWidth=1.5;fillColor=#FFFFFF;align=left;spacingLeft=10;" vertex="1" parent="1">
+      <mxGeometry x="155" y="445" width="230" height="40" as="geometry"/>
+    </mxCell>
+    <mxCell id="W1G1" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="250" y="456" width="22" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="W1G2" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="280" y="456" width="22" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="W1G3" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="310" y="456" width="22" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="W1G4" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="340" y="456" width="22" height="18" as="geometry"/>
+    </mxCell>
+
+    <!-- Worker 2 -->
+    <mxCell id="W2" value="worker&#8322;" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fontFamily=Helvetica;strokeColor=#4472C4;strokeWidth=1.5;fillColor=#FFFFFF;align=left;spacingLeft=10;" vertex="1" parent="1">
+      <mxGeometry x="155" y="500" width="230" height="40" as="geometry"/>
+    </mxCell>
+    <mxCell id="W2G1" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="250" y="511" width="22" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="W2G2" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="280" y="511" width="22" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="W2G3" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="310" y="511" width="22" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="W2G4" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="340" y="511" width="22" height="18" as="geometry"/>
+    </mxCell>
+
+    <!-- Worker 3 -->
+    <mxCell id="W3" value="worker&#8323;" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fontFamily=Helvetica;strokeColor=#4472C4;strokeWidth=1.5;fillColor=#FFFFFF;align=left;spacingLeft=10;" vertex="1" parent="1">
+      <mxGeometry x="155" y="555" width="230" height="40" as="geometry"/>
+    </mxCell>
+    <mxCell id="W3G1" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="250" y="566" width="22" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="W3G2" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="280" y="566" width="22" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="W3G3" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="310" y="566" width="22" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="W3G4" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="340" y="566" width="22" height="18" as="geometry"/>
+    </mxCell>
+
+    <!-- Worker 4 -->
+    <mxCell id="W4" value="worker&#8324;" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fontFamily=Helvetica;strokeColor=#4472C4;strokeWidth=1.5;fillColor=#FFFFFF;align=left;spacingLeft=10;" vertex="1" parent="1">
+      <mxGeometry x="155" y="610" width="230" height="40" as="geometry"/>
+    </mxCell>
+    <mxCell id="W4G1" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="250" y="621" width="22" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="W4G2" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="280" y="621" width="22" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="W4G3" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="310" y="621" width="22" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="W4G4" value="" style="rounded=1;fillColor=#D9D9D9;strokeColor=#999999;strokeWidth=0.5;" vertex="1" parent="1">
+      <mxGeometry x="340" y="621" width="22" height="18" as="geometry"/>
+    </mxCell>
+
+    <!-- ======== Router -> Workers edges ======== -->
+    <mxCell id="EW1" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=5;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="370" y="376" as="sourcePoint"/>
+        <mxPoint x="270" y="445" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="EW2" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=5;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="400" y="376" as="sourcePoint"/>
+        <mxPoint x="270" y="500" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="EW3" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=5;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="430" y="376" as="sourcePoint"/>
+        <mxPoint x="270" y="555" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="EW4" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=5;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="460" y="376" as="sourcePoint"/>
+        <mxPoint x="270" y="610" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- ======== RADIX TREE ======== -->
+
+    <!-- Tree title -->
+    <mxCell id="TT" value="&lt;i&gt;Radix Tree from Worker&#8321;&lt;/i&gt;" style="text;html=1;fontSize=11;fontFamily=Helvetica;fontColor=#333333;align=center;" vertex="1" parent="1">
+      <mxGeometry x="595" y="422" width="190" height="20" as="geometry"/>
+    </mxCell>
+
+    <!-- Dashed connection: Worker 1 -> Tree root -->
+    <mxCell id="EWT" value="" style="endArrow=open;dashed=1;strokeColor=#888888;strokeWidth=1;endSize=4;dashPattern=5 3;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="385" y="465" as="sourcePoint"/>
+        <mxPoint x="672" y="458" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Tree Root (dark = critical, high replication) -->
+    <mxCell id="T0" value="" style="ellipse;fillColor=#666666;strokeColor=#333333;strokeWidth=1.5;" vertex="1" parent="1">
+      <mxGeometry x="672" y="445" width="26" height="26" as="geometry"/>
+    </mxCell>
+
+    <!-- Level 1 nodes -->
+    <mxCell id="T1A" value="" style="ellipse;fillColor=#666666;strokeColor=#333333;strokeWidth=1.5;" vertex="1" parent="1">
+      <mxGeometry x="577" y="510" width="26" height="26" as="geometry"/>
+    </mxCell>
+    <mxCell id="T1B" value="" style="ellipse;fillColor=#BBBBBB;strokeColor=#555555;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="637" y="510" width="26" height="26" as="geometry"/>
+    </mxCell>
+    <mxCell id="T1C" value="" style="ellipse;fillColor=#FFFFFF;strokeColor=#333333;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="727" y="510" width="26" height="26" as="geometry"/>
+    </mxCell>
+    <mxCell id="T1D" value="" style="ellipse;fillColor=#FFFFFF;strokeColor=#333333;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="787" y="510" width="26" height="26" as="geometry"/>
+    </mxCell>
+
+    <!-- Level 2 nodes -->
+    <mxCell id="T2A" value="" style="ellipse;fillColor=#666666;strokeColor=#333333;strokeWidth=1.5;" vertex="1" parent="1">
+      <mxGeometry x="547" y="575" width="26" height="26" as="geometry"/>
+    </mxCell>
+    <mxCell id="T2B" value="" style="ellipse;fillColor=#FFFFFF;strokeColor=#333333;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="597" y="575" width="26" height="26" as="geometry"/>
+    </mxCell>
+    <mxCell id="T2C" value="" style="ellipse;fillColor=#666666;strokeColor=#333333;strokeWidth=1.5;" vertex="1" parent="1">
+      <mxGeometry x="637" y="575" width="26" height="26" as="geometry"/>
+    </mxCell>
+    <mxCell id="T2D" value="" style="ellipse;fillColor=#FFFFFF;strokeColor=#333333;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="722" y="575" width="26" height="26" as="geometry"/>
+    </mxCell>
+    <mxCell id="T2E" value="" style="ellipse;fillColor=#FFFFFF;strokeColor=#333333;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="782" y="575" width="26" height="26" as="geometry"/>
+    </mxCell>
+
+    <!-- Level 3 nodes (leaves) -->
+    <mxCell id="T3A" value="" style="ellipse;fillColor=#666666;strokeColor=#333333;strokeWidth=1.5;" vertex="1" parent="1">
+      <mxGeometry x="527" y="640" width="26" height="26" as="geometry"/>
+    </mxCell>
+    <mxCell id="T3B" value="" style="ellipse;fillColor=#FFFFFF;strokeColor=#333333;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="572" y="640" width="26" height="26" as="geometry"/>
+    </mxCell>
+    <mxCell id="T3C" value="" style="ellipse;fillColor=#BBBBBB;strokeColor=#555555;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="637" y="640" width="26" height="26" as="geometry"/>
+    </mxCell>
+
+    <!-- ======== TREE EDGES ======== -->
+    <!-- Root -> Level 1 -->
+    <mxCell id="TE1" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=3;" edge="1" source="T0" target="T1A" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="TE2" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=3;" edge="1" source="T0" target="T1B" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="TE3" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=3;" edge="1" source="T0" target="T1C" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="TE4" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=3;" edge="1" source="T0" target="T1D" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Level 1 -> Level 2 -->
+    <mxCell id="TE5" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=3;" edge="1" source="T1A" target="T2A" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="TE6" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=3;" edge="1" source="T1A" target="T2B" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="TE7" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=3;" edge="1" source="T1B" target="T2C" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="TE8" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=3;" edge="1" source="T1C" target="T2D" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="TE9" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=3;" edge="1" source="T1D" target="T2E" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Level 2 -> Level 3 -->
+    <mxCell id="TE10" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=3;" edge="1" source="T2A" target="T3A" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="TE11" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=3;" edge="1" source="T2A" target="T3B" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="TE12" value="" style="endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1;endSize=3;" edge="1" source="T2C" target="T3C" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- ======== LEGEND ======== -->
+    <mxCell id="LG1" value="" style="ellipse;fillColor=#666666;strokeColor=#333333;strokeWidth=1.5;" vertex="1" parent="1">
+      <mxGeometry x="875" y="450" width="18" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="LG1T" value="1 GPU + 2 CPU" style="text;html=1;fontSize=10;fontFamily=Helvetica;fontColor=#333333;align=left;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="900" y="447" width="100" height="24" as="geometry"/>
+    </mxCell>
+    <mxCell id="LG2" value="" style="ellipse;fillColor=#BBBBBB;strokeColor=#555555;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="875" y="480" width="18" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="LG2T" value="1 GPU + 1 CPU" style="text;html=1;fontSize=10;fontFamily=Helvetica;fontColor=#333333;align=left;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="900" y="477" width="100" height="24" as="geometry"/>
+    </mxCell>
+    <mxCell id="LG3" value="" style="ellipse;fillColor=#FFFFFF;strokeColor=#333333;strokeWidth=1;" vertex="1" parent="1">
+      <mxGeometry x="875" y="510" width="18" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="LG3T" value="0 GPU + 1 CPU" style="text;html=1;fontSize=10;fontFamily=Helvetica;fontColor=#333333;align=left;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="900" y="507" width="100" height="24" as="geometry"/>
+    </mxCell>
+
+    <!-- ======== BOTTOM ANNOTATIONS ======== -->
+    <mxCell id="AN1" value="&lt;font color=&quot;#CC0000&quot;&gt;KV from&lt;br/&gt;Critical Agent&lt;/font&gt;" style="text;html=1;fontSize=10;fontFamily=Helvetica;align=center;" vertex="1" parent="1">
+      <mxGeometry x="475" y="698" width="110" height="35" as="geometry"/>
+    </mxCell>
+    <mxCell id="AN2" value="&lt;font color=&quot;#CC0000&quot;&gt;KV from&lt;br/&gt;Non-Critical Agent&lt;/font&gt;" style="text;html=1;fontSize=10;fontFamily=Helvetica;align=center;" vertex="1" parent="1">
+      <mxGeometry x="705" y="698" width="130" height="35" as="geometry"/>
+    </mxCell>
+
+    <!-- Dashed red arrow: Critical KV annotation -> dark nodes -->
+    <mxCell id="AN1E" value="" style="endArrow=open;dashed=1;strokeColor=#CC0000;strokeWidth=1.5;endSize=5;dashPattern=4 3;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="530" y="698" as="sourcePoint"/>
+        <mxPoint x="540" y="670" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Dashed red arrow: Non-Critical KV annotation -> white nodes -->
+    <mxCell id="AN2E" value="" style="endArrow=open;dashed=1;strokeColor=#CC0000;strokeWidth=1.5;endSize=5;dashPattern=4 3;" edge="1" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="770" y="698" as="sourcePoint"/>
+        <mxPoint x="795" y="605" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+
+  </root>
+</mxGraphModel>

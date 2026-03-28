@@ -24,7 +24,7 @@ import logging
 import os
 import random
 import tempfile
-from typing import Any, Callable, Dict, List, Literal, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
 from sglang.srt.connector import ConnectorType
 from sglang.srt.environ import envs
@@ -533,7 +533,7 @@ class ServerArgs:
     hicache_mem_layout: str = "layer_first"
     disable_hicache_numa_detect: bool = False
     hicache_storage_backend: Optional[str] = None
-    hicache_storage_prefetch_policy: str = "best_effort"
+    hicache_storage_prefetch_policy: str = "auto"
     hicache_storage_backend_extra_config: Optional[str] = None
 
     # Hierarchical sparse attention
@@ -4313,9 +4313,10 @@ class ServerArgs:
         parser.add_argument(
             "--hicache-storage-prefetch-policy",
             type=str,
-            choices=["best_effort", "wait_complete", "timeout"],
+            choices=["auto", "best_effort", "wait_complete", "timeout"],
             default=ServerArgs.hicache_storage_prefetch_policy,
-            help="Control when prefetching from the storage backend should stop.",
+            help="Control when prefetching from the storage backend should stop. "
+            "'auto' resolves to 'wait_complete' for peer backend, 'best_effort' otherwise.",
         )
         parser.add_argument(
             "--hicache-storage-backend-extra-config",
@@ -5140,10 +5141,6 @@ class ServerArgs:
                 and not self.enable_mixed_chunk
             ), "Pipeline parallelism is not compatible with overlap schedule, speculative decoding, mixed chunked prefill."
 
-        assert not (
-            self.dp_size > 1 and self.nnodes != 1 and not self.enable_dp_attention
-        ), "multi-node data parallel is not supported unless dp attention!"
-
         assert self.base_gpu_id >= 0, "base_gpu_id must be non-negative"
         assert self.gpu_id_step >= 1, "gpu_id_step must be positive"
 
@@ -5618,6 +5615,36 @@ class PortArgs:
     tokenizer_worker_ipc_name: Optional[str]
 
     @staticmethod
+    def use_tcp_control_plane(server_args: ServerArgs) -> bool:
+        return bool(getattr(server_args, "enable_dp_attention", False)) or (
+            getattr(server_args, "nnodes", 1) > 1
+            and getattr(server_args, "dp_size", 1) > 1
+        )
+
+    @staticmethod
+    def resolve_control_plane_host_and_port(
+        server_args: ServerArgs,
+    ) -> Tuple[str, int]:
+        if server_args.nnodes == 1 and server_args.dist_init_addr is None:
+            return "127.0.0.1", server_args.port + ZMQ_TCP_PORT_DELTA
+
+        assert (
+            server_args.dist_init_addr is not None
+        ), "please provide --dist-init-addr as host:port of head node"
+
+        if server_args.dist_init_addr.startswith("["):  # ipv6 address
+            port_num, host = configure_ipv6(server_args.dist_init_addr)
+            return host, int(port_num)
+
+        dist_init_addr = server_args.dist_init_addr.split(":")
+        assert (
+            len(dist_init_addr) == 2
+        ), "please provide --dist-init-addr as host:port of head node"
+
+        dist_init_host, dist_init_port = dist_init_addr
+        return dist_init_host, int(dist_init_port)
+
+    @staticmethod
     def init_new(
         server_args: ServerArgs,
         dp_rank: Optional[int] = None,
@@ -5635,8 +5662,8 @@ class PortArgs:
                 f"ipc://{tempfile.NamedTemporaryFile(delete=False).name}"
             )
 
-        if not server_args.enable_dp_attention:
-            # Normal case, use IPC within a single node
+        if not PortArgs.use_tcp_control_plane(server_args):
+            # Single-node generic DP keeps the existing IPC control plane.
             return PortArgs(
                 tokenizer_ipc_name=f"ipc://{tempfile.NamedTemporaryFile(delete=False).name}",
                 scheduler_input_ipc_name=f"ipc://{tempfile.NamedTemporaryFile(delete=False).name}",
@@ -5646,60 +5673,54 @@ class PortArgs:
                 metrics_ipc_name=f"ipc://{tempfile.NamedTemporaryFile(delete=False).name}",
                 tokenizer_worker_ipc_name=tokenizer_worker_ipc_name,
             )
+        # DP attention and multi-node generic DP share the same TCP control plane.
+        dist_init_host, dist_init_port = PortArgs.resolve_control_plane_host_and_port(
+            server_args
+        )
+        port_base = dist_init_port + 1
+        detokenizer_port = port_base + 1
+        rpc_port = port_base + 2
+        metrics_port = port_base + 3
+        if dp_rank is None:
+            # TokenizerManager to DataParallelController
+            scheduler_input_port = port_base + 4
         else:
-            # DP attention. Use TCP + port to handle both single-node and multi-node.
-            if server_args.nnodes == 1 and server_args.dist_init_addr is None:
-                dist_init_addr = ("127.0.0.1", server_args.port + ZMQ_TCP_PORT_DELTA)
-            elif server_args.dist_init_addr.startswith("["):  # ipv6 address
-                port_num, host = configure_ipv6(server_args.dist_init_addr)
-                dist_init_addr = (host, str(port_num))
-            else:
-                dist_init_addr = server_args.dist_init_addr.split(":")
+            assert worker_ports is not None
+            scheduler_input_port = worker_ports[dp_rank]
 
-            assert (
-                len(dist_init_addr) == 2
-            ), "please provide --dist-init-addr as host:port of head node"
-
-            dist_init_host, dist_init_port = dist_init_addr
-            dist_init_port = int(dist_init_port)
-            port_base = dist_init_port + 1
-            detokenizer_port = port_base + 1
-            rpc_port = port_base + 2
-            metrics_ipc_name = port_base + 3
+        try:
             if dp_rank is None:
-                # TokenizerManager to DataParallelController
-                scheduler_input_port = port_base + 4
-            else:
-                assert worker_ports is not None
-                scheduler_input_port = worker_ports[dp_rank]
-
-            try:
-                if dp_rank is None:
-                    wait_port_available(dist_init_port, "dist_init_port")
-                    wait_port_available(port_base, "port_base")
-                    wait_port_available(detokenizer_port, "detokenizer_port")
-                    wait_port_available(nccl_port, "nccl_port")
-                    wait_port_available(rpc_port, "rpc_port")
-                    wait_port_available(metrics_ipc_name, "metrics_ipc_name")
-                # Check scheduler_input_port only for dp.
-                # Skip check when using worker_ports since the port is already bound by our ZMQ socket
-                if dp_rank is None or worker_ports is None:
-                    wait_port_available(scheduler_input_port, "scheduler_input_port")
-            except ValueError:
-                logger.exception(
-                    f"Port is already in use. {dist_init_port=} {port_base=} {detokenizer_port=} {nccl_port=} {scheduler_input_port=}"
-                )
-                raise
-
-            return PortArgs(
-                tokenizer_ipc_name=f"tcp://{dist_init_host}:{port_base}",
-                scheduler_input_ipc_name=f"tcp://{dist_init_host}:{scheduler_input_port}",
-                detokenizer_ipc_name=f"tcp://{dist_init_host}:{detokenizer_port}",
-                nccl_port=nccl_port,
-                rpc_ipc_name=f"tcp://{dist_init_host}:{rpc_port}",
-                metrics_ipc_name=f"tcp://{dist_init_host}:{metrics_ipc_name}",
-                tokenizer_worker_ipc_name=tokenizer_worker_ipc_name,
+                wait_port_available(dist_init_port, "dist_init_port")
+                wait_port_available(port_base, "port_base")
+                wait_port_available(detokenizer_port, "detokenizer_port")
+                wait_port_available(nccl_port, "nccl_port")
+                wait_port_available(rpc_port, "rpc_port")
+                wait_port_available(metrics_port, "metrics_port")
+            # Skip the per-DP worker port check when the port is already bound by
+            # the head DataParallelController before we construct child PortArgs.
+            if dp_rank is None or worker_ports is None:
+                wait_port_available(scheduler_input_port, "scheduler_input_port")
+        except ValueError:
+            logger.exception(
+                "Port is already in use. dist_init_port=%d port_base=%d "
+                "detokenizer_port=%d nccl_port=%d scheduler_input_port=%d",
+                dist_init_port,
+                port_base,
+                detokenizer_port,
+                nccl_port,
+                scheduler_input_port,
             )
+            raise
+
+        return PortArgs(
+            tokenizer_ipc_name=f"tcp://{dist_init_host}:{port_base}",
+            scheduler_input_ipc_name=f"tcp://{dist_init_host}:{scheduler_input_port}",
+            detokenizer_ipc_name=f"tcp://{dist_init_host}:{detokenizer_port}",
+            nccl_port=nccl_port,
+            rpc_ipc_name=f"tcp://{dist_init_host}:{rpc_port}",
+            metrics_ipc_name=f"tcp://{dist_init_host}:{metrics_port}",
+            tokenizer_worker_ipc_name=tokenizer_worker_ipc_name,
+        )
 
 
 class LoRAPathAction(argparse.Action):

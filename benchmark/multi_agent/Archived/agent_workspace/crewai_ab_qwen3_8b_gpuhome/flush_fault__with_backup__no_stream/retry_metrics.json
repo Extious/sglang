@@ -1,0 +1,172 @@
+{
+    "workers": [
+        {
+            "url": "http://gpu15:28000",
+            "healthy": true,
+            "load": 0
+        },
+        {
+            "url": "http://gpu15:28001",
+            "healthy": true,
+            "load": 0
+        }
+    ],
+    "tree_size": 1382854,
+    "cache_hits": 0,
+    "cache_misses": 240,
+    "requests_total": 240,
+    "retries_total": 12,
+    "chunk_timeouts": 0,
+    "stream_attempts_total": 0,
+    "stream_attempts_with_cache_details": 0,
+    "stream_peer_cache_hits": 0,
+    "normal_request_stats": {
+        "normal_requests": 228,
+        "avg_latency_ms": 30049.9,
+        "p50_latency_ms": 23029.2,
+        "p99_latency_ms": 47564.2
+    },
+    "retry_request_stats": {
+        "retried_requests": 12,
+        "avg_tokens_before_fault": 0,
+        "avg_tokens_total": 0,
+        "avg_total_ms": 52351.8,
+        "avg_retry_ms": 38120.7,
+        "retry_records": [
+            {
+                "tokens_before_fault": 0,
+                "tokens_total": 0,
+                "total_ms": 33230.8,
+                "retry_ms": 24341.4,
+                "from_worker": "http://gpu15:28000",
+                "to_worker": "http://gpu15:28001",
+                "mode": "non_stream",
+                "user": ""
+            },
+            {
+                "tokens_before_fault": 0,
+                "tokens_total": 0,
+                "total_ms": 38962.8,
+                "retry_ms": 24341.6,
+                "from_worker": "http://gpu15:28000",
+                "to_worker": "http://gpu15:28001",
+                "mode": "non_stream",
+                "user": ""
+            },
+            {
+                "tokens_before_fault": 0,
+                "tokens_total": 0,
+                "total_ms": 43856.7,
+                "retry_ms": 24342.0,
+                "from_worker": "http://gpu15:28000",
+                "to_worker": "http://gpu15:28001",
+                "mode": "non_stream",
+                "user": ""
+            },
+            {
+                "tokens_before_fault": 0,
+                "tokens_total": 0,
+                "total_ms": 54312.5,
+                "retry_ms": 33046.4,
+                "from_worker": "http://gpu15:28000",
+                "to_worker": "http://gpu15:28001",
+                "mode": "non_stream",
+                "user": ""
+            },
+            {
+                "tokens_before_fault": 0,
+                "tokens_total": 0,
+                "total_ms": 35013.2,
+                "retry_ms": 33478.0,
+                "from_worker": "http://gpu15:28000",
+                "to_worker": "http://gpu15:28001",
+                "mode": "non_stream",
+                "user": ""
+            },
+            {
+                "tokens_before_fault": 0,
+                "tokens_total": 0,
+                "total_ms": 54753.9,
+                "retry_ms": 33478.3,
+                "from_worker": "http://gpu15:28000",
+                "to_worker": "http://gpu15:28001",
+                "mode": "non_stream",
+                "user": ""
+            },
+            {
+                "tokens_before_fault": 0,
+                "tokens_total": 0,
+                "total_ms": 51079.5,
+                "retry_ms": 33478.6,
+                "from_worker": "http://gpu15:28000",
+                "to_worker": "http://gpu15:28001",
+                "mode": "non_stream",
+                "user": ""
+            },
+            {
+                "tokens_before_fault": 0,
+                "tokens_total": 0,
+                "total_ms": 35010.1,
+                "retry_ms": 33478.5,
+                "from_worker": "http://gpu15:28000",
+                "to_worker": "http://gpu15:28001",
+                "mode": "non_stream",
+                "user": ""
+            },
+            {
+                "tokens_before_fault": 0,
+                "tokens_total": 0,
+                "total_ms": 63401.0,
+                "retry_ms": 48531.9,
+                "from_worker": "http://gpu15:28000",
+                "to_worker": "http://gpu15:28001",
+                "mode": "non_stream",
+                "user": ""
+            },
+            {
+                "tokens_before_fault": 0,
+                "tokens_total": 0,
+                "total_ms": 59804.8,
+                "retry_ms": 50911.1,
+                "from_worker": "http://gpu15:28000",
+                "to_worker": "http://gpu15:28001",
+                "mode": "non_stream",
+                "user": ""
+            },
+            {
+                "tokens_before_fault": 0,
+                "tokens_total": 0,
+                "total_ms": 75634.7,
+                "retry_ms": 56128.2,
+                "from_worker": "http://gpu15:28000",
+                "to_worker": "http://gpu15:28001",
+                "mode": "non_stream",
+                "user": ""
+            },
+            {
+                "tokens_before_fault": 0,
+                "tokens_total": 0,
+                "total_ms": 83161.8,
+                "retry_ms": 61892.8,
+                "from_worker": "http://gpu15:28000",
+                "to_worker": "http://gpu15:28001",
+                "mode": "non_stream",
+                "user": ""
+            }
+        ]
+    },
+    "failure_impacted_tasks": [
+        {
+            "job_id": null,
+            "task_label": null,
+            "agent_role": null,
+            "worker_id": null,
+            "mode": "non_stream",
+            "retry_needed_count": 12,
+            "from_workers": [
+                "http://gpu15:28000"
+            ]
+        }
+    ],
+    "stream_attempt_stats": {}
+}

@@ -55,6 +55,8 @@ class TestPortArgs(unittest.TestCase):
         server_args = MagicMock()
         server_args.nccl_port = None
         server_args.enable_dp_attention = False
+        server_args.nnodes = 1
+        server_args.dp_size = 1
         server_args.tokenizer_worker_num = 1
 
         port_args = PortArgs.init_new(server_args)
@@ -133,6 +135,34 @@ class TestPortArgs(unittest.TestCase):
         )
         self.assertTrue(port_args.detokenizer_ipc_name.startswith("tcp://192.168.1.1:"))
         self.assertIsInstance(port_args.nccl_port, int)
+
+    def test_init_new_with_multi_node_generic_dp(self):
+        server_args = ServerArgs(model_path="dummy")
+        server_args.port = 30000
+        server_args.nccl_port = None
+        server_args.enable_dp_attention = False
+        server_args.dp_size = 2
+        server_args.nnodes = 2
+        server_args.dist_init_addr = "192.168.1.1:25000"
+
+        port_args = PortArgs.init_new(server_args)
+
+        self.assertTrue(port_args.tokenizer_ipc_name.startswith("tcp://192.168.1.1:"))
+        self.assertTrue(
+            port_args.scheduler_input_ipc_name.startswith("tcp://192.168.1.1:")
+        )
+        self.assertTrue(port_args.detokenizer_ipc_name.startswith("tcp://192.168.1.1:"))
+        self.assertIsInstance(port_args.nccl_port, int)
+
+    def test_multi_node_generic_dp_uses_tcp_control_plane(self):
+        server_args = ServerArgs(model_path="dummy")
+        server_args.enable_dp_attention = False
+        server_args.dp_size = 2
+        server_args.pp_size = 2
+        server_args.nnodes = 2
+        server_args.dist_init_addr = "192.168.1.1:25000"
+
+        self.assertTrue(PortArgs.use_tcp_control_plane(server_args))
 
     def test_init_new_with_malformed_ipv4_address(self):
         server_args = ServerArgs(model_path="dummy")

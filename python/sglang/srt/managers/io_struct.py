@@ -795,6 +795,28 @@ class BatchTokenizedGenerateReqInput(BaseBatchReq):
 
 
 @dataclass
+class CheckpointUpdateReq(BaseReq):
+    owner_dp_rank: int
+    global_checkpointed_output_len: int
+
+
+@dataclass
+class VisibleStateUpdateReq(BaseReq):
+    output_ids_delta: List[int]
+    finished: bool = False
+
+
+@dataclass
+class ResumeGenerateReq(BaseReq):
+    tokenized_req: TokenizedGenerateReqInput
+    visible_output_ids: List[int]
+    checkpointed_output_len: int
+    owner_dp_rank: int
+    backup_dp_rank: int
+    failover_epoch: int
+
+
+@dataclass
 class EmbeddingReqInput(BaseReq, APIServingTimingMixin):
     # The input prompt. It can be a single prompt or a batch of prompts.
     text: Optional[Union[List[List[str]], List[str], str]] = None

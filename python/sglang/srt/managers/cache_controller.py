@@ -14,6 +14,7 @@ limitations under the License.
 """
 
 import logging
+import os
 import threading
 import time
 from queue import Empty, Full, Queue
@@ -187,6 +188,13 @@ class TransferBuffer:
         self.buffers.queue.clear()
 
 
+class StorageOperationKind:
+    PREFETCH = "prefetch"
+    PREFILL_RADIX_BACKUP = "prefill_radix_backup"
+    DECODE_STREAM_BACKUP = "decode_stream_backup"
+    DISAGGREGATED_OFFLOAD_BACKUP = "disaggregated_offload_backup"
+
+
 class StorageOperation:
     counter = 0
 
@@ -197,6 +205,9 @@ class StorageOperation:
         last_hash: Optional[str] = None,
         hash_value: Optional[List[str]] = None,
         prefix_keys: Optional[List[str]] = None,
+        full_token_ids: Optional[List[int]] = None,
+        page_start: int = 0,
+        operation_kind: str = StorageOperationKind.PREFILL_RADIX_BACKUP,
     ):
         self.host_indices = host_indices
         self.token_ids = token_ids
@@ -204,6 +215,9 @@ class StorageOperation:
         self.completed_tokens = 0
         self.hash_value = hash_value if hash_value is not None else []
         self.prefix_keys = prefix_keys
+        self.full_token_ids = full_token_ids
+        self.page_start = page_start
+        self.operation_kind = operation_kind
 
         self.id = StorageOperation.counter
         StorageOperation.counter += 1
@@ -220,14 +234,22 @@ class PrefetchOperation(StorageOperation):
         token_ids: List[int],
         last_hash: Optional[str] = None,
         prefix_keys: Optional[List[str]] = None,
+        prefix_token_ids: Optional[List[int]] = None,
     ):
         self.request_id = request_id
+        self.prefix_token_ids = prefix_token_ids
 
         self._lock = threading.Lock()
         self._terminated_flag = False
         self.start_time = time.monotonic()
 
-        super().__init__(host_indices, token_ids, last_hash, prefix_keys=prefix_keys)
+        super().__init__(
+            host_indices,
+            token_ids,
+            last_hash,
+            prefix_keys=prefix_keys,
+            operation_kind=StorageOperationKind.PREFETCH,
+        )
 
     def increment(self, num_tokens: int):
         with self._lock:
@@ -256,7 +278,7 @@ class HiCacheController:
         write_policy: str = "write_through_selective",
         io_backend: str = "",
         storage_backend: Optional[str] = None,
-        prefetch_threshold: int = 256,
+        prefetch_threshold: int = 1,
         model_name: Optional[str] = None,
         storage_backend_extra_config: Optional[dict] = None,
         pp_rank: int = 0,
@@ -272,6 +294,7 @@ class HiCacheController:
         self.enable_storage = False
         self.storage_backend = None
         self.storage_backend_type = None
+        self.is_token_storage = False
         self.pp_rank = pp_rank
         self.pp_size = pp_size
 
@@ -399,7 +422,7 @@ class HiCacheController:
     def attach_storage_backend(
         self,
         storage_backend: str,
-        prefetch_threshold: int = 256,
+        prefetch_threshold: int = 1,
         model_name: Optional[str] = None,
         storage_backend_extra_config: Optional[dict] = None,
     ):
@@ -472,6 +495,10 @@ class HiCacheController:
             self.page_get_func = self._generic_page_get
             self.page_set_func = self._generic_page_set
 
+            self.is_token_storage = getattr(
+                self.storage_backend, "supports_token_matching", False
+            )
+
             if (self.storage_backend_type in ["hf3fs", "mooncake", "eic", "nixl", "peer"]) or (
                 self.storage_backend_type == "dynamic"
                 and bool(self.storage_config.extra_config.get("interface_v1", 0))
@@ -509,6 +536,7 @@ class HiCacheController:
             self.storage_backend = None
             self.storage_backend_type = None
             self.enable_storage = False
+            self.is_token_storage = False
             self.page_get_func = self._generic_page_get
             self.page_set_func = self._generic_page_set
             raise
@@ -561,6 +589,7 @@ class HiCacheController:
         self.storage_backend = None
         self.storage_backend_type = None
         self.enable_storage = False
+        self.is_token_storage = False
         self.page_get_func = self._generic_page_get
         self.page_set_func = self._generic_page_set
         # Now it's safe to clear the stop event for future re-attach.
@@ -576,10 +605,12 @@ class HiCacheController:
             self.tp_rank = get_attention_tp_rank()
             self.tp_size = get_attention_tp_size()
             self.dp_rank = get_attention_dp_rank()
+            self.dp_size = int(os.environ.get("SGLANG_DP_SIZE", "1"))
         else:
             self.tp_rank = get_tensor_model_parallel_rank()
             self.tp_size = get_tensor_model_parallel_world_size()
-            self.dp_rank = 0
+            self.dp_rank = int(os.environ.get("SGLANG_DP_RANK", "0"))
+            self.dp_size = int(os.environ.get("SGLANG_DP_SIZE", "1"))
 
         # Currently, NPUMLATokenToKVPool is the subclass of MLATokenToKVPool.
         is_mla_backend = isinstance(self.mem_pool_device, MLATokenToKVPool)
@@ -589,6 +620,8 @@ class HiCacheController:
             tp_size=self.tp_size,
             pp_rank=self.pp_rank,
             pp_size=self.pp_size,
+            dp_rank=self.dp_rank,
+            dp_size=self.dp_size,
             is_mla_model=is_mla_backend,
             is_page_first_layout=self.mem_pool_host.layout == "page_first",
             model_name=model_name,
@@ -765,12 +798,18 @@ class HiCacheController:
         new_input_tokens: List[int],
         last_hash: Optional[str] = None,
         prefix_keys: Optional[List[str]] = None,
+        prefix_token_ids: Optional[List[int]] = None,
     ) -> PrefetchOperation:
         """
         Prefetch KV caches from storage backend to host memory.
         """
         operation = PrefetchOperation(
-            request_id, host_indices, new_input_tokens, last_hash, prefix_keys
+            request_id,
+            host_indices,
+            new_input_tokens,
+            last_hash,
+            prefix_keys,
+            prefix_token_ids=prefix_token_ids,
         )
         self.prefetch_queue.put(operation)
         return operation
@@ -826,7 +865,38 @@ class HiCacheController:
                 break  # Operation terminated by controller
 
     def _page_transfer(self, operation):
-        # Transfer batch by batch
+        if self.is_token_storage and getattr(operation, "full_token_ids", None):
+            return self._page_transfer_tokens(operation)
+        return self._page_transfer_hash(operation)
+
+    def _page_transfer_tokens(self, operation):
+        """Token-based page retrieval from peer radix buffer.
+
+        Evicted pages (gaps) in the navigable range are skipped rather than
+        treated as fatal errors, so subsequent pages can still be loaded.
+        """
+        full_tokens = operation.full_token_ids
+        prefix_pages = getattr(operation, "page_start", 0)
+        total_pages = len(operation.hash_value)
+
+        for batch_start in range(0, total_pages, self.storage_batch_size):
+            batch_count = min(self.storage_batch_size, total_pages - batch_start)
+            batch_host_indices = operation.host_indices[
+                batch_start * self.page_size : (batch_start + batch_count) * self.page_size
+            ]
+            results = self.storage_backend.get_pages_tokens(
+                full_tokens,
+                prefix_pages + batch_start,
+                batch_count,
+                batch_host_indices,
+            )
+            for ok in results:
+                if ok:
+                    if not operation.increment(self.page_size):
+                        return
+
+    def _page_transfer_hash(self, operation):
+        """Hash-based page retrieval (original path for non-peer backends)."""
         prefix_keys = operation.prefix_keys
         for i in range(0, len(operation.hash_value), self.storage_batch_size):
             batch_hashes = operation.hash_value[i : i + self.storage_batch_size]
@@ -834,16 +904,14 @@ class HiCacheController:
                 i * self.page_size : (i + len(batch_hashes)) * self.page_size
             ]
             prev_completed_tokens = operation.completed_tokens
-            # Get one batch token, and update the completed_tokens if succeed
             extra_info = HiCacheStorageExtraInfo(prefix_keys=prefix_keys)
             self.page_get_func(operation, batch_hashes, batch_host_indices, extra_info)
-            # Check termination
             if (
                 operation.completed_tokens
                 != prev_completed_tokens + len(batch_hashes) * self.page_size
             ):
                 operation.mark_terminate()
-                break  # Some operations fail or operation terminated by controller
+                break
 
             if prefix_keys and len(prefix_keys) > 0:
                 prefix_keys += batch_hashes
@@ -876,6 +944,61 @@ class HiCacheController:
         return False
 
     def _storage_hit_query(self, operation) -> tuple[list[str], int]:
+        if self.is_token_storage and hasattr(operation, "prefix_token_ids"):
+            return self._storage_hit_query_tokens(operation)
+        return self._storage_hit_query_hash(operation)
+
+    def _storage_hit_query_tokens(self, operation) -> tuple[list[str], int]:
+        """Token-based prefix matching for peer radix buffer."""
+        tokens_to_fetch = operation.token_ids
+        prefix_token_ids = getattr(operation, "prefix_token_ids", None) or []
+        last_hash = operation.last_hash
+
+        full_tokens = list(prefix_token_ids) + list(tokens_to_fetch)
+        prefix_pages = len(prefix_token_ids) // self.page_size
+
+        data_count, navigable_range = self.storage_backend.match_prefix_from(
+            full_tokens, prefix_pages
+        )
+        max_fetchable_pages = len(tokens_to_fetch) // self.page_size
+        navigable_range = min(navigable_range, max_fetchable_pages)
+        data_count = min(data_count, navigable_range)
+        range_tokens = navigable_range * self.page_size
+
+        boundary_tok = (
+            full_tokens[prefix_pages + navigable_range]
+            if prefix_pages + navigable_range < len(full_tokens)
+            else -1
+        )
+        logger.info(
+            "_storage_hit_query_tokens: req=%s, prefix_pages=%d, "
+            "data_pages=%d, range=%d, tokens_to_fetch=%d, "
+            "boundary_token=%d, total_tokens=%d",
+            getattr(operation, "request_id", "?"),
+            prefix_pages,
+            data_count,
+            navigable_range,
+            len(tokens_to_fetch),
+            boundary_tok,
+            len(full_tokens),
+        )
+
+        hash_value = []
+        lh = last_hash
+        for i in range(navigable_range):
+            tok = tokens_to_fetch[
+                i * self.page_size : (i + 1) * self.page_size
+            ]
+            lh = self.get_hash_str(tok, lh)
+            hash_value.append(lh)
+
+        operation.full_token_ids = full_tokens
+        operation.page_start = prefix_pages
+
+        return hash_value, range_tokens
+
+    def _storage_hit_query_hash(self, operation) -> tuple[list[str], int]:
+        """Hash-based storage query (original path for non-peer backends)."""
         last_hash = operation.last_hash
         tokens_to_fetch = operation.token_ids
         prefix_keys = operation.prefix_keys.copy() if operation.prefix_keys else None
@@ -969,12 +1092,21 @@ class HiCacheController:
         token_ids: List[int],
         hash_value: Optional[List[str]] = None,
         prefix_keys: Optional[List[str]] = None,
+        full_token_ids: Optional[List[int]] = None,
+        page_start: int = 0,
+        operation_kind: str = StorageOperationKind.PREFILL_RADIX_BACKUP,
     ) -> int:
         """
         Write KV caches from host memory to storage backend.
         """
         operation = StorageOperation(
-            host_indices, token_ids, hash_value=hash_value, prefix_keys=prefix_keys
+            host_indices,
+            token_ids,
+            hash_value=hash_value,
+            prefix_keys=prefix_keys,
+            full_token_ids=full_token_ids,
+            page_start=page_start,
+            operation_kind=operation_kind,
         )
         self.backup_queue.put(operation)
         return operation.id
@@ -992,18 +1124,21 @@ class HiCacheController:
             self.storage_backend.batch_set_v1(hash_values, host_indices, extra_info)
         )
 
-    # Backup batch by batch
     def _page_backup(self, operation):
-        # Backup batch by batch
         prefix_keys = operation.prefix_keys
+        full_token_ids = operation.full_token_ids
+        op_page_start = operation.page_start
+
         for i in range(0, len(operation.hash_value), self.storage_batch_size):
             batch_hashes = operation.hash_value[i : i + self.storage_batch_size]
             batch_host_indices = operation.host_indices[
                 i * self.page_size : (i + len(batch_hashes)) * self.page_size
             ]
-            # Set one batch token, and record if success.
-            # todo: allow partial success
-            extra_info = HiCacheStorageExtraInfo(prefix_keys=prefix_keys)
+            extra_info = HiCacheStorageExtraInfo(
+                prefix_keys=prefix_keys,
+                full_token_ids=full_token_ids,
+                page_start=op_page_start + i,
+            )
             success = self.page_set_func(batch_hashes, batch_host_indices, extra_info)
             if not success:
                 logger.warning(
@@ -1019,11 +1154,32 @@ class HiCacheController:
         """
         Manage backup operations from host memory to storage backend.
         """
+        _backup_count = 0
         while not self.storage_stop_event.is_set():
             try:
                 operation = self.backup_queue.get(block=True, timeout=1)
                 if operation is None:
                     continue
+
+                _backup_count += 1
+                is_decode = (
+                    operation.operation_kind
+                    == StorageOperationKind.DECODE_STREAM_BACKUP
+                )
+                if (
+                    is_decode
+                    and logger.isEnabledFor(logging.DEBUG)
+                    and _backup_count % 20 == 1
+                ):
+                    logger.debug(
+                        "backup_thread DECODE: #%d, pages=%d, page_start=%d, "
+                        "full_tokens=%d, qsize=%d",
+                        _backup_count,
+                        len(operation.hash_value),
+                        operation.page_start,
+                        len(operation.full_token_ids),
+                        self.backup_queue.qsize(),
+                    )
 
                 if not self.backup_skip:
                     self._page_backup(operation)

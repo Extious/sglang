@@ -687,6 +687,9 @@ class Req(ReqDllmMixin):
         # TODO (Byron): send_output_token_logprobs_offset and send_decode_id_offset can be different in disaggregation mode
         # because the decode server does not have the first output token logprobs
         self.send_output_token_logprobs_offset: int = 0
+        self.is_failover_resume: bool = False
+        self.resume_visible_output_len: int = 0
+        self.resume_checkpointed_output_len: int = 0
 
         # Logprobs (arguments)
         self.return_logprob = return_logprob

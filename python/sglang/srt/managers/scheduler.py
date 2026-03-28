@@ -20,7 +20,7 @@ import signal
 import sys
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from http import HTTPStatus
 from typing import Any, Deque, Dict, List, Optional, Tuple, Union
 
@@ -82,6 +82,7 @@ from sglang.srt.managers.io_struct import (
     BaseReq,
     BatchTokenizedEmbeddingReqInput,
     BatchTokenizedGenerateReqInput,
+    CheckpointUpdateReq,
     CheckWeightsReqInput,
     ClearHiCacheReqInput,
     ClearHiCacheReqOutput,
@@ -119,6 +120,7 @@ from sglang.srt.managers.io_struct import (
     ProfileReq,
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
+    ResumeGenerateReq,
     RpcReqInput,
     RpcReqOutput,
     SendWeightsToRemoteInstanceReqInput,
@@ -212,6 +214,7 @@ from sglang.srt.utils import (
     set_random_seed,
     suppress_other_loggers,
 )
+from sglang.srt.utils.failover_event_logger import append_failover_event
 from sglang.srt.utils.hf_transformers_utils import (
     get_processor,
     get_tokenizer,
@@ -327,6 +330,7 @@ class Scheduler(
         self.page_size = server_args.page_size
         self.enable_hierarchical_cache = server_args.enable_hierarchical_cache
         self.enable_hicache_storage = server_args.hicache_storage_backend is not None
+        self.enable_internal_dp_failover = self._should_enable_internal_dp_failover()
         self.max_recv_per_poll = envs.SGLANG_SCHEDULER_MAX_RECV_PER_POLL.get()
 
         # Distributed rank info
@@ -418,6 +422,27 @@ class Scheduler(
 
     def init_model_config(self):
         self.model_config = ModelConfig.from_server_args(self.server_args)
+
+    def _should_enable_internal_dp_failover(self) -> bool:
+        storage_backend = self.server_args.hicache_storage_backend
+        if self.dp_size <= 1 or not self.enable_hierarchical_cache:
+            return False
+        if storage_backend not in ("peer", "PeerCacheStorage"):
+            return False
+        if self.server_args.pp_async_batch_depth != 0:
+            logger.warning(
+                "Internal DP failover is disabled because pp_async_batch_depth=%d.",
+                self.server_args.pp_async_batch_depth,
+            )
+            return False
+        return self.disaggregation_mode == DisaggregationMode.NULL
+
+    def _is_internal_failover_control_leader(self) -> bool:
+        return (
+            self.pp_rank == 0
+            and self.attn_tp_rank == 0
+            and self.attn_cp_rank == 0
+        )
 
     def init_ipc_channels(self, port_args: PortArgs):
         context = zmq.Context(2)
@@ -747,6 +772,7 @@ class Scheduler(
 
     def init_running_status(self):
         self.waiting_queue: List[Req] = []
+        self.handled_resume_epochs: Dict[str, int] = {}
         # The running decoding batch for continuous batching
         self.running_batch: ScheduleBatch = ScheduleBatch(reqs=[], batch_is_full=False)
         # The current forward batch
@@ -1086,6 +1112,7 @@ class Scheduler(
                 (GetLoadsReqInput, self.get_loads),
                 (PauseGenerationReqInput, self.pause_generation),
                 (ContinueGenerationReqInput, self.continue_generation),
+                (ResumeGenerateReq, self.handle_resume_generate_request),
                 (DumperControlReqInput, self.handle_dumper_control),
                 (DumpRadixTreeReqInput, self.dump_radix_tree),
             ]
@@ -1116,6 +1143,10 @@ class Scheduler(
             self.process_input_requests(recv_reqs)
             if self._engine_paused:
                 continue
+
+            if self.enable_hierarchical_cache:
+                self.tree_cache.check_hicache_events()
+                self.maybe_send_checkpoint_updates()
 
             # Get the next batch to run
             batch = self.get_next_batch_to_run()
@@ -1152,6 +1183,10 @@ class Scheduler(
             self.process_input_requests(recv_reqs)
             if self._engine_paused:
                 continue
+
+            if self.enable_hierarchical_cache:
+                self.tree_cache.check_hicache_events()
+                self.maybe_send_checkpoint_updates()
 
             # Get the next batch to run
             batch = self.get_next_batch_to_run()
@@ -1658,28 +1693,183 @@ class Scheduler(
         for tokenized_req in recv_req:
             self.handle_generate_request(tokenized_req)
 
+    def handle_resume_generate_request(self, recv_req: ResumeGenerateReq):
+        if not self.enable_internal_dp_failover:
+            append_failover_event(
+                "resume_rejected",
+                rid=recv_req.rid,
+                agent_id=getattr(recv_req.tokenized_req, "agent_id", None),
+                owner_dp_rank=recv_req.owner_dp_rank,
+                backup_dp_rank=recv_req.backup_dp_rank,
+                target_dp_rank=self.dp_rank,
+                checkpointed_output_len=recv_req.checkpointed_output_len,
+                visible_output_len=len(recv_req.visible_output_ids),
+                failover_epoch=recv_req.failover_epoch,
+                reason="internal_failover_disabled",
+            )
+            self.send_to_tokenizer.send_output(
+                AbortReq(
+                    rid=recv_req.rid,
+                    abort_message="Internal DP failover is not enabled on the target worker.",
+                )
+            )
+            return
+
+        last_epoch = self.handled_resume_epochs.get(recv_req.rid, -1)
+        if recv_req.failover_epoch <= last_epoch:
+            logger.warning(
+                "Ignoring duplicate failover resume for rid=%s epoch=%d",
+                recv_req.rid,
+                recv_req.failover_epoch,
+            )
+            append_failover_event(
+                "resume_duplicate",
+                rid=recv_req.rid,
+                agent_id=getattr(recv_req.tokenized_req, "agent_id", None),
+                owner_dp_rank=recv_req.owner_dp_rank,
+                backup_dp_rank=recv_req.backup_dp_rank,
+                target_dp_rank=self.dp_rank,
+                checkpointed_output_len=recv_req.checkpointed_output_len,
+                visible_output_len=len(recv_req.visible_output_ids),
+                failover_epoch=recv_req.failover_epoch,
+            )
+            return
+
+        resume_input_ids = (
+            list(recv_req.tokenized_req.input_ids) + list(recv_req.visible_output_ids)
+        )
+        resume_tokenized_req = replace(
+            recv_req.tokenized_req,
+            input_ids=resume_input_ids,
+            data_parallel_rank=self.dp_rank,
+        )
+        self.handle_generate_request(resume_tokenized_req)
+        self.handled_resume_epochs[recv_req.rid] = recv_req.failover_epoch
+        append_failover_event(
+            "resume_accepted",
+            rid=recv_req.rid,
+            agent_id=getattr(recv_req.tokenized_req, "agent_id", None),
+            owner_dp_rank=recv_req.owner_dp_rank,
+            backup_dp_rank=recv_req.backup_dp_rank,
+            target_dp_rank=self.dp_rank,
+            checkpointed_output_len=recv_req.checkpointed_output_len,
+            visible_output_len=len(recv_req.visible_output_ids),
+            failover_epoch=recv_req.failover_epoch,
+            resumed_input_len=len(resume_input_ids),
+        )
+
+        if self.disaggregation_mode != DisaggregationMode.NULL:
+            return
+
+        for idx in range(len(self.waiting_queue) - 1, -1, -1):
+            req = self.waiting_queue[idx]
+            if req.rid != recv_req.rid:
+                continue
+            req.is_failover_resume = True
+            req.resume_visible_output_len = len(recv_req.visible_output_ids)
+            req.resume_checkpointed_output_len = recv_req.checkpointed_output_len
+            moved_req = self.waiting_queue.pop(idx)
+            self.waiting_queue.insert(0, moved_req)
+            break
+
+    def maybe_send_checkpoint_updates(self):
+        if not self.enable_internal_dp_failover or not self.enable_hierarchical_cache:
+            return
+
+        pending_rids = self.tree_cache.pop_pending_checkpoint_rids()
+        has_pending = torch.tensor([1 if pending_rids else 0], dtype=torch.int64)
+        if self.tree_cache.tp_world_size > 1:
+            torch.distributed.all_reduce(
+                has_pending,
+                op=torch.distributed.ReduceOp.MAX,
+                group=self.tree_cache.tp_group,
+            )
+        if self.pp_size > 1:
+            torch.distributed.all_reduce(
+                has_pending,
+                op=torch.distributed.ReduceOp.MAX,
+                group=self.pp_group.cpu_group,
+            )
+        if has_pending.item() == 0:
+            return
+
+        tp_pending = [pending_rids]
+        if self.tree_cache.tp_world_size > 1:
+            tp_pending = [None] * self.tree_cache.tp_world_size
+            torch.distributed.all_gather_object(
+                tp_pending, pending_rids, group=self.tree_cache.tp_group
+            )
+        global_pending_rids = {
+            rid for rank_pending in tp_pending for rid in rank_pending
+        }
+        if self.pp_size > 1:
+            for stage_pending in self.pp_group.all_gather_object(
+                sorted(global_pending_rids)
+            ):
+                global_pending_rids.update(stage_pending)
+
+        for rid in sorted(global_pending_rids):
+            local_len = torch.tensor(
+                [self.tree_cache.get_local_checkpointed_output_len(rid)],
+                dtype=torch.int64,
+            )
+            if self.tree_cache.tp_world_size > 1:
+                torch.distributed.all_reduce(
+                    local_len,
+                    op=torch.distributed.ReduceOp.MIN,
+                    group=self.tree_cache.tp_group,
+                )
+            if self.pp_size > 1:
+                torch.distributed.all_reduce(
+                    local_len,
+                    op=torch.distributed.ReduceOp.MIN,
+                    group=self.pp_group.cpu_group,
+                )
+            if self._is_internal_failover_control_leader():
+                self.send_to_tokenizer.send_output(
+                    CheckpointUpdateReq(
+                        rid=rid,
+                        owner_dp_rank=self.dp_rank,
+                        global_checkpointed_output_len=int(local_len.item()),
+                    )
+                )
+
     def _prefetch_kvcache(self, req: Req):
         if self.enable_hicache_storage:
             req.init_next_round_input(self.tree_cache)
-            if req.last_node.backuped:
-                # only to initiate the prefetch if the last node is backuped
-                # otherwise, the allocated GPU memory must be locked for integrity
-                last_hash = req.last_host_node.get_last_hash_value()
-                matched_len = len(req.prefix_indices) + req.host_hit_length
-                new_input_tokens = req.fill_ids[matched_len:]
+            matched_len = len(req.prefix_indices) + req.host_hit_length
+            matched_tokens = req.fill_ids[:matched_len]
+            prefetch_anchor, last_hash = self.tree_cache.get_prefetch_anchor_for_req(
+                matched_tokens
+            )
+            if last_hash is None:
+                return
 
-                prefix_keys = (
-                    req.last_node.get_prefix_hash_values(req.last_node.parent)
-                    if self.tree_cache.hicache_storage_pass_prefix_keys
-                    else None
-                )
-                self.tree_cache.prefetch_from_storage(
-                    req.rid,
-                    req.last_host_node,
-                    new_input_tokens,
-                    last_hash,
-                    prefix_keys,
-                )
+            new_input_tokens = req.fill_ids[matched_len:]
+            logger.info(
+                "_prefetch_kvcache: rid=%s, fill_ids_len=%d, matched_len=%d, "
+                "anchor_hash=%s, new_tokens=%d, first_new_token=%s",
+                req.rid,
+                len(req.fill_ids),
+                matched_len,
+                last_hash[:16] if last_hash else "None",
+                len(new_input_tokens),
+                new_input_tokens[0] if len(new_input_tokens) > 0 else "N/A",
+            )
+
+            prefix_keys = (
+                prefetch_anchor.get_prefix_hash_values(prefetch_anchor.parent)
+                if self.tree_cache.hicache_storage_pass_prefix_keys
+                else None
+            )
+            self.tree_cache.prefetch_from_storage(
+                req.rid,
+                prefetch_anchor,
+                new_input_tokens,
+                last_hash,
+                prefix_keys,
+                prefix_token_ids=list(matched_tokens),
+            )
 
     def _add_request_to_queue(self, req: Req, is_retracted: bool = False):
         if self.disaggregation_mode == DisaggregationMode.NULL:
@@ -2010,9 +2200,6 @@ class Scheduler(
         ):
             self.running_batch.batch_is_full = True
             return None
-
-        if self.enable_hierarchical_cache:
-            self.tree_cache.check_hicache_events()
 
         # Get priority queue
         self.policy.calc_priority(self.waiting_queue, self.running_batch)
@@ -2546,6 +2733,7 @@ class Scheduler(
         if ok:
             self.enable_hicache_storage = True
             self.server_args.hicache_storage_backend = recv_req.hicache_storage_backend
+            self.enable_internal_dp_failover = self._should_enable_internal_dp_failover()
             if recv_req.hicache_storage_backend_extra_config_json is not None:
                 self.server_args.hicache_storage_backend_extra_config = (
                     recv_req.hicache_storage_backend_extra_config_json
@@ -2598,6 +2786,7 @@ class Scheduler(
             self.enable_hicache_storage = False
             self.server_args.hicache_storage_backend = None
             self.server_args.hicache_storage_backend_extra_config = None
+            self.enable_internal_dp_failover = self._should_enable_internal_dp_failover()
             logger.info("Detached HiCache storage backend.")
             return DetachHiCacheStorageReqOutput(
                 success=True, message=msg or "HiCache storage backend is detached."
@@ -2966,6 +3155,7 @@ class Scheduler(
             if self.enable_hicache_storage:
                 # to release prefetch events associated with the request
                 self.tree_cache.release_aborted_request(req.rid)
+            self.handled_resume_epochs.pop(req.rid, None)
             self.send_to_tokenizer.send_output(AbortReq(rid=req.rid), req)
             # For disaggregation decode mode, the request in the waiting queue has KV cache allocated.
             if self.disaggregation_mode == DisaggregationMode.DECODE:
@@ -3295,8 +3485,14 @@ def run_scheduler_process(
     # Generate the logger prefix
     prefix = ""
     if dp_rank is None and "SGLANG_DP_RANK" in os.environ:
-        # [For Router] if env var "SGLANG_DP_RANK" exist, set dp_rank to the value of the env var
+        # Reuse the environment override for externally launched scheduler shards.
         dp_rank = int(os.environ["SGLANG_DP_RANK"])
+    if dp_rank is not None:
+        os.environ["SGLANG_DP_RANK"] = str(dp_rank)
+        os.environ["SGLANG_DP_SIZE"] = str(server_args.dp_size)
+    else:
+        os.environ.pop("SGLANG_DP_RANK", None)
+        os.environ.pop("SGLANG_DP_SIZE", None)
     if dp_rank is not None:
         prefix += f" DP{dp_rank}"
     if server_args.pp_size > 1:

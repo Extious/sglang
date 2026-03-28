@@ -277,6 +277,7 @@ class CompletionRequest(BaseModel):
     return_hidden_states: bool = False
     return_routed_experts: bool = False
     return_cached_tokens_details: bool = False
+    return_resume_token_ids: bool = False
 
     # Extra parameters for SRT backend only and will be ignored by OpenAI models.
     top_k: int = -1
@@ -334,6 +335,8 @@ class SglExt(BaseModel):
 
     routed_experts: Optional[str] = None
     cached_tokens_details: Optional[CachedTokensDetails] = None
+    input_token_ids: Optional[List[int]] = None
+    output_token_ids: Optional[List[int]] = None
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler):
@@ -584,6 +587,7 @@ class ChatCompletionRequest(BaseModel):
     return_hidden_states: bool = False
     return_routed_experts: bool = False
     return_cached_tokens_details: bool = False
+    return_resume_token_ids: bool = False
     reasoning_effort: Optional[Literal["low", "medium", "high"]] = Field(
         default="medium",
         description="Constrains effort on reasoning for reasoning models. "
@@ -605,6 +609,7 @@ class ChatCompletionRequest(BaseModel):
     ignore_eos: bool = False
     continue_final_message: bool = False
     skip_special_tokens: bool = True
+    input_ids: Optional[List[int]] = None
     lora_path: Optional[Union[List[Optional[str]], Optional[str]]] = None
     session_params: Optional[Dict] = None
     separate_reasoning: bool = True

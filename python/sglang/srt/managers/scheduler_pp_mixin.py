@@ -79,6 +79,9 @@ class SchedulerPPMixin:
                 with torch.profiler.record_function("recv_requests"):
                     recv_reqs = self.recv_requests()
                     self.process_input_requests(recv_reqs)
+                if self.enable_hierarchical_cache:
+                    self.tree_cache.check_hicache_events()
+                    self.maybe_send_checkpoint_updates()
                 if not self.pp_group.is_last_rank:
                     self._pp_commit_comm_work(self.send_req_work)
                     with torch.profiler.record_function("send_reqs_to_next_stage"):
@@ -210,6 +213,9 @@ class SchedulerPPMixin:
 
                 recv_reqs = self.recv_requests()
                 self.process_input_requests(recv_reqs)
+                if self.enable_hierarchical_cache:
+                    self.tree_cache.check_hicache_events()
+                    self.maybe_send_checkpoint_updates()
 
                 if not self.pp_group.is_last_rank:
                     self._pp_commit_comm_work(self.send_req_work)
@@ -353,6 +359,9 @@ class SchedulerPPMixin:
 
                 recv_reqs = self.recv_requests()
                 self.process_input_requests(recv_reqs)
+                if self.enable_hierarchical_cache:
+                    self.tree_cache.check_hicache_events()
+                    self.maybe_send_checkpoint_updates()
 
                 if not self.pp_group.is_last_rank:
                     self._pp_commit_comm_work(self.send_req_work)

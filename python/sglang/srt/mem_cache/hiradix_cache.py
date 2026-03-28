@@ -12,7 +12,11 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 import torch
 
-from sglang.srt.managers.cache_controller import HiCacheController, PrefetchOperation
+from sglang.srt.managers.cache_controller import (
+    HiCacheController,
+    PrefetchOperation,
+    StorageOperationKind,
+)
 from sglang.srt.mem_cache.base_prefix_cache import (
     EvictParams,
     EvictResult,
@@ -48,6 +52,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _normalize_storage_backend_name(storage_backend: Optional[str]) -> Optional[str]:
+    if storage_backend == "PeerCacheStorage":
+        return "peer"
+    return storage_backend
+
+
 class HiRadixCache(RadixCache):
 
     def __init__(self, params: CacheInitParams, server_args: ServerArgs):
@@ -65,6 +75,9 @@ class HiRadixCache(RadixCache):
 
         self.page_size = params.page_size
         self.kv_cache = params.token_to_kv_pool_allocator.get_kvcache()
+        storage_backend = _normalize_storage_backend_name(
+            server_args.hicache_storage_backend
+        )
 
         if isinstance(self.kv_cache, MHATokenToKVPool):
             self.token_to_kv_pool_host = MHATokenToKVPoolHost(
@@ -73,7 +86,7 @@ class HiRadixCache(RadixCache):
                 server_args.hicache_size,
                 self.page_size,
                 server_args.hicache_mem_layout,
-                allocator_type=server_args.hicache_storage_backend,
+                allocator_type=storage_backend,
             )
         elif isinstance(self.kv_cache, NSATokenToKVPool):
             self.token_to_kv_pool_host = NSATokenToKVPoolHost(
@@ -82,7 +95,7 @@ class HiRadixCache(RadixCache):
                 server_args.hicache_size,
                 self.page_size,
                 server_args.hicache_mem_layout,
-                allocator_type=server_args.hicache_storage_backend,
+                allocator_type=storage_backend,
             )
         elif isinstance(self.kv_cache, MLATokenToKVPool):
             self.token_to_kv_pool_host = MLATokenToKVPoolHost(
@@ -91,7 +104,7 @@ class HiRadixCache(RadixCache):
                 server_args.hicache_size,
                 self.page_size,
                 server_args.hicache_mem_layout,
-                allocator_type=server_args.hicache_storage_backend,
+                allocator_type=storage_backend,
             )
         else:
             raise ValueError(f"HiRadixCache only supports MHA and MLA yet")
@@ -100,7 +113,7 @@ class HiRadixCache(RadixCache):
         self.tp_world_size = torch.distributed.get_world_size(group=self.tp_group)
         self.pp_rank = params.pp_rank
         self.pp_size = params.pp_size
-        self.enable_storage = server_args.hicache_storage_backend is not None
+        self.enable_storage = storage_backend is not None
         self.enable_storage_metrics = self.enable_storage and params.enable_metrics
         self.extra_metric_labels = server_args.extra_metric_labels
 
@@ -115,7 +128,18 @@ class HiRadixCache(RadixCache):
         )
         # TODO: support more timeout check functions
         self.is_prefetch_timeout = self._prefetch_timeout_check_linear_func
-        self.prefetch_stop_policy = server_args.hicache_storage_prefetch_policy
+        raw_policy = server_args.hicache_storage_prefetch_policy
+        if raw_policy == "auto":
+            if storage_backend == "peer":
+                self.prefetch_stop_policy = "wait_complete"
+                logger.info(
+                    "Resolved prefetch_stop_policy 'auto' -> 'wait_complete' "
+                    "for peer storage backend (in-memory, low-latency)"
+                )
+            else:
+                self.prefetch_stop_policy = "best_effort"
+        else:
+            self.prefetch_stop_policy = raw_policy
 
         self.load_cache_event = threading.Event()
         self.cache_controller = HiCacheController(
@@ -126,7 +150,7 @@ class HiRadixCache(RadixCache):
             load_cache_event=self.load_cache_event,
             write_policy=server_args.hicache_write_policy,
             io_backend=server_args.hicache_io_backend,
-            storage_backend=server_args.hicache_storage_backend,
+            storage_backend=storage_backend,
             prefetch_threshold=prefetch_threshold,
             model_name=server_args.served_model_name,
             storage_backend_extra_config=extra_config,
@@ -134,7 +158,7 @@ class HiRadixCache(RadixCache):
             pp_size=self.pp_size,
         )
         self._apply_storage_runtime_config(
-            storage_backend=server_args.hicache_storage_backend,
+            storage_backend=storage_backend,
             prefetch_threshold=prefetch_threshold,
             prefetch_timeout_base=prefetch_timeout_base,
             prefetch_timeout_per_ki_token=prefetch_timeout_per_ki_token,
@@ -151,6 +175,8 @@ class HiRadixCache(RadixCache):
         # record the ongoing prefetch requests
         self.ongoing_prefetch = {}
         self.ongoing_backup = {}
+        self.local_checkpointed_output_lens: dict[str, int] = {}
+        self.pending_checkpoint_rids: set[str] = set()
         # track per-request tokens loaded from storage (L3 hits)
         # key: request_id, value: number of tokens actually loaded from storage
         self.prefetch_loaded_tokens_by_reqid: dict[str, int] = {}
@@ -166,7 +192,7 @@ class HiRadixCache(RadixCache):
         self.evictable_host_leaves = set()
 
         self.decode_kv_replicator = None
-        if self.enable_storage and server_args.hicache_storage_backend == "peer":
+        if self.enable_storage and storage_backend == "peer":
             from sglang.srt.mem_cache.decode_kv_replicator import DecodeKVReplicator
 
             self.decode_kv_replicator = DecodeKVReplicator(
@@ -255,9 +281,11 @@ class HiRadixCache(RadixCache):
         prefetch/backup paths. Caller must ensure there are no running/queued
         requests to avoid races.
         """
+        storage_backend = _normalize_storage_backend_name(storage_backend)
+
         # Validate inputs first (no side effects).
         if hicache_storage_prefetch_policy is not None:
-            allowed = ["best_effort", "wait_complete", "timeout"]
+            allowed = ["auto", "best_effort", "wait_complete", "timeout"]
             if hicache_storage_prefetch_policy not in allowed:
                 return (
                     False,
@@ -278,7 +306,9 @@ class HiRadixCache(RadixCache):
         # - backend unchanged: treat as success, update policies only.
         # - backend changed: treat as failure, do NOT update policies.
         if self.enable_storage:
-            current_backend = self.cache_controller.storage_backend_type
+            current_backend = _normalize_storage_backend_name(
+                self.cache_controller.storage_backend_type
+            )
 
             if current_backend == storage_backend:
                 if hicache_storage_prefetch_policy is not None:
@@ -316,6 +346,17 @@ class HiRadixCache(RadixCache):
                 1 if hicache_write_policy == "write_through" else 2
             )
             logger.info(f"Set hicache_write_policy to {hicache_write_policy}")
+
+        if storage_backend == "peer" and self.prefetch_stop_policy in (
+            "auto",
+            "best_effort",
+        ):
+            if hicache_storage_prefetch_policy in (None, "auto"):
+                self.prefetch_stop_policy = "wait_complete"
+                logger.info(
+                    "Resolved prefetch_stop_policy -> 'wait_complete' "
+                    "for peer storage backend (in-memory, low-latency)"
+                )
 
         logger.info(f"Attaching HiCache storage backend: {storage_backend}")
         try:
@@ -448,6 +489,15 @@ class HiRadixCache(RadixCache):
         except Exception:
             logger.exception("Force release pending backup ops failed.")
 
+        # Force release leftover decode replicator storage ops.
+        try:
+            if self.decode_kv_replicator is not None:
+                self.decode_kv_replicator.force_release_pending_storage()
+        except Exception:
+            logger.exception(
+                "Force release decode replicator pending storage ops failed."
+            )
+
     def _drain_storage_control_queues_local(self):
         """Drain storage control queues without TP synchronization.
 
@@ -496,6 +546,10 @@ class HiRadixCache(RadixCache):
                 entry = self.ongoing_backup.pop(ack_id, None)
                 if entry is not None:
                     entry.release_host()
+                elif self.decode_kv_replicator is not None:
+                    host_indices = self.decode_kv_replicator.on_backup_complete(ack_id)
+                    if host_indices is not None:
+                        cc.append_host_mem_release(host_indices)
                 if log_metrics and self.enable_storage_metrics:
                     self.storage_metrics_collector.log_backuped_tokens(
                         operation.completed_tokens
@@ -555,7 +609,7 @@ class HiRadixCache(RadixCache):
                 logger.error(f"Invalid backend extra config JSON: {e}")
                 raise e
 
-        prefetch_threshold = extra_config.pop("prefetch_threshold", 256)  # tokens
+        prefetch_threshold = extra_config.pop("prefetch_threshold", 1)  # tokens
         prefetch_timeout_base = extra_config.pop("prefetch_timeout_base", 1)  # seconds
         prefetch_timeout_per_ki_token = extra_config.pop(
             "prefetch_timeout_per_ki_token", 0.25
@@ -651,6 +705,19 @@ class HiRadixCache(RadixCache):
 
         return len(host_indices)
 
+    def _get_node_full_tokens(self, node: TreeNode) -> List[int]:
+        """Reconstruct the complete token sequence from root to *node*."""
+        segments = []
+        cur = node
+        while cur is not None and cur.parent is not None:
+            segments.append(list(cur.key.token_ids))
+            cur = cur.parent
+        segments.reverse()
+        result: List[int] = []
+        for seg in segments:
+            result.extend(seg)
+        return result
+
     def write_backup_storage(self, node: TreeNode):
         prefix_keys = (
             node.get_prefix_hash_values(node.parent)
@@ -658,8 +725,18 @@ class HiRadixCache(RadixCache):
             else None
         )
 
+        full_token_ids = self._get_node_full_tokens(node)
+        parent_tokens = self._get_node_full_tokens(node.parent) if node.parent else []
+        page_start = len(parent_tokens) // self.page_size
+
         operation_id = self.cache_controller.write_storage(
-            node.host_value, node.key, node.hash_value, prefix_keys
+            node.host_value,
+            node.key,
+            node.hash_value,
+            prefix_keys,
+            full_token_ids=full_token_ids,
+            page_start=page_start,
+            operation_kind=StorageOperationKind.PREFILL_RADIX_BACKUP,
         )
         self.ongoing_backup[operation_id] = node
         node.protect_host()
@@ -687,8 +764,10 @@ class HiRadixCache(RadixCache):
                 assert len(self.ongoing_write_through) == 0
             return
 
-        # NOTE: all ranks has the same ongoing_write_through, can skip sync if empty
-        if len(self.ongoing_write_through) == 0:
+        # Skip only when both prefill write-through and decode replication are idle.
+        # decode_kv_replicator uses negative node IDs that bypass ongoing_write_through,
+        # so we must also check for its presence to avoid starving decode DMA completions.
+        if len(self.ongoing_write_through) == 0 and self.decode_kv_replicator is None:
             return
 
         finish_count = 0
@@ -976,6 +1055,25 @@ class HiRadixCache(RadixCache):
         """
         return self.cache_controller.start_loading()
 
+    def update_local_checkpointed_output_len(self, rid: str, output_len: int) -> None:
+        prev_len = self.local_checkpointed_output_lens.get(rid, 0)
+        if output_len <= prev_len:
+            return
+        self.local_checkpointed_output_lens[rid] = output_len
+        self.pending_checkpoint_rids.add(rid)
+
+    def get_local_checkpointed_output_len(self, rid: str) -> int:
+        return self.local_checkpointed_output_lens.get(rid, 0)
+
+    def pop_pending_checkpoint_rids(self) -> List[str]:
+        rids = sorted(self.pending_checkpoint_rids)
+        self.pending_checkpoint_rids.clear()
+        return rids
+
+    def clear_request_checkpoint_state(self, rid: str) -> None:
+        self.local_checkpointed_output_lens.pop(rid, None)
+        self.pending_checkpoint_rids.discard(rid)
+
     def check_hicache_events(self):
         self.writing_check()
         self.loading_check()
@@ -1187,6 +1285,27 @@ class HiRadixCache(RadixCache):
             return last_node.hash_value[-1]
         return None
 
+    def get_prefetch_anchor_for_req(self, token_ids) -> tuple[TreeNode, Optional[str]]:
+        """Return the exact matched node and hash anchor for storage prefetch.
+
+        Unlike `get_last_hash_for_req`, this preserves the deepest matched node
+        even if it is device-only, so the storage query hash chain and the host
+        insertion point stay aligned with the full matched prefix.
+        """
+        key = RadixKey(token_ids=token_ids)
+        key, _ = self.maybe_bigram_convert(key)
+        if self.disable or len(key) == 0:
+            return self.root_node, None
+
+        if self.page_size != 1:
+            page_aligned_len = len(key) // self.page_size * self.page_size
+            key = key[:page_aligned_len]
+
+        _, last_node = self._match_prefix_helper(self.root_node, key)
+        if last_node.hash_value and len(last_node.hash_value) > 0:
+            return last_node, last_node.hash_value[-1]
+        return last_node, None
+
     def match_prefix(self, params: MatchPrefixParams):
         key = params.key
         empty_value = torch.empty((0,), dtype=torch.int64, device=self.device)
@@ -1235,6 +1354,7 @@ class HiRadixCache(RadixCache):
         new_input_tokens: List[int],
         last_hash: Optional[str] = None,
         prefix_keys: Optional[List[str]] = None,
+        prefix_token_ids: Optional[List[int]] = None,
     ):
         # align the number of fetching tokens to the page size
         prefetch_length = len(new_input_tokens) - (
@@ -1255,10 +1375,14 @@ class HiRadixCache(RadixCache):
             host_indices = self.cache_controller.mem_pool_host.alloc(prefetch_length)
         if host_indices is None:
             last_host_node.release_host()
-            # no sufficient host memory for prefetch
             return
         operation = self.cache_controller.prefetch(
-            req_id, host_indices, new_input_tokens, last_hash, prefix_keys
+            req_id,
+            host_indices,
+            new_input_tokens,
+            last_hash,
+            prefix_keys,
+            prefix_token_ids=prefix_token_ids,
         )
         self.ongoing_prefetch[req_id] = (
             last_host_node,
@@ -1468,6 +1592,7 @@ class HiRadixCache(RadixCache):
     def release_aborted_request(self, rid: str):
         # Clean up storage hit tracking for aborted request
         self.prefetch_loaded_tokens_by_reqid.pop(rid, None)
+        self.clear_request_checkpoint_state(rid)
 
         if rid not in self.ongoing_prefetch:
             return

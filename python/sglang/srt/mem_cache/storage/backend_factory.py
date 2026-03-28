@@ -17,6 +17,14 @@ class StorageBackendFactory:
     """Factory for creating storage backend instances with support for dynamic loading."""
 
     _registry: Dict[str, Dict[str, Any]] = {}
+    _aliases: Dict[str, str] = {
+        "PeerCacheStorage": "peer",
+    }
+
+    @classmethod
+    def normalize_backend_name(cls, backend_name: str) -> str:
+        """Map legacy backend aliases to the canonical backend name."""
+        return cls._aliases.get(backend_name, backend_name)
 
     @staticmethod
     def _load_backend_class(
@@ -83,6 +91,8 @@ class StorageBackendFactory:
             ImportError: If backend module cannot be imported
             Exception: If backend initialization fails
         """
+        backend_name = cls.normalize_backend_name(backend_name)
+
         # First check if backend is already registered
         if backend_name in cls._registry:
             registry_entry = cls._registry[backend_name]

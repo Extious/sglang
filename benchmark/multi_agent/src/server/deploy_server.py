@@ -397,6 +397,19 @@ def main() -> int:
         help="Max DRAM per worker for peer replica buffer in GB (default: 8).",
     )
     parser.add_argument(
+        "--hicache-storage-prefetch-policy",
+        type=str,
+        choices=["auto", "best_effort", "wait_complete", "timeout"],
+        default=os.getenv("PREFETCH_POLICY", ""),
+        help="Prefetch policy for storage backend. Empty = server default ('auto').",
+    )
+    parser.add_argument(
+        "--hicache-extra-config",
+        type=str,
+        default=os.getenv("HICACHE_EXTRA_CONFIG", ""),
+        help="JSON string for --hicache-storage-backend-extra-config.",
+    )
+    parser.add_argument(
         "--quantization",
         default=os.getenv("QUANTIZATION", ""),
         help="Quantization method (e.g., fp8, awq, gptq). Empty = no quantization.",
@@ -455,6 +468,16 @@ def main() -> int:
             if args.hicache_size > 0:
                 worker_common_args.extend(["--hicache-size", str(args.hicache_size)])
         worker_common_args.extend(["--hicache-storage-backend", "peer"])
+    if args.hicache_storage_prefetch_policy:
+        worker_common_args.extend([
+            "--hicache-storage-prefetch-policy",
+            args.hicache_storage_prefetch_policy,
+        ])
+    if args.hicache_extra_config:
+        worker_common_args.extend([
+            "--hicache-storage-backend-extra-config",
+            args.hicache_extra_config,
+        ])
 
     cluster_cfg = ClusterConfig(
         model_path=args.model_path,
@@ -491,19 +514,32 @@ def main() -> int:
         print(f"Peer port base: {args.peer_port_base}")
         print(f"Peer buffer size: {args.peer_buffer_size_gb} GB")
         print(f"Peer ports per worker: {tp_size} (one per TP rank)")
+
+        peer_target_map_json = os.getenv("PEER_TARGET_MAP", "")
+        peer_target_map: Dict[str, str] = {}
+        if peer_target_map_json:
+            import json as _json
+            peer_target_map = _json.loads(peer_target_map_json)
+            print(f"Using cross-node PEER_TARGET_MAP: {peer_target_map}")
+
         for gpu_id in range(args.num_workers):
             peer_port_base = args.peer_port_base + gpu_id * tp_size
-            neighbor_gpu = (gpu_id + 1) % args.num_workers
-            neighbor_port_base = args.peer_port_base + neighbor_gpu * tp_size
-            peer_target_url = f"{worker_host}:{neighbor_port_base}"
+            global_key = str(args.worker_base_port + gpu_id)
+
+            if global_key in peer_target_map:
+                peer_target_url = peer_target_map[global_key]
+            else:
+                neighbor_gpu = (gpu_id + 1) % args.num_workers
+                neighbor_port_base = args.peer_port_base + neighbor_gpu * tp_size
+                peer_target_url = f"{worker_host}:{neighbor_port_base}"
+
             extra_env_by_gpu[gpu_id] = {
                 "SGLANG_PEER_CACHE_PORT": str(peer_port_base),
                 "SGLANG_PEER_TARGET_URL": peer_target_url,
                 "SGLANG_PEER_BUFFER_SIZE_GB": str(args.peer_buffer_size_gb),
             }
             port_range = f"{peer_port_base}-{peer_port_base + tp_size - 1}" if tp_size > 1 else str(peer_port_base)
-            target_range = f"{neighbor_port_base}-{neighbor_port_base + tp_size - 1}" if tp_size > 1 else str(neighbor_port_base)
-            print(f"  Worker {gpu_id}: PeerServer :{port_range} → replicate to {worker_host}:{target_range}")
+            print(f"  Worker {gpu_id} (port {args.worker_base_port + gpu_id}): PeerServer :{port_range} → replicate to {peer_target_url}")
 
     cluster = SGLangCluster(repo_root=repo_root, cfg=cluster_cfg, log_dir=log_dir)
     
@@ -531,12 +567,11 @@ def main() -> int:
         if args.enable_peer_replication:
             peer_lines = []
             for gpu_id in range(args.num_workers):
-                neighbor_gpu = (gpu_id + 1) % args.num_workers
                 peer_port = args.peer_port_base + gpu_id
-                neighbor_port = args.peer_port_base + neighbor_gpu
+                target_url = extra_env_by_gpu[gpu_id]["SGLANG_PEER_TARGET_URL"]
                 peer_lines.append(
-                    f"worker_{gpu_id} -> peer_server_{neighbor_gpu} "
-                    f"(:{peer_port} -> {worker_host}:{neighbor_port})"
+                    f"worker_{gpu_id} (port {args.worker_base_port + gpu_id}): "
+                    f"PeerServer :{peer_port} -> {target_url}"
                 )
             peer_mapping_file = output_dir / "peer_mapping.txt"
             peer_mapping_file.write_text("\n".join(peer_lines) + "\n")

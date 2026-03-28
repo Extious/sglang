@@ -1,106 +1,106 @@
 <mxfile host="65bd71144e">
     <diagram name="1. Architecture Overview (Simple)" id="p1">
-        <mxGraphModel dx="1301" dy="563" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="760" math="0" shadow="0">
+        <mxGraphModel dx="812" dy="539" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="760" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
-                <mxCell id="s_title" value="KV Cache Peer Replication" style="text;html=1;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#1a237e;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+                <mxCell id="s_title" value="KV Cache Peer Replication" style="text;html=1;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#1a237e;strokeColor=none;fillColor=none;" parent="1" vertex="1">
                     <mxGeometry x="200" y="15" width="800" height="30" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_sub" value="Each worker replicates its KV Cache (prefill + decode) to the next worker's DRAM via TCP ring" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontColor=#616161;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+                <mxCell id="s_sub" value="Each worker replicates its KV Cache (prefill + decode) to the next worker's DRAM via TCP ring" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontColor=#616161;strokeColor=none;fillColor=none;" parent="1" vertex="1">
                     <mxGeometry x="150" y="45" width="900" height="20" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_router" value="PythonRouter  (--enable-fault-tolerance)" style="rounded=1;whiteSpace=wrap;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=12;fontStyle=1;align=center;" vertex="1" parent="1">
+                <mxCell id="s_router" value="PythonRouter  (--enable-fault-tolerance)" style="rounded=1;whiteSpace=wrap;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=12;fontStyle=1;align=center;" parent="1" vertex="1">
                     <mxGeometry x="370" y="80" width="460" height="38" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_rh0" value="health" style="strokeColor=#9e9e9e;strokeWidth=1;endArrow=block;endFill=1;dashed=1;fontSize=9;fontColor=#9e9e9e;" edge="1" parent="1" source="s_router" target="s_w0">
+                <mxCell id="s_rh0" value="health" style="strokeColor=#9e9e9e;strokeWidth=1;endArrow=block;endFill=1;dashed=1;fontSize=9;fontColor=#9e9e9e;" parent="1" source="s_router" target="s_w0" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_rh1" value="" style="strokeColor=#9e9e9e;strokeWidth=1;endArrow=block;endFill=1;dashed=1;" edge="1" parent="1" source="s_router" target="s_w1">
+                <mxCell id="s_rh1" value="" style="strokeColor=#9e9e9e;strokeWidth=1;endArrow=block;endFill=1;dashed=1;" parent="1" source="s_router" target="s_w1" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_rh2" value="" style="strokeColor=#9e9e9e;strokeWidth=1;endArrow=block;endFill=1;dashed=1;" edge="1" parent="1" source="s_router" target="s_w2">
+                <mxCell id="s_rh2" value="" style="strokeColor=#9e9e9e;strokeWidth=1;endArrow=block;endFill=1;dashed=1;" parent="1" source="s_router" target="s_w2" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w0" value="Worker 0" style="swimlane;startSize=22;fillColor=#fafafa;strokeColor=#424242;fontStyle=1;fontSize=13;rounded=1;" vertex="1" parent="1">
+                <mxCell id="s_w0" value="Worker 0" style="swimlane;startSize=22;fillColor=#fafafa;strokeColor=#424242;fontStyle=1;fontSize=13;rounded=1;" parent="1" vertex="1">
                     <mxGeometry x="40" y="160" width="320" height="290" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w0_gpu" value="L1  GPU VRAM" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="s_w0">
+                <mxCell id="s_w0_gpu" value="L1  GPU VRAM" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="s_w0" vertex="1">
                     <mxGeometry x="10" y="28" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w0_cpu" value="L2  CPU DRAM (Host)" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="s_w0">
+                <mxCell id="s_w0_cpu" value="L2  CPU DRAM (Host)" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="s_w0" vertex="1">
                     <mxGeometry x="10" y="70" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w0_rep" value="Replicator  (prefill: backup_thread, decode: DecodeKVReplicator)" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" vertex="1" parent="s_w0">
+                <mxCell id="s_w0_rep" value="Replicator  (prefill: backup_thread, decode: DecodeKVReplicator)" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" parent="s_w0" vertex="1">
                     <mxGeometry x="10" y="112" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w0_peer" value="PeerCacheStorage  (L3, write → W1 via TCP)" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="s_w0">
+                <mxCell id="s_w0_peer" value="PeerCacheStorage  (L3, write → W1 via TCP)" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;fontStyle=1;align=center;" parent="s_w0" vertex="1">
                     <mxGeometry x="10" y="154" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w0_buf" value="PeerBuffer :9000  (stores W2's KV, LRU 8GB)" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#e65100;fontSize=10;align=center;" vertex="1" parent="s_w0">
+                <mxCell id="s_w0_buf" value="PeerBuffer :9000  (stores W2's KV, LRU 8GB)" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#e65100;fontSize=10;align=center;" parent="s_w0" vertex="1">
                     <mxGeometry x="10" y="196" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w0_e1" value="backup" style="strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;fontSize=8;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="s_w0" source="s_w0_gpu" target="s_w0_cpu">
+                <mxCell id="s_w0_e1" value="backup" style="strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;fontSize=8;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" parent="s_w0" source="s_w0_gpu" target="s_w0_cpu" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w0_note" value="On failover: W0 fails → Router → W1&#10;W1 reads W0's KV from its own PeerBuffer" style="text;html=1;align=center;fontSize=9;fontColor=#616161;fontStyle=2;" vertex="1" parent="s_w0">
+                <mxCell id="s_w0_note" value="On failover: W0 fails → Router → W1&#10;W1 reads W0's KV from its own PeerBuffer" style="text;html=1;align=center;fontSize=9;fontColor=#616161;fontStyle=2;" parent="s_w0" vertex="1">
                     <mxGeometry x="10" y="240" width="300" height="30" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w1" value="Worker 1" style="swimlane;startSize=22;fillColor=#fafafa;strokeColor=#424242;fontStyle=1;fontSize=13;rounded=1;" vertex="1" parent="1">
+                <mxCell id="s_w1" value="Worker 1" style="swimlane;startSize=22;fillColor=#fafafa;strokeColor=#424242;fontStyle=1;fontSize=13;rounded=1;" parent="1" vertex="1">
                     <mxGeometry x="440" y="160" width="320" height="290" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w1_gpu" value="L1  GPU VRAM" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="s_w1">
+                <mxCell id="s_w1_gpu" value="L1  GPU VRAM" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="s_w1" vertex="1">
                     <mxGeometry x="10" y="28" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w1_cpu" value="L2  CPU DRAM (Host)" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="s_w1">
+                <mxCell id="s_w1_cpu" value="L2  CPU DRAM (Host)" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="s_w1" vertex="1">
                     <mxGeometry x="10" y="70" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w1_rep" value="Replicator  (prefill + decode)" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" vertex="1" parent="s_w1">
+                <mxCell id="s_w1_rep" value="Replicator  (prefill + decode)" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" parent="s_w1" vertex="1">
                     <mxGeometry x="10" y="112" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w1_peer" value="PeerCacheStorage  (L3, write → W2 via TCP)" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="s_w1">
+                <mxCell id="s_w1_peer" value="PeerCacheStorage  (L3, write → W2 via TCP)" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;fontStyle=1;align=center;" parent="s_w1" vertex="1">
                     <mxGeometry x="10" y="154" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w1_buf" value="PeerBuffer :9001  (stores W0's KV, LRU 8GB)" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#e65100;fontSize=10;align=center;" vertex="1" parent="s_w1">
+                <mxCell id="s_w1_buf" value="PeerBuffer :9001  (stores W0's KV, LRU 8GB)" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#e65100;fontSize=10;align=center;" parent="s_w1" vertex="1">
                     <mxGeometry x="10" y="196" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w1_e1" value="backup" style="strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;fontSize=8;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="s_w1" source="s_w1_gpu" target="s_w1_cpu">
+                <mxCell id="s_w1_e1" value="backup" style="strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;fontSize=8;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" parent="s_w1" source="s_w1_gpu" target="s_w1_cpu" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w1_note" value="W1's PeerBuffer holds W0's KV replicas&#10;→ failover restore without re-prefill" style="text;html=1;align=center;fontSize=9;fontColor=#616161;fontStyle=2;" vertex="1" parent="s_w1">
+                <mxCell id="s_w1_note" value="W1's PeerBuffer holds W0's KV replicas&#10;→ failover restore without re-prefill" style="text;html=1;align=center;fontSize=9;fontColor=#616161;fontStyle=2;" parent="s_w1" vertex="1">
                     <mxGeometry x="10" y="240" width="300" height="30" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w2" value="Worker 2" style="swimlane;startSize=22;fillColor=#fafafa;strokeColor=#424242;fontStyle=1;fontSize=13;rounded=1;" vertex="1" parent="1">
+                <mxCell id="s_w2" value="Worker 2" style="swimlane;startSize=22;fillColor=#fafafa;strokeColor=#424242;fontStyle=1;fontSize=13;rounded=1;" parent="1" vertex="1">
                     <mxGeometry x="840" y="160" width="320" height="290" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w2_gpu" value="L1  GPU VRAM" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="s_w2">
+                <mxCell id="s_w2_gpu" value="L1  GPU VRAM" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="s_w2" vertex="1">
                     <mxGeometry x="10" y="28" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w2_cpu" value="L2  CPU DRAM (Host)" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="s_w2">
+                <mxCell id="s_w2_cpu" value="L2  CPU DRAM (Host)" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="s_w2" vertex="1">
                     <mxGeometry x="10" y="70" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w2_rep" value="Replicator  (prefill + decode)" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" vertex="1" parent="s_w2">
+                <mxCell id="s_w2_rep" value="Replicator  (prefill + decode)" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" parent="s_w2" vertex="1">
                     <mxGeometry x="10" y="112" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w2_peer" value="PeerCacheStorage  (L3, write → W0 via TCP)" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="s_w2">
+                <mxCell id="s_w2_peer" value="PeerCacheStorage  (L3, write → W0 via TCP)" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;fontStyle=1;align=center;" parent="s_w2" vertex="1">
                     <mxGeometry x="10" y="154" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w2_buf" value="PeerBuffer :9002  (stores W1's KV, LRU 8GB)" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#e65100;fontSize=10;align=center;" vertex="1" parent="s_w2">
+                <mxCell id="s_w2_buf" value="PeerBuffer :9002  (stores W1's KV, LRU 8GB)" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#e65100;fontSize=10;align=center;" parent="s_w2" vertex="1">
                     <mxGeometry x="10" y="196" width="300" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w2_e1" value="backup" style="strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;fontSize=8;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="s_w2" source="s_w2_gpu" target="s_w2_cpu">
+                <mxCell id="s_w2_e1" value="backup" style="strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;fontSize=8;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" parent="s_w2" source="s_w2_gpu" target="s_w2_cpu" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_w2_note" value="W2's PeerBuffer holds W1's KV replicas&#10;→ failover restore without re-prefill" style="text;html=1;align=center;fontSize=9;fontColor=#616161;fontStyle=2;" vertex="1" parent="s_w2">
+                <mxCell id="s_w2_note" value="W2's PeerBuffer holds W1's KV replicas&#10;→ failover restore without re-prefill" style="text;html=1;align=center;fontSize=9;fontColor=#616161;fontStyle=2;" parent="s_w2" vertex="1">
                     <mxGeometry x="10" y="240" width="300" height="30" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_rep01" value="TCP PUT (async)" style="strokeColor=#e65100;strokeWidth=3;endArrow=block;endFill=1;fontSize=10;fontStyle=1;fontColor=#e65100;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s_w0_peer" target="s_w1_buf">
+                <mxCell id="s_rep01" value="TCP PUT (async)" style="strokeColor=#e65100;strokeWidth=3;endArrow=block;endFill=1;fontSize=10;fontStyle=1;fontColor=#e65100;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" source="s_w0_peer" target="s_w1_buf" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_rep12" value="TCP PUT (async)" style="strokeColor=#e65100;strokeWidth=3;endArrow=block;endFill=1;fontSize=10;fontStyle=1;fontColor=#e65100;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="s_w1_peer" target="s_w2_buf">
+                <mxCell id="s_rep12" value="TCP PUT (async)" style="strokeColor=#e65100;strokeWidth=3;endArrow=block;endFill=1;fontSize=10;fontStyle=1;fontColor=#e65100;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" source="s_w1_peer" target="s_w2_buf" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_rep20" value="TCP PUT (ring close)" style="strokeColor=#e65100;strokeWidth=3;endArrow=block;endFill=1;fontSize=10;fontStyle=1;fontColor=#e65100;curved=1;" edge="1" parent="1" source="s_w2_peer" target="s_w0_buf">
+                <mxCell id="s_rep20" value="TCP PUT (ring close)" style="strokeColor=#e65100;strokeWidth=3;endArrow=block;endFill=1;fontSize=10;fontStyle=1;fontColor=#e65100;curved=1;" parent="1" source="s_w2_peer" target="s_w0_buf" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="1180" y="490"/>
@@ -109,44 +109,44 @@
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="s_dataflow" value="Data Flow (fully async, zero inference latency):&#10;  Prefill:  GPU → CPU (L2) → backup_thread → PeerCacheStorage.batch_set_v1() → TCP → Neighbor's buffer&#10;  Decode:  GPU → DecodeKVReplicator → page flush → GPU→Host DMA → write_storage() → TCP → Neighbor's buffer" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#1b5e20;fontSize=10;align=left;spacingLeft=12;" vertex="1" parent="1">
+                <mxCell id="s_dataflow" value="Data Flow (fully async, zero inference latency):&#10;  Prefill:  GPU → CPU (L2) → backup_thread → PeerCacheStorage.batch_set_v1() → TCP → Neighbor's buffer&#10;  Decode:  GPU → DecodeKVReplicator → page flush → GPU→Host DMA → write_storage() → TCP → Neighbor's buffer" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#1b5e20;fontSize=10;align=left;spacingLeft=12;" parent="1" vertex="1">
                     <mxGeometry x="40" y="560" width="720" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_failover" value="Failover:  Wi fails → Router detects → route to W(i+1)%N&#10;  W(i+1) has Wi's KV in PeerBuffer → restore to L2 → L1 → resume&#10;  Recovery: seconds → milliseconds  (no re-prefill needed)" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#e65100;fontSize=10;align=left;spacingLeft=12;" vertex="1" parent="1">
+                <mxCell id="s_failover" value="Failover:  Wi fails → Router detects → route to W(i+1)%N&#10;  W(i+1) has Wi's KV in PeerBuffer → restore to L2 → L1 → resume&#10;  Recovery: seconds → milliseconds  (no re-prefill needed)" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#e65100;fontSize=10;align=left;spacingLeft=12;" parent="1" vertex="1">
                     <mxGeometry x="40" y="635" width="720" height="55" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_key" value="Key Insight:  Write → REMOTE neighbor  |  Read → LOCAL buffer" style="rounded=1;whiteSpace=wrap;fillColor=#1a237e;strokeColor=none;fontSize=12;fontStyle=1;fontColor=#ffffff;align=center;" vertex="1" parent="1">
+                <mxCell id="s_key" value="Key Insight:  Write → REMOTE neighbor  |  Read → LOCAL buffer" style="rounded=1;whiteSpace=wrap;fillColor=#1a237e;strokeColor=none;fontSize=12;fontStyle=1;fontColor=#ffffff;align=center;" parent="1" vertex="1">
                     <mxGeometry x="40" y="705" width="720" height="32" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_lg_green" value="" style="rounded=1;fillColor=#c8e6c9;strokeColor=#2e7d32;" vertex="1" parent="1">
+                <mxCell id="s_lg_green" value="" style="rounded=1;fillColor=#c8e6c9;strokeColor=#2e7d32;" parent="1" vertex="1">
                     <mxGeometry x="810" y="570" width="16" height="12" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_lg_green_t" value="Existing HiCache (L1/L2)" style="text;html=1;align=left;fontSize=10;" vertex="1" parent="1">
+                <mxCell id="s_lg_green_t" value="Existing HiCache (L1/L2)" style="text;html=1;align=left;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="832" y="567" width="180" height="16" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_lg_blue" value="" style="rounded=1;fillColor=#bbdefb;strokeColor=#1565c0;" vertex="1" parent="1">
+                <mxCell id="s_lg_blue" value="" style="rounded=1;fillColor=#bbdefb;strokeColor=#1565c0;" parent="1" vertex="1">
                     <mxGeometry x="810" y="592" width="16" height="12" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_lg_blue_t" value="DecodeKVReplicator (new)" style="text;html=1;align=left;fontSize=10;fontColor=#1565c0;" vertex="1" parent="1">
+                <mxCell id="s_lg_blue_t" value="DecodeKVReplicator (new)" style="text;html=1;align=left;fontSize=10;fontColor=#1565c0;" parent="1" vertex="1">
                     <mxGeometry x="832" y="589" width="200" height="16" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_lg_orange" value="" style="rounded=1;fillColor=#ffe0b2;strokeColor=#e65100;" vertex="1" parent="1">
+                <mxCell id="s_lg_orange" value="" style="rounded=1;fillColor=#ffe0b2;strokeColor=#e65100;" parent="1" vertex="1">
                     <mxGeometry x="810" y="614" width="16" height="12" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_lg_orange_t" value="Peer Replication (new)" style="text;html=1;align=left;fontSize=10;fontColor=#e65100;" vertex="1" parent="1">
+                <mxCell id="s_lg_orange_t" value="Peer Replication (new)" style="text;html=1;align=left;fontSize=10;fontColor=#e65100;" parent="1" vertex="1">
                     <mxGeometry x="832" y="611" width="200" height="16" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_lg_purple" value="" style="rounded=1;fillColor=#e1bee7;strokeColor=#7b1fa2;" vertex="1" parent="1">
+                <mxCell id="s_lg_purple" value="" style="rounded=1;fillColor=#e1bee7;strokeColor=#7b1fa2;" parent="1" vertex="1">
                     <mxGeometry x="810" y="636" width="16" height="12" as="geometry"/>
                 </mxCell>
-                <mxCell id="s_lg_purple_t" value="Router (modified)" style="text;html=1;align=left;fontSize=10;fontColor=#7b1fa2;" vertex="1" parent="1">
+                <mxCell id="s_lg_purple_t" value="Router (modified)" style="text;html=1;align=left;fontSize=10;fontColor=#7b1fa2;" parent="1" vertex="1">
                     <mxGeometry x="832" y="633" width="160" height="16" as="geometry"/>
                 </mxCell>
             </root>
         </mxGraphModel>
     </diagram>
     <diagram name="2. Replication Flows (Prefill + Decode)" id="p2">
-        <mxGraphModel dx="1025" dy="566" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+        <mxGraphModel dx="777" dy="516" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -156,7 +156,7 @@
                 <mxCell id="p2_sub" value="Both prefill and decode KV pages are replicated asynchronously to neighbor (zero inference latency impact)" style="text;html=1;align=center;verticalAlign=middle;fontSize=11;fontColor=#616161;strokeColor=none;fillColor=none;" parent="1" vertex="1">
                     <mxGeometry x="200" y="42" width="1200" height="22" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_prefill_title" value="A. Prefill Replication Path (via backup_thread)" style="text;html=1;align=left;fontSize=14;fontStyle=1;fontColor=#558b2f;" vertex="1" parent="1">
+                <mxCell id="p2_prefill_title" value="A. Prefill Replication Path (via backup_thread)" style="text;html=1;align=left;fontSize=14;fontStyle=1;fontColor=#558b2f;" parent="1" vertex="1">
                     <mxGeometry x="30" y="70" width="500" height="25" as="geometry"/>
                 </mxCell>
                 <mxCell id="p2_w0" value="Worker 0 (Primary)" style="swimlane;startSize=22;fillColor=#f5f5f5;strokeColor=#424242;fontStyle=1;fontSize=11;rounded=1;" parent="1" vertex="1">
@@ -207,7 +207,7 @@
                 <mxCell id="p2_e5" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;endArrow=block;endFill=1;dashed=1;" parent="p2_w0" source="p2_ps" target="p2_tcp" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_w1_prefill" value="Worker 1 (Neighbor)" style="swimlane;startSize=22;fillColor=#f5f5f5;strokeColor=#424242;fontStyle=1;fontSize=11;rounded=1;" vertex="1" parent="1">
+                <mxCell id="p2_w1_prefill" value="Worker 1 (Neighbor)" style="swimlane;startSize=22;fillColor=#f5f5f5;strokeColor=#424242;fontStyle=1;fontSize=11;rounded=1;" parent="1" vertex="1">
                     <mxGeometry x="950" y="100" width="620" height="290" as="geometry"/>
                 </mxCell>
                 <mxCell id="p2_w1_srv" value="⑦ PeerCacheServer :9001&#10;Receives W0's pages via TCP" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;fontStyle=1;align=center;" parent="p2_w1_prefill" vertex="1">
@@ -219,73 +219,73 @@
                 <mxCell id="p2_w1_design" value="Key Design: Write path → REMOTE peer&#10;&#10;W0's batch_set_v1() reads from local L2&#10;host_pool.get_data_page(), serializes to bytes,&#10;sends via PeerCacheClient.put_pages() over TCP&#10;to Worker 1's PeerCacheServer" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#e65100;fontSize=10;align=left;spacingLeft=8;" parent="p2_w1_prefill" vertex="1">
                     <mxGeometry x="10" y="155" width="350" height="100" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_w1_read" value="Read path → LOCAL buffer (failover only)&#10;&#10;W1's batch_get_v1() reads from its own&#10;local_server.get_pages() and restores&#10;into host L2 via set_from_flat_data_page()" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#e65100;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="p2_w1_prefill">
+                <mxCell id="p2_w1_read" value="Read path → LOCAL buffer (failover only)&#10;&#10;W1's batch_get_v1() reads from its own&#10;local_server.get_pages() and restores&#10;into host L2 via set_from_flat_data_page()" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#e65100;fontSize=10;align=left;spacingLeft=8;" parent="p2_w1_prefill" vertex="1">
                     <mxGeometry x="380" y="155" width="230" height="100" as="geometry"/>
                 </mxCell>
                 <mxCell id="p2_tcp_arrow" value="TCP PUT&#10;(async)" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=4;endArrow=block;endFill=1;fontSize=11;fontStyle=1;fontColor=#e65100;dashed=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" source="p2_tcp" target="p2_w1_srv" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_decode_title" value="B. Decode Replication Path (via DecodeKVReplicator)" style="text;html=1;align=left;fontSize=14;fontStyle=1;fontColor=#1565c0;" vertex="1" parent="1">
+                <mxCell id="p2_decode_title" value="B. Decode Replication Path (via DecodeKVReplicator)" style="text;html=1;align=left;fontSize=14;fontStyle=1;fontColor=#1565c0;" parent="1" vertex="1">
                     <mxGeometry x="30" y="410" width="500" height="25" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_decode_flow" value="" style="rounded=1;fillColor=#e3f2fd;strokeColor=#90caf9;container=1;" vertex="1" parent="1">
+                <mxCell id="p2_decode_flow" value="" style="rounded=1;fillColor=#e3f2fd;strokeColor=#90caf9;container=1;" parent="1" vertex="1">
                     <mxGeometry x="30" y="440" width="1540" height="190" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_d1" value="① Decode Step&#10;(scheduler)" style="rounded=1;whiteSpace=wrap;fillColor=#dcedc8;strokeColor=#558b2f;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="p2_decode_flow">
+                <mxCell id="p2_d1" value="① Decode Step&#10;(scheduler)" style="rounded=1;whiteSpace=wrap;fillColor=#dcedc8;strokeColor=#558b2f;fontSize=10;fontStyle=1;align=center;" parent="p2_decode_flow" vertex="1">
                     <mxGeometry x="10" y="15" width="120" height="42" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_d2" value="② on_decode_step()&#10;accumulate token&#10;+ device KV index" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="p2_decode_flow">
+                <mxCell id="p2_d2" value="② on_decode_step()&#10;accumulate token&#10;+ device KV index" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;fontStyle=1;align=center;" parent="p2_decode_flow" vertex="1">
                     <mxGeometry x="155" y="15" width="165" height="42" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_d3" value="③ page_size tokens?&#10;_flush_page()" style="rhombus;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" vertex="1" parent="p2_decode_flow">
+                <mxCell id="p2_d3" value="③ page_size tokens?&#10;_flush_page()" style="rhombus;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" parent="p2_decode_flow" vertex="1">
                     <mxGeometry x="345" y="5" width="155" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_d4" value="④ Compute page hashes&#10;get_hash_str(tokens,&#10;prior_hash) chaining" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" vertex="1" parent="p2_decode_flow">
+                <mxCell id="p2_d4" value="④ Compute page hashes&#10;get_hash_str(tokens,&#10;prior_hash) chaining" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" parent="p2_decode_flow" vertex="1">
                     <mxGeometry x="525" y="15" width="175" height="42" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_d5" value="⑤ GPU→Host DMA&#10;cc.write(device_indices)" style="rounded=1;whiteSpace=wrap;fillColor=#dcedc8;strokeColor=#558b2f;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="p2_decode_flow">
+                <mxCell id="p2_d5" value="⑤ GPU→Host DMA&#10;cc.write(device_indices)" style="rounded=1;whiteSpace=wrap;fillColor=#dcedc8;strokeColor=#558b2f;fontSize=10;fontStyle=1;align=center;" parent="p2_decode_flow" vertex="1">
                     <mxGeometry x="725" y="15" width="165" height="42" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_d6" value="⑥ DMA complete&#10;on_write_complete()" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="p2_decode_flow">
+                <mxCell id="p2_d6" value="⑥ DMA complete&#10;on_write_complete()" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;fontStyle=1;align=center;" parent="p2_decode_flow" vertex="1">
                     <mxGeometry x="915" y="15" width="160" height="42" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_d7" value="⑦ cc.write_storage()&#10;→ PeerCacheStorage&#10;→ TCP to neighbor" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="p2_decode_flow">
+                <mxCell id="p2_d7" value="⑦ cc.write_storage()&#10;→ PeerCacheStorage&#10;→ TCP to neighbor" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;fontStyle=1;align=center;" parent="p2_decode_flow" vertex="1">
                     <mxGeometry x="1100" y="15" width="160" height="42" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_d8" value="⑧ PeerCacheServer&#10;stores in buffer" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="p2_decode_flow">
+                <mxCell id="p2_d8" value="⑧ PeerCacheServer&#10;stores in buffer" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;fontStyle=1;align=center;" parent="p2_decode_flow" vertex="1">
                     <mxGeometry x="1290" y="15" width="140" height="42" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_de1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#333;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="p2_decode_flow" source="p2_d1" target="p2_d2">
+                <mxCell id="p2_de1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#333;strokeWidth=2;endArrow=block;endFill=1;" parent="p2_decode_flow" source="p2_d1" target="p2_d2" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_de2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1565c0;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="p2_decode_flow" source="p2_d2" target="p2_d3">
+                <mxCell id="p2_de2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1565c0;strokeWidth=2;endArrow=block;endFill=1;" parent="p2_decode_flow" source="p2_d2" target="p2_d3" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_de3" value="Y" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1565c0;strokeWidth=2;endArrow=block;endFill=1;fontSize=9;fontStyle=1;" edge="1" parent="p2_decode_flow" source="p2_d3" target="p2_d4">
+                <mxCell id="p2_de3" value="Y" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1565c0;strokeWidth=2;endArrow=block;endFill=1;fontSize=9;fontStyle=1;" parent="p2_decode_flow" source="p2_d3" target="p2_d4" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_de4" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1565c0;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="p2_decode_flow" source="p2_d4" target="p2_d5">
+                <mxCell id="p2_de4" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1565c0;strokeWidth=2;endArrow=block;endFill=1;" parent="p2_decode_flow" source="p2_d4" target="p2_d5" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_de5" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1565c0;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="p2_decode_flow" source="p2_d5" target="p2_d6">
+                <mxCell id="p2_de5" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1565c0;strokeWidth=2;endArrow=block;endFill=1;" parent="p2_decode_flow" source="p2_d5" target="p2_d6" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_de6" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;endArrow=block;endFill=1;dashed=1;" edge="1" parent="p2_decode_flow" source="p2_d6" target="p2_d7">
+                <mxCell id="p2_de6" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;endArrow=block;endFill=1;dashed=1;" parent="p2_decode_flow" source="p2_d6" target="p2_d7" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_de7" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;endArrow=block;endFill=1;dashed=1;" edge="1" parent="p2_decode_flow" source="p2_d7" target="p2_d8">
+                <mxCell id="p2_de7" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;endArrow=block;endFill=1;dashed=1;" parent="p2_decode_flow" source="p2_d7" target="p2_d8" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_d_key" value="Hash chaining: get_hash_str(page_tokens, prior_hash=parent_hash)&#10;Same algorithm as prefetch_from_storage → failover lookup HIT" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="p2_decode_flow">
+                <mxCell id="p2_d_key" value="Hash chaining: get_hash_str(page_tokens, prior_hash=parent_hash)&#10;Same algorithm as prefetch_from_storage → failover lookup HIT" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=left;spacingLeft=8;" parent="p2_decode_flow" vertex="1">
                     <mxGeometry x="10" y="80" width="460" height="45" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_d_flush" value="MIN_FLUSH_SIZE = 64 tokens&#10;flush_size = max(page_size, 64)&#10;Negative node IDs avoid collision with TreeNode" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="p2_decode_flow">
+                <mxCell id="p2_d_flush" value="MIN_FLUSH_SIZE = 64 tokens&#10;flush_size = max(page_size, 64)&#10;Negative node IDs avoid collision with TreeNode" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=left;spacingLeft=8;" parent="p2_decode_flow" vertex="1">
                     <mxGeometry x="490" y="80" width="340" height="45" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_d_lifecycle" value="Lifecycle: created by HiRadixCache when backend='peer'&#10;on_decode_step() called by scheduler_output_processor_mixin&#10;on_request_finished() cleans up per-request state" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="p2_decode_flow">
+                <mxCell id="p2_d_lifecycle" value="Lifecycle: created by HiRadixCache when backend='peer'&#10;on_decode_step() called by scheduler_output_processor_mixin&#10;on_request_finished() cleans up per-request state" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=left;spacingLeft=8;" parent="p2_decode_flow" vertex="1">
                     <mxGeometry x="850" y="80" width="380" height="45" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_d_wait" value="N (wait)" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#9e9e9e;strokeWidth=1;endArrow=block;endFill=1;fontSize=8;fontColor=#9e9e9e;exitX=0.5;exitY=1;entryX=0.5;entryY=1;curved=1;" edge="1" parent="p2_decode_flow" source="p2_d3" target="p2_d2">
+                <mxCell id="p2_d_wait" value="N (wait)" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#9e9e9e;strokeWidth=1;endArrow=block;endFill=1;fontSize=8;fontColor=#9e9e9e;exitX=0.5;exitY=1;entryX=0.5;entryY=1;curved=1;" parent="p2_decode_flow" source="p2_d3" target="p2_d2" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="423" y="80"/>
@@ -293,7 +293,7 @@
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="p2_summary" value="Data Paths (both fully async, zero inference latency impact):&#10;Prefill: GPU → Host L2 → backup_thread → PeerCacheStorage.batch_set_v1() → TCP → Peer buffer&#10;Decode: GPU → DecodeKVReplicator → DMA → on_write_complete() → write_storage() → TCP → Peer buffer" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#1b5e20;fontSize=11;align=left;spacingLeft=10;fontStyle=0;" vertex="1" parent="1">
+                <mxCell id="p2_summary" value="Data Paths (both fully async, zero inference latency impact):&#10;Prefill: GPU → Host L2 → backup_thread → PeerCacheStorage.batch_set_v1() → TCP → Peer buffer&#10;Decode: GPU → DecodeKVReplicator → DMA → on_write_complete() → write_storage() → TCP → Peer buffer" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#1b5e20;fontSize=11;align=left;spacingLeft=10;fontStyle=0;" parent="1" vertex="1">
                     <mxGeometry x="250" y="650" width="700" height="65" as="geometry"/>
                 </mxCell>
                 <mxCell id="p2_lg1" value="" style="rounded=1;fillColor=#dcedc8;strokeColor=#558b2f;" parent="1" vertex="1">
@@ -308,17 +308,17 @@
                 <mxCell id="p2_lg2t" value="Peer Storage" style="text;html=1;align=left;fontSize=9;fontStyle=1;fontColor=#e65100;" parent="1" vertex="1">
                     <mxGeometry x="140" y="657" width="80" height="16" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_lg3" value="" style="rounded=1;fillColor=#bbdefb;strokeColor=#1565c0;" vertex="1" parent="1">
+                <mxCell id="p2_lg3" value="" style="rounded=1;fillColor=#bbdefb;strokeColor=#1565c0;" parent="1" vertex="1">
                     <mxGeometry x="30" y="680" width="16" height="12" as="geometry"/>
                 </mxCell>
-                <mxCell id="p2_lg3t" value="DecodeKVReplicator" style="text;html=1;align=left;fontSize=9;fontStyle=1;fontColor=#1565c0;" vertex="1" parent="1">
+                <mxCell id="p2_lg3t" value="DecodeKVReplicator" style="text;html=1;align=left;fontSize=9;fontStyle=1;fontColor=#1565c0;" parent="1" vertex="1">
                     <mxGeometry x="50" y="677" width="130" height="16" as="geometry"/>
                 </mxCell>
             </root>
         </mxGraphModel>
     </diagram>
     <diagram name="3. Failover Recovery Flow" id="p3">
-        <mxGraphModel dx="1367" dy="755" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+        <mxGraphModel dx="744" dy="494" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -422,7 +422,7 @@
         </mxGraphModel>
     </diagram>
     <diagram name="4. Component Design" id="p4">
-        <mxGraphModel dx="1708" dy="943" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="893" dy="593" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -438,7 +438,7 @@
                 <mxCell id="p4_srv_cls" value="class PeerCacheServer:&#10;&#10;  def __init__(port, max_buffer_size_gb=8.0):&#10;      self.buffer: Dict[str, bytes]&#10;      self.lru: OrderedDict&#10;      self.lock: threading.Lock&#10;      self.max_size: int  # bytes&#10;      self.current_size: int&#10;&#10;  def start() → ThreadingTCPServer daemon&#10;  def stop()&#10;  def put_pages(keys, pages) → List[bool]&#10;  def get_pages(keys) → List[Optional[bytes]]&#10;  def exists(keys) → int  # consecutive hits&#10;  def clear()&#10;  def _evict_if_needed()  # LRU eviction" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=9;align=left;spacingLeft=10;spacingTop=3;fontFamily=Courier New;" parent="p4_srv" vertex="1">
                     <mxGeometry x="10" y="45" width="370" height="235" as="geometry"/>
                 </mxCell>
-                <mxCell id="p4_cli_cls" value="class PeerCacheClient:&#10;&#10;  def __init__(peer_url: str):&#10;      self.host, self.port&#10;      self._sock: Optional[socket]&#10;      self._lock: threading.Lock&#10;&#10;  def _connect() → socket  # TCP_NODELAY&#10;  def _reset()  # close on error&#10;  def put_pages(keys, pages) → List[bool]&#10;  def close()" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=9;align=left;spacingLeft=10;spacingTop=3;fontFamily=Courier New;" vertex="1" parent="p4_srv">
+                <mxCell id="p4_cli_cls" value="class PeerCacheClient:&#10;&#10;  def __init__(peer_url: str):&#10;      self.host, self.port&#10;      self._sock: Optional[socket]&#10;      self._lock: threading.Lock&#10;&#10;  def _connect() → socket  # TCP_NODELAY&#10;  def _reset()  # close on error&#10;  def put_pages(keys, pages) → List[bool]&#10;  def close()" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=9;align=left;spacingLeft=10;spacingTop=3;fontFamily=Courier New;" parent="p4_srv" vertex="1">
                     <mxGeometry x="10" y="295" width="370" height="135" as="geometry"/>
                 </mxCell>
                 <mxCell id="p4_srv_info" value="Threading:&#10;Server: ThreadingTCPServer (0.0.0.0:port)&#10;  one daemon thread per connection&#10;Client: single persistent TCP connection&#10;  guarded by threading.Lock&#10;Port: peer_port_base + gpu_id (default 9000)" style="rounded=1;whiteSpace=wrap;fillColor=#fff;strokeColor=#bdbdbd;fontSize=9;align=left;spacingLeft=8;" parent="p4_srv" vertex="1">
@@ -465,22 +465,22 @@
                 <mxCell id="p4_sto_key_d" value="WRITE (batch_set_v1):&#10;  → REMOTE: sends to neighbor&#10;  host_pool.get_data_page(idx) → tobytes()&#10;  → peer_client.put_pages() → TCP&#10;&#10;READ (batch_get_v1):&#10;  → LOCAL: reads own buffer&#10;  local_server.get_pages(keys)&#10;  → torch.frombuffer() → set_from_flat_data_page()&#10;&#10;EXISTS (batch_exists):&#10;  → LOCAL: local_server.exists(keys)" style="rounded=0;whiteSpace=wrap;fillColor=none;strokeColor=none;fontSize=9;align=left;spacingLeft=6;" parent="p4_sto_key" vertex="1">
                     <mxGeometry x="5" y="20" width="330" height="148" as="geometry"/>
                 </mxCell>
-                <mxCell id="p4_dkr" value="DecodeKVReplicator" style="swimlane;startSize=22;fillColor=#e3f2fd;strokeColor=#1565c0;fontStyle=1;fontSize=11;rounded=1;" vertex="1" parent="1">
+                <mxCell id="p4_dkr" value="DecodeKVReplicator" style="swimlane;startSize=22;fillColor=#e3f2fd;strokeColor=#1565c0;fontStyle=1;fontSize=11;rounded=1;" parent="1" vertex="1">
                     <mxGeometry x="810" y="325" width="760" height="380" as="geometry"/>
                 </mxCell>
-                <mxCell id="p4_dkr_loc" value="python/sglang/srt/mem_cache/decode_kv_replicator.py" style="text;html=1;align=left;fontSize=9;fontStyle=2;fontColor=#616161;" vertex="1" parent="p4_dkr">
+                <mxCell id="p4_dkr_loc" value="python/sglang/srt/mem_cache/decode_kv_replicator.py" style="text;html=1;align=left;fontSize=9;fontStyle=2;fontColor=#616161;" parent="p4_dkr" vertex="1">
                     <mxGeometry x="10" y="25" width="500" height="16" as="geometry"/>
                 </mxCell>
-                <mxCell id="p4_dkr_cls" value="class DecodeKVReplicator:&#10;  MIN_FLUSH_SIZE = 64&#10;&#10;  def __init__(cache_controller,&#10;               req_to_token_pool,&#10;               page_size, tree_cache):&#10;      self._cc: HiCacheController&#10;      self._states: Dict[str, _ReqState]&#10;      self._pending_dma: Dict[int, _PendingPage]&#10;      self._node_id_counter = -(10**9)&#10;&#10;  def on_decode_step(batch) → None&#10;  def _flush_page(rid, state) → None&#10;  def on_write_complete(node_id) → bool&#10;  def on_request_finished(req) → None&#10;  def set_prefill_parent_hash(req, hash)" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=9;align=left;spacingLeft=10;spacingTop=3;fontFamily=Courier New;" vertex="1" parent="p4_dkr">
+                <mxCell id="p4_dkr_cls" value="class DecodeKVReplicator:&#10;  MIN_FLUSH_SIZE = 64&#10;&#10;  def __init__(cache_controller,&#10;               req_to_token_pool,&#10;               page_size, tree_cache):&#10;      self._cc: HiCacheController&#10;      self._states: Dict[str, _ReqState]&#10;      self._pending_dma: Dict[int, _PendingPage]&#10;      self._node_id_counter = -(10**9)&#10;&#10;  def on_decode_step(batch) → None&#10;  def _flush_page(rid, state) → None&#10;  def on_write_complete(node_id) → bool&#10;  def on_request_finished(req) → None&#10;  def set_prefill_parent_hash(req, hash)" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=9;align=left;spacingLeft=10;spacingTop=3;fontFamily=Courier New;" parent="p4_dkr" vertex="1">
                     <mxGeometry x="10" y="45" width="370" height="240" as="geometry"/>
                 </mxCell>
-                <mxCell id="p4_dkr_ds" value="Data Structures:&#10;&#10;@dataclass _ReqState:&#10;  token_ids: List[int]&#10;  device_indices: List[int]&#10;  parent_hash: Optional[str]&#10;  pages_flushed: int&#10;&#10;@dataclass _PendingPage:&#10;  page_hash: List[str]&#10;  host_indices: Tensor&#10;  node_id: int" style="rounded=1;whiteSpace=wrap;fillColor=#fff;strokeColor=#bdbdbd;fontSize=9;align=left;spacingLeft=8;fontFamily=Courier New;" vertex="1" parent="p4_dkr">
+                <mxCell id="p4_dkr_ds" value="Data Structures:&#10;&#10;@dataclass _ReqState:&#10;  token_ids: List[int]&#10;  device_indices: List[int]&#10;  parent_hash: Optional[str]&#10;  pages_flushed: int&#10;&#10;@dataclass _PendingPage:&#10;  page_hash: List[str]&#10;  host_indices: Tensor&#10;  node_id: int" style="rounded=1;whiteSpace=wrap;fillColor=#fff;strokeColor=#bdbdbd;fontSize=9;align=left;spacingLeft=8;fontFamily=Courier New;" parent="p4_dkr" vertex="1">
                     <mxGeometry x="400" y="45" width="340" height="185" as="geometry"/>
                 </mxCell>
-                <mxCell id="p4_dkr_flow" value="Flow per decode step:&#10;1. Accumulate token_id + device KV index&#10;2. When flush_size tokens ready → _flush_page()&#10;3. Compute page hashes via get_hash_str() chaining&#10;4. GPU→Host DMA via cc.write(device_indices)&#10;5. On DMA complete → cc.write_storage() → TCP peer" style="rounded=1;whiteSpace=wrap;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="p4_dkr">
+                <mxCell id="p4_dkr_flow" value="Flow per decode step:&#10;1. Accumulate token_id + device KV index&#10;2. When flush_size tokens ready → _flush_page()&#10;3. Compute page hashes via get_hash_str() chaining&#10;4. GPU→Host DMA via cc.write(device_indices)&#10;5. On DMA complete → cc.write_storage() → TCP peer" style="rounded=1;whiteSpace=wrap;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=9;align=left;spacingLeft=8;" parent="p4_dkr" vertex="1">
                     <mxGeometry x="400" y="245" width="340" height="105" as="geometry"/>
                 </mxCell>
-                <mxCell id="p4_dkr_note" value="Why needed: During decode, KV lives only in GPU&#10;KV pool, NOT in radix tree. Normal backup_thread&#10;only handles radix tree nodes. DecodeKVReplicator&#10;bypasses the tree and replicates directly." style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="p4_dkr">
+                <mxCell id="p4_dkr_note" value="Why needed: During decode, KV lives only in GPU&#10;KV pool, NOT in radix tree. Normal backup_thread&#10;only handles radix tree nodes. DecodeKVReplicator&#10;bypasses the tree and replicates directly." style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=9;align=left;spacingLeft=8;" parent="p4_dkr" vertex="1">
                     <mxGeometry x="10" y="300" width="370" height="70" as="geometry"/>
                 </mxCell>
                 <mxCell id="p4_sto_reg" value="StorageBackendFactory Registration" style="swimlane;startSize=18;fillColor=#fff;strokeColor=#e65100;fontStyle=1;fontSize=10;rounded=1;" parent="1" vertex="1">
@@ -489,10 +489,10 @@
                 <mxCell id="p4_sto_reg_d" value="StorageBackendFactory.register_backend(&#10;    &quot;peer&quot;,&#10;    &quot;sglang.srt.mem_cache.storage.peer.peer_cache_storage&quot;,&#10;    &quot;PeerCacheStorage&quot;)&#10;&#10;Creation: backend_class(storage_config, mem_pool_host)" style="rounded=0;whiteSpace=wrap;fillColor=none;strokeColor=none;fontSize=9;align=left;spacingLeft=6;fontFamily=Courier New;" parent="p4_sto_reg" vertex="1">
                     <mxGeometry x="5" y="20" width="740" height="62" as="geometry"/>
                 </mxCell>
-                <mxCell id="p4_cfg" value="Configuration (env vars / extra_config)" style="swimlane;startSize=18;fillColor=#fff;strokeColor=#e65100;fontStyle=1;fontSize=10;rounded=1;" vertex="1" parent="1">
+                <mxCell id="p4_cfg" value="Configuration (env vars / extra_config)" style="swimlane;startSize=18;fillColor=#fff;strokeColor=#e65100;fontStyle=1;fontSize=10;rounded=1;" parent="1" vertex="1">
                     <mxGeometry x="30" y="605" width="760" height="100" as="geometry"/>
                 </mxCell>
-                <mxCell id="p4_cfg_d" value="SGLANG_PEER_CACHE_PORT    (default 9000)   → PeerCacheServer listen port&#10;SGLANG_PEER_TARGET_URL    (e.g. host:9001) → PeerCacheClient target (empty=receive-only)&#10;SGLANG_PEER_BUFFER_SIZE_GB (default 8)      → max DRAM buffer per worker&#10;&#10;Also configurable via --hicache-storage-backend-extra-config '{&quot;peer_port&quot;: 9000, &quot;peer_url&quot;: &quot;host:9001&quot;}'" style="rounded=0;whiteSpace=wrap;fillColor=none;strokeColor=none;fontSize=9;align=left;spacingLeft=6;fontFamily=Courier New;" vertex="1" parent="p4_cfg">
+                <mxCell id="p4_cfg_d" value="SGLANG_PEER_CACHE_PORT    (default 9000)   → PeerCacheServer listen port&#10;SGLANG_PEER_TARGET_URL    (e.g. host:9001) → PeerCacheClient target (empty=receive-only)&#10;SGLANG_PEER_BUFFER_SIZE_GB (default 8)      → max DRAM buffer per worker&#10;&#10;Also configurable via --hicache-storage-backend-extra-config '{&quot;peer_port&quot;: 9000, &quot;peer_url&quot;: &quot;host:9001&quot;}'" style="rounded=0;whiteSpace=wrap;fillColor=none;strokeColor=none;fontSize=9;align=left;spacingLeft=6;fontFamily=Courier New;" parent="p4_cfg" vertex="1">
                     <mxGeometry x="5" y="20" width="740" height="75" as="geometry"/>
                 </mxCell>
                 <mxCell id="p4_arrow" value="PeerCacheStorage creates both&#10;PeerCacheServer + PeerCacheClient" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;endArrow=block;endFill=1;fontSize=9;fontColor=#e65100;dashed=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" parent="1" source="p4_sto" target="p4_srv" edge="1">

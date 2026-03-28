@@ -12,20 +12,20 @@ Flow (per decode step):
   2. For each request in the batch, the new token's device KV index is recorded.
   3. When ``page_size`` tokens accumulate for a request, a page-aligned backup
      is initiated:  GPU → Host (async DMA) → Peer buffer (async TCP).
-  4. Page hashes are computed with the same chaining algorithm used by
-     ``prefetch_from_storage``, so the peer can look them up on failover.
+  4. Page hashes are still computed for generic HiCache bookkeeping, while
+     peer failover restore uses ``full_token_ids`` + ``page_start`` to address
+     the token-indexed radix buffer on the backup worker.
 """
 
 from __future__ import annotations
 
 import logging
-import threading
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 import torch
 
+from sglang.srt.managers.cache_controller import StorageOperationKind
 from sglang.srt.mem_cache.hicache_storage import get_hash_str
 
 if TYPE_CHECKING:
@@ -45,6 +45,16 @@ class _PendingPage:
     host_indices: torch.Tensor
     node_id: int
     rid: str = ""
+    full_token_ids: Optional[List[int]] = None
+    page_start: int = 0
+    checkpoint_output_len: int = 0
+
+
+@dataclass
+class _PendingStorage:
+    rid: str
+    host_indices: torch.Tensor
+    checkpoint_output_len: int
 
 
 @dataclass
@@ -55,6 +65,8 @@ class _ReqState:
     device_indices: List[int] = field(default_factory=list)
     parent_hash: Optional[str] = None
     pages_flushed: int = 0
+    origin_input_ids: Optional[List[int]] = None
+    flushed_token_ids: List[int] = field(default_factory=list)
 
 
 class DecodeKVReplicator:
@@ -84,12 +96,24 @@ class DecodeKVReplicator:
         self._tree_cache = tree_cache
         self._states: Dict[str, _ReqState] = {}
         self._pending_dma: Dict[int, _PendingPage] = {}
+        self._pending_storage: Dict[int, _PendingStorage] = {}
+        self._finished_rids: set[str] = set()
         self._node_id_counter = -(10 ** 9)
 
     def _next_node_id(self) -> int:
         """Negative IDs avoid collision with real TreeNode IDs."""
         self._node_id_counter -= 1
         return self._node_id_counter
+
+    def _has_pending_for_rid(self, rid: str) -> bool:
+        return any(pending.rid == rid for pending in self._pending_dma.values()) or any(
+            pending.rid == rid for pending in self._pending_storage.values()
+        )
+
+    def _maybe_forget_finished_rid(self, rid: str) -> None:
+        if rid in self._states or self._has_pending_for_rid(rid):
+            return
+        self._finished_rids.discard(rid)
 
     def set_prefill_parent_hash(
         self, req: Req, parent_hash: Optional[str]
@@ -98,9 +122,37 @@ class DecodeKVReplicator:
 
         This provides the chaining seed so decode page hashes are compatible
         with the prefetch restore path on the peer worker.
+        Also stores ``origin_input_ids`` for building the full token context
+        needed by the token-indexed peer radix buffer.
+
+        Critically, this also captures the first output token generated during
+        the prefill forward pass (stored in ``req.output_ids`` before this
+        method is called).  Without this, the decode backup's token sequence
+        would be off-by-one relative to the request's visible output prefix,
+        causing a permanent mismatch in the peer radix trie.
         """
         state = self._states.setdefault(req.rid, _ReqState())
         state.parent_hash = parent_hash
+        state.origin_input_ids = list(req.origin_input_ids)
+
+        if req.output_ids and req.req_pool_idx is not None:
+            n_origin = len(req.origin_input_ids)
+            for i, tok_id in enumerate(req.output_ids):
+                state.token_ids.append(tok_id)
+                seq_pos = n_origin + i
+                device_idx = self._req_to_token_pool.req_to_token[
+                    req.req_pool_idx, seq_pos
+                ].item()
+                state.device_indices.append(device_idx)
+
+        logger.debug(
+            "DecodeKVReplicator.set_prefill_parent_hash: rid=%s, "
+            "parent_hash=%s, origin_input_len=%d, prefill_output_tokens=%d",
+            req.rid,
+            parent_hash[:16] if parent_hash else "None",
+            len(req.origin_input_ids),
+            len(req.output_ids) if req.output_ids else 0,
+        )
 
     def on_decode_step(self, batch: ScheduleBatch) -> None:
         """Called after each decode forward pass.
@@ -119,18 +171,31 @@ class DecodeKVReplicator:
             output_ids = req.output_ids
             if not output_ids:
                 continue
-            new_token_id = output_ids[-1]
+
+            if req.req_pool_idx is None:
+                continue
 
             if state is None:
                 state = _ReqState()
                 state.parent_hash = self._tree_cache.get_last_hash_for_req(
                     req.origin_input_ids
                 )
+                state.origin_input_ids = list(req.origin_input_ids)
+                n_origin = len(req.origin_input_ids)
+                for i, tok_id in enumerate(output_ids):
+                    state.token_ids.append(tok_id)
+                    device_idx = self._req_to_token_pool.req_to_token[
+                        req.req_pool_idx, n_origin + i
+                    ].item()
+                    state.device_indices.append(device_idx)
                 self._states[rid] = state
 
-            seq_pos = len(req.origin_input_ids) + len(output_ids) - 1
-            if req.req_pool_idx is None:
+                if len(state.token_ids) >= self._flush_size:
+                    self._flush_page(rid, state)
                 continue
+
+            new_token_id = output_ids[-1]
+            seq_pos = len(req.origin_input_ids) + len(output_ids) - 1
             device_idx = self._req_to_token_pool.req_to_token[
                 req.req_pool_idx, seq_pos
             ].item()
@@ -157,6 +222,11 @@ class DecodeKVReplicator:
             page_hashes.append(h)
             parent_hash = h
 
+        origin = state.origin_input_ids or []
+        full_token_ids = origin + state.flushed_token_ids + flush_token_ids
+        page_start = (len(origin) + len(state.flushed_token_ids)) // self._page_size
+        checkpoint_output_len = len(state.flushed_token_ids) + flush_len
+
         gpu_device = self._req_to_token_pool.device
         device_tensor = torch.tensor(
             flush_device_indices, dtype=torch.int64, device=gpu_device
@@ -165,6 +235,7 @@ class DecodeKVReplicator:
         host_indices = self._cc.write(device_indices=device_tensor, node_id=node_id)
         if host_indices is None:
             logger.debug("DecodeKVReplicator: host alloc failed for %s, skip", rid)
+            state.flushed_token_ids.extend(flush_token_ids)
             state.token_ids = state.token_ids[flush_len:]
             state.device_indices = state.device_indices[flush_len:]
             state.parent_hash = parent_hash
@@ -176,8 +247,26 @@ class DecodeKVReplicator:
             host_indices=host_indices,
             node_id=node_id,
             rid=rid,
+            full_token_ids=full_token_ids,
+            page_start=page_start,
+            checkpoint_output_len=checkpoint_output_len,
         )
 
+        if state.pages_flushed == 0:
+            logger.debug(
+                "DecodeKVReplicator._flush_page FIRST flush: rid=%s, "
+                "anchor_hash=%s, first_token=%d, first_page_hash=%s, "
+                "flush_len=%d, pages=%d, page_start=%d",
+                rid,
+                (state.parent_hash or "None")[:16],
+                flush_token_ids[0] if flush_token_ids else -1,
+                page_hashes[0][:16] if page_hashes else "None",
+                flush_len,
+                len(page_hashes),
+                page_start,
+            )
+
+        state.flushed_token_ids.extend(flush_token_ids)
         state.parent_hash = parent_hash
         state.pages_flushed += len(page_hashes)
         state.token_ids = state.token_ids[flush_len:]
@@ -194,23 +283,61 @@ class DecodeKVReplicator:
             return False
 
         if not self._cc.enable_storage or self._cc.storage_backend is None:
+            self._cc.append_host_mem_release(pending.host_indices)
+            self._maybe_forget_finished_rid(pending.rid)
             return True
 
-        self._cc.write_storage(
+        operation_id = self._cc.write_storage(
             pending.host_indices,
             [],
             pending.page_hash,
+            full_token_ids=pending.full_token_ids,
+            page_start=pending.page_start,
+            operation_kind=StorageOperationKind.DECODE_STREAM_BACKUP,
         )
-        logger.info(
+        self._pending_storage[operation_id] = _PendingStorage(
+            rid=pending.rid,
+            host_indices=pending.host_indices,
+            checkpoint_output_len=pending.checkpoint_output_len,
+        )
+        logger.debug(
             "DecodeKVReplicator: backed up %d pages to peer for req %s",
             len(pending.page_hash),
             pending.rid,
         )
         return True
 
+    def on_backup_complete(self, operation_id: int) -> Optional[torch.Tensor]:
+        """Called when a storage backup completes for *operation_id*.
+
+        Returns the host indices to be freed if this belongs to the
+        replicator, None otherwise.
+        """
+        pending = self._pending_storage.pop(operation_id, None)
+        if pending is None:
+            return None
+        if pending.rid not in self._finished_rids:
+            self._tree_cache.update_local_checkpointed_output_len(
+                pending.rid, pending.checkpoint_output_len
+            )
+        self._maybe_forget_finished_rid(pending.rid)
+        return pending.host_indices
+
     def on_request_finished(self, req: Req) -> None:
         """Clean up state for a finished request."""
         self._states.pop(req.rid, None)
+        self._finished_rids.add(req.rid)
+        self._tree_cache.clear_request_checkpoint_state(req.rid)
+
+    def force_release_pending_storage(self) -> None:
+        """Free all tracked host indices from pending storage backups.
+
+        Safety net for shutdown/detach paths.
+        """
+        for pending in self._pending_storage.values():
+            self._cc.append_host_mem_release(pending.host_indices)
+        self._pending_storage.clear()
+        self._finished_rids.clear()
 
     @property
     def active_requests(self) -> int:
@@ -219,3 +346,7 @@ class DecodeKVReplicator:
     @property
     def pending_dma_count(self) -> int:
         return len(self._pending_dma)
+
+    @property
+    def pending_storage_count(self) -> int:
+        return len(self._pending_storage)

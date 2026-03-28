@@ -1,0 +1,6 @@
+---
+description: 
+alwaysApply: true
+---
+
+注意 sglang 的虚拟环境在.venv下，benchmark/multi_agent/src/application/下不同的 application 有各自的虚拟环境.venv，注意运行或查找相关代码时注意到各自的虚拟环境

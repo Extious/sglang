@@ -176,11 +176,25 @@ class SchedulerOutputProcessorMixin:
 
                     if req.finished():
                         self.maybe_collect_routed_experts(req)
+                        if hasattr(self, "handled_resume_epochs"):
+                            self.handled_resume_epochs.pop(req.rid, None)
+                        if hasattr(self.tree_cache, "clear_request_checkpoint_state"):
+                            self.tree_cache.clear_request_checkpoint_state(req.rid)
                         release_kv_cache(req, self.tree_cache)
                         req.time_stats.completion_time = time.perf_counter()
-                    elif not batch.decoding_reqs or req not in batch.decoding_reqs:
-                        # This updates radix so others can match
-                        self.tree_cache.cache_unfinished_req(req)
+                    else:
+                        if not batch.decoding_reqs or req not in batch.decoding_reqs:
+                            # This updates radix so others can match
+                            self.tree_cache.cache_unfinished_req(req)
+
+                        _replicator = getattr(
+                            self.tree_cache, "decode_kv_replicator", None
+                        )
+                        if _replicator is not None:
+                            last_hash = self.tree_cache.get_last_hash_for_req(
+                                req.origin_input_ids
+                            )
+                            _replicator.set_prefill_parent_hash(req, last_hash)
 
                     self.maybe_collect_customized_info(i, req, logits_output)
 
@@ -471,10 +485,14 @@ class SchedulerOutputProcessorMixin:
 
             if req.finished():
                 self.maybe_collect_routed_experts(req)
+                if hasattr(self, "handled_resume_epochs"):
+                    self.handled_resume_epochs.pop(req.rid, None)
 
                 _replicator = getattr(self.tree_cache, "decode_kv_replicator", None)
                 if _replicator is not None:
                     _replicator.on_request_finished(req)
+                elif hasattr(self.tree_cache, "clear_request_checkpoint_state"):
+                    self.tree_cache.clear_request_checkpoint_state(req.rid)
 
                 if self.server_args.disaggregation_decode_enable_offload_kvcache:
                     # Asynchronously offload KV cache; release_kv_cache will be called after Device->Host transfer completes

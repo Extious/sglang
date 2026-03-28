@@ -57,6 +57,7 @@ from sglang.srt.managers.io_struct import (
     BatchTokenizedGenerateReqInput,
     ConfigureLoggingReq,
     ContinueGenerationReqInput,
+    CheckpointUpdateReq,
     EmbeddingReqInput,
     FreezeGCReq,
     GenerateReqInput,
@@ -69,6 +70,7 @@ from sglang.srt.managers.io_struct import (
     TokenizedGenerateReqInput,
     UpdateWeightFromDiskReqInput,
     UpdateWeightFromDiskReqOutput,
+    VisibleStateUpdateReq,
     WatchLoadUpdateReq,
 )
 from sglang.srt.managers.mm_utils import TensorTransportMode, wrap_shm_features
@@ -470,6 +472,7 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
                     self._handle_batch_output,
                 ),
                 (AbortReq, self._handle_abort_req),
+                (CheckpointUpdateReq, self._forward_internal_control_req),
                 (OpenSessionReqOutput, self._handle_open_session_req_output),
                 (
                     UpdateWeightFromDiskReqOutput,
@@ -1474,6 +1477,23 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
             self.last_receive_tstamp = time.time()
             self.soft_watchdog.feed()
 
+    def _maybe_publish_visible_state_update(
+        self,
+        rid: str,
+        state_obj: Union[GenerateReqInput, EmbeddingReqInput],
+        delta_output_ids: List[int],
+        finished: bool,
+    ) -> None:
+        if self.server_args.dp_size <= 1 or not isinstance(state_obj, GenerateReqInput):
+            return
+        self.send_to_scheduler.send_pyobj(
+            VisibleStateUpdateReq(
+                rid=rid,
+                output_ids_delta=list(delta_output_ids),
+                finished=finished,
+            )
+        )
+
     def _handle_batch_output(
         self,
         recv_obj: Union[
@@ -1590,6 +1610,17 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
                 }
 
             state.finished = recv_obj.finished_reasons[i] is not None
+            delta_output_ids = (
+                recv_obj.output_ids[i]
+                if isinstance(recv_obj, (BatchStrOutput, BatchTokenIDOutput))
+                else []
+            )
+            self._maybe_publish_visible_state_update(
+                rid=rid,
+                state_obj=state.obj,
+                delta_output_ids=delta_output_ids,
+                finished=state.finished,
+            )
             if state.finished:
                 state.finished_time = time.time()
                 state.finished_time_perf = time.perf_counter()
@@ -2193,11 +2224,20 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
             "output_ids": output_ids,
             "meta_info": meta_info,
         }
+        self._maybe_publish_visible_state_update(
+            rid=recv_obj.rid,
+            state_obj=state.obj,
+            delta_output_ids=[],
+            finished=True,
+        )
         state.out_list.append(out)
         state.event.set()
 
     def update_active_ranks(self, ranks: ActiveRanksOutput):
         self.send_to_scheduler.send_pyobj(ranks)
+
+    def _forward_internal_control_req(self, req: BaseReq):
+        self.send_to_scheduler.send_pyobj(req)
 
     def _handle_open_session_req_output(self, recv_obj):
         self.session_futures[recv_obj.session_id].set_result(

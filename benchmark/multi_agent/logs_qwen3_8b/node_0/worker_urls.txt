@@ -1,2 +1,0 @@
-http://hkbugpusrv12:28000
-http://hkbugpusrv12:28001

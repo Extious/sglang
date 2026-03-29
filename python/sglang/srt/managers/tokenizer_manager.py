@@ -49,6 +49,7 @@ from sglang.srt.managers.disagg_service import start_disagg_service
 from sglang.srt.managers.io_struct import (
     AbortReq,
     ActiveRanksOutput,
+    BaseReq,
     BatchEmbeddingOutput,
     BatchMultimodalOutput,
     BatchStrOutput,
@@ -1067,6 +1068,16 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
         trace_slice_start(RequestStage.TOKENIZER_DISPATCH, obj.rid)
         tokenized_obj.trace_context = trace_get_proc_propagate_context(obj.rid)
         tokenized_obj = wrap_shm_features(tokenized_obj)
+        debug_request_flow = os.getenv("SGLANG_DEBUG_REQUEST_FLOW") == "1" or str(
+            getattr(tokenized_obj, "rid", "")
+        ).startswith("WARMUP_")
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW tokenizer.send_request type=%s rid=%s dp_rank=%s",
+                type(tokenized_obj).__name__,
+                getattr(tokenized_obj, "rid", None),
+                getattr(tokenized_obj, "data_parallel_rank", None),
+            )
         self.send_to_scheduler.send_pyobj(tokenized_obj)
         state = self.req_state_class(
             [], False, asyncio.Event(), obj, created_time=created_time
@@ -1092,6 +1103,16 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
         else:
             batch_req = BatchTokenizedEmbeddingReqInput(batch=tokenized_objs)
 
+        debug_request_flow = os.getenv("SGLANG_DEBUG_REQUEST_FLOW") == "1" or any(
+            str(getattr(item, "rid", "")).startswith("WARMUP_")
+            for item in tokenized_objs
+        )
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW tokenizer.send_batch type=%s rids=%s",
+                type(batch_req).__name__,
+                [getattr(item, "rid", None) for item in tokenized_objs],
+            )
         self.send_to_scheduler.send_pyobj(batch_req)
         # Create states for each individual request in the batch
         for i, tokenized_obj in enumerate(tokenized_objs):
@@ -1503,6 +1524,15 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
             BatchTokenIDOutput,
         ],
     ):
+        debug_request_flow = os.getenv("SGLANG_DEBUG_REQUEST_FLOW") == "1" or any(
+            str(rid).startswith("WARMUP_") for rid in recv_obj.rids
+        )
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW tokenizer.recv_output type=%s rids=%s",
+                type(recv_obj).__name__,
+                recv_obj.rids,
+            )
         for i, rid in enumerate(recv_obj.rids):
             state = self.rid_to_state.get(rid, None)
             if state is None:

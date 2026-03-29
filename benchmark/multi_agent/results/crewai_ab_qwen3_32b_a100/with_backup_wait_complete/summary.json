@@ -1,0 +1,8 @@
+{
+  "jobs_total": 40,
+  "jobs_success": 0,
+  "jobs_failed": 40,
+  "avg_wall_time_s": null,
+  "p50_wall_time_s": null,
+  "max_wall_time_s": null
+}

@@ -330,8 +330,10 @@ class Scheduler(
         self.page_size = server_args.page_size
         self.enable_hierarchical_cache = server_args.enable_hierarchical_cache
         self.enable_hicache_storage = server_args.hicache_storage_backend is not None
+        self.disaggregation_mode = DisaggregationMode(server_args.disaggregation_mode)
         self.enable_internal_dp_failover = self._should_enable_internal_dp_failover()
         self.max_recv_per_poll = envs.SGLANG_SCHEDULER_MAX_RECV_PER_POLL.get()
+        self.debug_recv_entry_logs_remaining = 5
 
         # Distributed rank info
         self.attn_tp_rank, self.attn_tp_size, self.attn_dp_rank = (
@@ -449,6 +451,13 @@ class Scheduler(
         self.idle_sleeper = None
 
         if self.pp_rank == 0 and self.attn_tp_rank == 0 and self.attn_cp_rank == 0:
+            logger.info(
+                "REQ_FLOW scheduler.init_ipc dp_rank=%s pp_rank=%s attn_tp_rank=%s endpoint=%s",
+                self.dp_rank,
+                self.pp_rank,
+                self.attn_tp_rank,
+                port_args.scheduler_input_ipc_name,
+            )
             self.recv_from_tokenizer = get_zmq_socket(
                 context, zmq.PULL, port_args.scheduler_input_ipc_name, False
             )
@@ -1257,6 +1266,23 @@ class Scheduler(
     ) -> List[Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput, Any]]:
         """Receive results at tp_rank = 0 and broadcast it to all other TP ranks."""
 
+        if (
+            self.pp_rank == 0
+            and self.attn_tp_rank == 0
+            and self.attn_cp_rank == 0
+            and self.debug_recv_entry_logs_remaining > 0
+        ):
+            self.debug_recv_entry_logs_remaining -= 1
+            logger.info(
+                "REQ_FLOW scheduler.recv_entry dp_rank=%s pp_rank=%s events=%s max_recv_per_poll=%s",
+                self.dp_rank,
+                self.pp_rank,
+                self.recv_from_tokenizer.getsockopt(zmq.EVENTS)
+                if self.recv_from_tokenizer is not None
+                else None,
+                self.max_recv_per_poll,
+            )
+
         if self.recv_skipper is not None:
             last_forward_mode = (
                 self.last_batch.forward_mode if self.last_batch is not None else None
@@ -1273,10 +1299,37 @@ class Scheduler(
                         if self.recv_limit_reached(len(recv_reqs)):
                             break
                         recv_req = self.recv_from_tokenizer.recv_pyobj(zmq.NOBLOCK)
+                        should_log_raw = os.getenv(
+                            "SGLANG_DEBUG_REQUEST_FLOW"
+                        ) == "1" or str(getattr(recv_req, "rid", "")).startswith(
+                            "WARMUP_"
+                        )
+                        if should_log_raw:
+                            logger.info(
+                                "REQ_FLOW scheduler.recv_raw pp_rank=%s attn_tp_rank=%s rid=%s type=%s",
+                                self.pp_rank,
+                                self.attn_tp_rank,
+                                getattr(recv_req, "rid", None),
+                                type(recv_req).__name__,
+                            )
                         recv_req = unwrap_shm_features(recv_req)
                     except zmq.ZMQError:
                         break
                     recv_reqs.append(recv_req)
+                should_log_recv = os.getenv("SGLANG_DEBUG_REQUEST_FLOW") == "1"
+                if not should_log_recv:
+                    should_log_recv = any(
+                        str(getattr(req, "rid", "")).startswith("WARMUP_")
+                        for req in recv_reqs
+                    )
+                if should_log_recv and recv_reqs:
+                    logger.info(
+                        "REQ_FLOW scheduler.recv_requests pp_rank=%s attn_tp_rank=%s rids=%s types=%s",
+                        self.pp_rank,
+                        self.attn_tp_rank,
+                        [getattr(req, "rid", None) for req in recv_reqs],
+                        [type(req).__name__ for req in recv_reqs],
+                    )
 
                 while True:
                     try:
@@ -1777,6 +1830,11 @@ class Scheduler(
             return
 
         pending_rids = self.tree_cache.pop_pending_checkpoint_rids()
+        # Skip empty PP/TP synchronization rounds. During PP warmup, an empty
+        # collective here can race with the next stage's request handoff and
+        # deadlock even though there is no checkpoint update to publish.
+        if not pending_rids:
+            return
         has_pending = torch.tensor([1 if pending_rids else 0], dtype=torch.int64)
         if self.tree_cache.tp_world_size > 1:
             torch.distributed.all_reduce(
@@ -2474,6 +2532,15 @@ class Scheduler(
     ) -> Union[GenerationBatchResult, EmbeddingBatchResult]:
         """Run a batch."""
         self.forward_ct += 1
+        debug_request_flow = os.getenv("SGLANG_DEBUG_REQUEST_FLOW") == "1" or any(
+            str(getattr(req, "rid", "")).startswith("WARMUP_") for req in batch.reqs
+        )
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW scheduler.before_forward mode=%s rids=%s",
+                batch.forward_mode,
+                [req.rid for req in batch.reqs],
+            )
 
         # Whether to run the profiler
         self._profile_batch_predicate(batch)
@@ -2617,6 +2684,13 @@ class Scheduler(
             dp_active_ranks = tp_active_ranks.reshape(self.dp_size, -1).prod(axis=1)
             self.send_to_tokenizer.send_output(
                 ActiveRanksOutput(status=dp_active_ranks.tolist())
+            )
+
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW scheduler.after_forward mode=%s rids=%s",
+                batch.forward_mode,
+                [req.rid for req in batch.reqs],
             )
 
         return ret

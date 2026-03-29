@@ -1,2 +1,0 @@
-worker_0 -> peer_server_1 (:19000 -> hkbugpusrv16:19001)
-worker_1 -> peer_server_0 (:19001 -> hkbugpusrv16:19000)

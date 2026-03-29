@@ -5616,9 +5616,17 @@ class PortArgs:
 
     @staticmethod
     def use_tcp_control_plane(server_args: ServerArgs) -> bool:
-        return bool(getattr(server_args, "enable_dp_attention", False)) or (
-            getattr(server_args, "nnodes", 1) > 1
-            and getattr(server_args, "dp_size", 1) > 1
+        return (
+            bool(getattr(server_args, "enable_dp_attention", False))
+            or (
+                getattr(server_args, "nnodes", 1) > 1
+                and getattr(server_args, "dp_size", 1) > 1
+            )
+            or (
+                getattr(server_args, "nnodes", 1) == 1
+                and getattr(server_args, "dp_size", 1) > 1
+                and getattr(server_args, "pp_size", 1) > 1
+            )
         )
 
     @staticmethod
@@ -5678,6 +5686,10 @@ class PortArgs:
             server_args
         )
         port_base = dist_init_port + 1
+        if server_args.dist_init_addr is not None:
+            # Keep the TCP control plane away from the torch.distributed rendezvous
+            # port range. DP workers may offset dist_init_port by dp_rank.
+            port_base = dist_init_port + ZMQ_TCP_PORT_DELTA
         detokenizer_port = port_base + 1
         rpc_port = port_base + 2
         metrics_port = port_base + 3

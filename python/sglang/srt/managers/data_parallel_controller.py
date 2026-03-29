@@ -16,6 +16,7 @@
 import faulthandler
 import logging
 import multiprocessing as mp
+import os
 import signal
 import threading
 import time
@@ -32,6 +33,8 @@ from sglang.srt.layers.dp_attention import compute_dp_attention_world_info
 from sglang.srt.managers.io_struct import (
     AbortReq,
     ActiveRanksOutput,
+    BatchTokenizedEmbeddingReqInput,
+    BatchTokenizedGenerateReqInput,
     BlockReqInput,
     CheckpointUpdateReq,
     ResumeGenerateReq,
@@ -61,6 +64,7 @@ from sglang.srt.utils.common import (
     bind_port,
     configure_ipv6,
     configure_logger,
+    get_free_port,
     get_zmq_socket,
     kill_itself_when_parent_died,
     maybe_reindex_device_id,
@@ -153,6 +157,7 @@ class DataParallelController:
 
         # Init inter-process communication
         self.context = zmq.Context(1 + server_args.dp_size)
+        self.worker_context = None
         self.send_to_tokenizer = None
         if server_args.node_rank == 0:
             self.recv_from_tokenizer = get_zmq_socket(
@@ -186,6 +191,7 @@ class DataParallelController:
             [] for _ in range(server_args.dp_size)
         ]
         self.workers: List[zmq.Socket] = [None] * server_args.dp_size
+        self.worker_endpoints: List[Optional[str]] = [None] * server_args.dp_size
         self.status: List[bool] = [True] * server_args.dp_size
 
         if server_args.enable_dp_attention:
@@ -222,6 +228,16 @@ class DataParallelController:
         return True
 
     def _send_request_to_worker(self, req, dp_rank: int) -> int:
+        debug_request_flow = os.getenv("SGLANG_DEBUG_REQUEST_FLOW") == "1" or str(
+            getattr(req, "rid", "")
+        ).startswith("WARMUP_")
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW dp_controller.send_to_worker rid=%s dp_rank=%s endpoint=%s",
+                getattr(req, "rid", None),
+                dp_rank,
+                self.worker_endpoints[dp_rank],
+            )
         self.workers[dp_rank].send_pyobj(req)
         return dp_rank
 
@@ -415,8 +431,29 @@ class DataParallelController:
 
     def handle_generate_request(self, req: TokenizedGenerateReqInput):
         owner_dp_rank = self.dispatching_with_trace(req)
+        debug_request_flow = os.getenv("SGLANG_DEBUG_REQUEST_FLOW") == "1" or str(
+            getattr(req, "rid", "")
+        ).startswith("WARMUP_")
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW dp_controller.dispatch rid=%s owner_dp_rank=%s direct_dp_rank=%s",
+                req.rid,
+                owner_dp_rank,
+                req.data_parallel_rank,
+            )
         if owner_dp_rank is not None:
             self._register_generate_request(req, owner_dp_rank)
+
+    def handle_batch_generate_request(self, req: BatchTokenizedGenerateReqInput):
+        # Batch tokenized requests must be routed as normal generation requests.
+        # Falling back to the generic control-message path would broadcast the
+        # same batch to multiple DP replicas and duplicate request IDs.
+        for tokenized_req in req:
+            self.handle_generate_request(tokenized_req)
+
+    def handle_batch_embedding_request(self, req: BatchTokenizedEmbeddingReqInput):
+        for tokenized_req in req:
+            self.dispatching_with_trace(tokenized_req)
 
     def send_to_all_workers(self, obj):
         for i, worker in enumerate(self.workers):
@@ -475,7 +512,9 @@ class DataParallelController:
         self._request_dispatcher = TypeBasedDispatcher(
             [
                 (TokenizedGenerateReqInput, self.handle_generate_request),
+                (BatchTokenizedGenerateReqInput, self.handle_batch_generate_request),
                 (TokenizedEmbeddingReqInput, self.dispatching_with_trace),
+                (BatchTokenizedEmbeddingReqInput, self.handle_batch_embedding_request),
                 (BlockReqInput, self.send_to_all_workers),
                 (AbortReq, self.handle_abort_req),
                 (CheckpointUpdateReq, self.handle_checkpoint_update_req),
@@ -495,14 +534,13 @@ class DataParallelController:
         reserved_nccl_sockets = []
         ready_events = []
         broadcasted_dp_port_args = None
+        worker_endpoints_to_bind: List[Optional[str]] = [None] * server_args.dp_size
         if use_tcp_control_plane:
             if server_args.node_rank == 0:
                 worker_ports = []
                 dp_port_args = []
                 for dp_rank in range(server_args.dp_size):
-                    worker_port, worker_socket = get_zmq_socket(self.context, zmq.PUSH)
-                    worker_ports.append(worker_port)
-                    self.workers[dp_rank] = worker_socket
+                    worker_ports.append(get_free_port())
                     tmp_port_args = PortArgs.init_new(
                         server_args, dp_rank=dp_rank, worker_ports=worker_ports
                     )
@@ -537,13 +575,14 @@ class DataParallelController:
             threads.append(thread)
             base_gpu_id += local_gpu_stride
 
-            if server_args.node_rank == 0 and not use_tcp_control_plane:
-                self.workers[dp_rank] = get_zmq_socket(
-                    self.context,
-                    zmq.PUSH,
-                    tmp_port_args.scheduler_input_ipc_name,
-                    True,
+            if server_args.node_rank == 0:
+                self.worker_endpoints[dp_rank] = tmp_port_args.scheduler_input_ipc_name
+                logger.info(
+                    "REQ_FLOW dp_controller.worker_endpoint dp_rank=%s endpoint=%s",
+                    dp_rank,
+                    self.worker_endpoints[dp_rank],
                 )
+                worker_endpoints_to_bind[dp_rank] = tmp_port_args.scheduler_input_ipc_name
 
         # Free all sockets before starting the threads to launch TP workers
         for sock in reserved_nccl_sockets:
@@ -552,6 +591,19 @@ class DataParallelController:
         # Start all threads
         for thread in threads:
             thread.start()
+
+        if server_args.node_rank == 0:
+            self.worker_context = zmq.Context(server_args.dp_size)
+            for dp_rank, endpoint in enumerate(worker_endpoints_to_bind):
+                if endpoint is None:
+                    continue
+                self.workers[dp_rank] = get_zmq_socket(
+                    self.worker_context,
+                    zmq.PUSH,
+                    endpoint,
+                    True,
+                )
+
         for event in ready_events:
             event.wait()
 
@@ -870,6 +922,15 @@ class DataParallelController:
                     recv_req = self.recv_from_tokenizer.recv_pyobj(zmq.NOBLOCK)
                 except zmq.ZMQError:
                     break
+                debug_request_flow = os.getenv("SGLANG_DEBUG_REQUEST_FLOW") == "1" or str(
+                    getattr(recv_req, "rid", "")
+                ).startswith("WARMUP_")
+                if debug_request_flow:
+                    logger.info(
+                        "REQ_FLOW dp_controller.recv type=%s rid=%s",
+                        type(recv_req).__name__,
+                        getattr(recv_req, "rid", None),
+                    )
                 self._request_dispatcher(recv_req)
 
 

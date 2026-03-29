@@ -1,0 +1,1282 @@
+[
+  {
+    "topic_id": "1",
+    "topic": "Global AI Market",
+    "year": "2025",
+    "worker_id": 1,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1817.524,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T19:57:55.919441+00:00",
+        "end": "2026-03-28T20:28:13.244571+00:00",
+        "duration_s": 1817.325,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "10",
+    "topic": "Global Healthtech Market",
+    "year": "2025",
+    "worker_id": 10,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1802.532,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T19:59:26.437198+00:00",
+        "end": "2026-03-28T20:29:28.879863+00:00",
+        "duration_s": 1802.443,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "11",
+    "topic": "Global Renewable Energy Market",
+    "year": "2025",
+    "worker_id": 1,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.711,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:28:13.419668+00:00",
+        "end": "2026-03-28T20:58:15.057359+00:00",
+        "duration_s": 1801.638,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "12",
+    "topic": "Global Battery Storage Market",
+    "year": "2025",
+    "worker_id": 2,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.56,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:28:13.676160+00:00",
+        "end": "2026-03-28T20:58:15.160132+00:00",
+        "duration_s": 1801.484,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "13",
+    "topic": "Global Biotechnology Market",
+    "year": "2025",
+    "worker_id": 3,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.728,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:28:18.831552+00:00",
+        "end": "2026-03-28T20:58:20.501558+00:00",
+        "duration_s": 1801.67,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "14",
+    "topic": "Global Pharmaceutical Market",
+    "year": "2025",
+    "worker_id": 4,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.719,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:28:28.665142+00:00",
+        "end": "2026-03-28T20:58:30.315894+00:00",
+        "duration_s": 1801.651,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "15",
+    "topic": "Global Medical Device Market",
+    "year": "2025",
+    "worker_id": 5,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.556,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:28:38.596058+00:00",
+        "end": "2026-03-28T20:58:40.070911+00:00",
+        "duration_s": 1801.475,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "16",
+    "topic": "Global Digital Health Market",
+    "year": "2025",
+    "worker_id": 6,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.686,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:28:48.855730+00:00",
+        "end": "2026-03-28T20:58:50.472472+00:00",
+        "duration_s": 1801.617,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "17",
+    "topic": "Global E-commerce Market",
+    "year": "2025",
+    "worker_id": 7,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.57,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:28:58.868775+00:00",
+        "end": "2026-03-28T20:59:00.372339+00:00",
+        "duration_s": 1801.504,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "18",
+    "topic": "Global Retail Technology Market",
+    "year": "2025",
+    "worker_id": 8,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.778,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:29:08.295435+00:00",
+        "end": "2026-03-28T20:59:09.995448+00:00",
+        "duration_s": 1801.7,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "19",
+    "topic": "Global Logistics Market",
+    "year": "2025",
+    "worker_id": 9,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.516,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:29:18.748253+00:00",
+        "end": "2026-03-28T20:59:20.198849+00:00",
+        "duration_s": 1801.451,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "2",
+    "topic": "Global Semiconductor Market",
+    "year": "2025",
+    "worker_id": 2,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1807.181,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T19:58:06.241126+00:00",
+        "end": "2026-03-28T20:28:13.290927+00:00",
+        "duration_s": 1807.05,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "20",
+    "topic": "Global Supply Chain Technology Market",
+    "year": "2025",
+    "worker_id": 10,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.655,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:29:28.958262+00:00",
+        "end": "2026-03-28T20:59:30.548051+00:00",
+        "duration_s": 1801.59,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "21",
+    "topic": "Global Industrial Automation Market",
+    "year": "2025",
+    "worker_id": 1,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.656,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:58:15.139897+00:00",
+        "end": "2026-03-28T21:28:16.727866+00:00",
+        "duration_s": 1801.588,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "22",
+    "topic": "Global Smart Manufacturing Market",
+    "year": "2025",
+    "worker_id": 2,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.654,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:58:15.236313+00:00",
+        "end": "2026-03-28T21:28:16.821512+00:00",
+        "duration_s": 1801.585,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "23",
+    "topic": "Global Internet of Things Market",
+    "year": "2025",
+    "worker_id": 3,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.553,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:58:20.567871+00:00",
+        "end": "2026-03-28T21:28:22.057513+00:00",
+        "duration_s": 1801.49,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "24",
+    "topic": "Global Edge Computing Market",
+    "year": "2025",
+    "worker_id": 4,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.716,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:58:30.396164+00:00",
+        "end": "2026-03-28T21:28:32.035244+00:00",
+        "duration_s": 1801.639,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "25",
+    "topic": "Global Telecommunications Market",
+    "year": "2025",
+    "worker_id": 5,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.789,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:58:40.205677+00:00",
+        "end": "2026-03-28T21:28:41.881873+00:00",
+        "duration_s": 1801.676,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "26",
+    "topic": "Global Quantum Computing Market",
+    "year": "2025",
+    "worker_id": 6,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.622,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:58:50.544512+00:00",
+        "end": "2026-03-28T21:28:52.098614+00:00",
+        "duration_s": 1801.554,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "27",
+    "topic": "Global AI Infrastructure Market",
+    "year": "2025",
+    "worker_id": 7,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.728,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:59:00.450769+00:00",
+        "end": "2026-03-28T21:29:02.108178+00:00",
+        "duration_s": 1801.657,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "28",
+    "topic": "Global Observability Platform Market",
+    "year": "2025",
+    "worker_id": 8,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.731,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:59:10.080263+00:00",
+        "end": "2026-03-28T21:29:11.744727+00:00",
+        "duration_s": 1801.664,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "29",
+    "topic": "Global DevOps Platform Market",
+    "year": "2025",
+    "worker_id": 9,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.69,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:59:20.275630+00:00",
+        "end": "2026-03-28T21:29:21.897337+00:00",
+        "duration_s": 1801.622,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "3",
+    "topic": "Global Cloud Computing Market",
+    "year": "2025",
+    "worker_id": 3,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1802.668,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T19:58:16.184808+00:00",
+        "end": "2026-03-28T20:28:18.762148+00:00",
+        "duration_s": 1802.577,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "30",
+    "topic": "Global SaaS Market",
+    "year": "2025",
+    "worker_id": 10,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.626,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T20:59:30.619728+00:00",
+        "end": "2026-03-28T21:29:32.177652+00:00",
+        "duration_s": 1801.558,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "31",
+    "topic": "Global CRM Software Market",
+    "year": "2025",
+    "worker_id": 1,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.609,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T21:28:16.803371+00:00",
+        "end": "2026-03-28T21:58:18.341390+00:00",
+        "duration_s": 1801.538,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "32",
+    "topic": "Global ERP Software Market",
+    "year": "2025",
+    "worker_id": 2,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.849,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T21:28:16.897271+00:00",
+        "end": "2026-03-28T21:58:18.676068+00:00",
+        "duration_s": 1801.779,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "33",
+    "topic": "Global Clean Energy Market",
+    "year": "2025",
+    "worker_id": 3,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.67,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T21:28:22.125540+00:00",
+        "end": "2026-03-28T21:58:23.735663+00:00",
+        "duration_s": 1801.61,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "34",
+    "topic": "Global Carbon Capture Market",
+    "year": "2025",
+    "worker_id": 4,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.597,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T21:28:32.110241+00:00",
+        "end": "2026-03-28T21:58:33.643314+00:00",
+        "duration_s": 1801.533,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "35",
+    "topic": "Global Insurtech Market",
+    "year": "2025",
+    "worker_id": 5,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.696,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T21:28:41.956976+00:00",
+        "end": "2026-03-28T21:58:43.579641+00:00",
+        "duration_s": 1801.623,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "36",
+    "topic": "Global Edtech Market",
+    "year": "2025",
+    "worker_id": 6,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.851,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T21:28:52.173374+00:00",
+        "end": "2026-03-28T21:58:53.954748+00:00",
+        "duration_s": 1801.781,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "37",
+    "topic": "Global Legaltech Market",
+    "year": "2025",
+    "worker_id": 7,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.837,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T21:29:02.187934+00:00",
+        "end": "2026-03-28T21:59:03.953937+00:00",
+        "duration_s": 1801.766,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "38",
+    "topic": "Global Travel Technology Market",
+    "year": "2025",
+    "worker_id": 8,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.698,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T21:29:11.818577+00:00",
+        "end": "2026-03-28T21:59:13.443558+00:00",
+        "duration_s": 1801.625,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "39",
+    "topic": "Global Media Streaming Market",
+    "year": "2025",
+    "worker_id": 9,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.492,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T21:29:21.969099+00:00",
+        "end": "2026-03-28T21:59:23.392409+00:00",
+        "duration_s": 1801.423,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "4",
+    "topic": "Global Cybersecurity Market",
+    "year": "2025",
+    "worker_id": 4,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1802.661,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T19:58:26.016629+00:00",
+        "end": "2026-03-28T20:28:28.593763+00:00",
+        "duration_s": 1802.577,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "40",
+    "topic": "Global Space Technology Market",
+    "year": "2025",
+    "worker_id": 10,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1801.743,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T21:29:32.253989+00:00",
+        "end": "2026-03-28T21:59:33.926903+00:00",
+        "duration_s": 1801.673,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "5",
+    "topic": "Global Data Center Market",
+    "year": "2025",
+    "worker_id": 5,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1802.498,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T19:58:36.106537+00:00",
+        "end": "2026-03-28T20:28:38.502386+00:00",
+        "duration_s": 1802.396,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "6",
+    "topic": "Global Robotics Market",
+    "year": "2025",
+    "worker_id": 6,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1802.754,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T19:58:46.114003+00:00",
+        "end": "2026-03-28T20:28:48.773290+00:00",
+        "duration_s": 1802.659,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "7",
+    "topic": "Global Autonomous Vehicle Market",
+    "year": "2025",
+    "worker_id": 7,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1802.506,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T19:58:56.392808+00:00",
+        "end": "2026-03-28T20:28:58.798213+00:00",
+        "duration_s": 1802.405,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "8",
+    "topic": "Global Enterprise Software Market",
+    "year": "2025",
+    "worker_id": 8,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1802.383,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T19:59:05.934176+00:00",
+        "end": "2026-03-28T20:29:08.208841+00:00",
+        "duration_s": 1802.275,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  },
+  {
+    "topic_id": "9",
+    "topic": "Global Fintech Market",
+    "year": "2025",
+    "worker_id": 9,
+    "status": "failed",
+    "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out.",
+    "summary": {
+      "total_prompt_tokens": 0,
+      "total_cached_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1802.684,
+      "llm_calls": 0,
+      "prefill_cached_tokens": 0
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-28T19:59:16.068841+00:00",
+        "end": "2026-03-28T20:29:18.664525+00:00",
+        "duration_s": 1802.596,
+        "prompt_tokens": 0,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "prefill_cache_hit_rate": null,
+        "error": "litellm.Timeout: APITimeoutError - Request timed out. Error_str: Request timed out."
+      }
+    ]
+  }
+]

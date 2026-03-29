@@ -68,6 +68,12 @@ class SchedulerPPMixin:
 
         ====================================================================
         """
+        if self.pp_rank == 0 and self.attn_tp_rank == 0 and self.attn_cp_rank == 0:
+            logger.info(
+                "REQ_FLOW scheduler.event_loop_pp_started dp_rank=%s pp_rank=%s",
+                self.dp_rank,
+                self.pp_rank,
+            )
         self.init_pp_loop_state()
         while True:
             server_is_idle = True
@@ -81,7 +87,6 @@ class SchedulerPPMixin:
                     self.process_input_requests(recv_reqs)
                 if self.enable_hierarchical_cache:
                     self.tree_cache.check_hicache_events()
-                    self.maybe_send_checkpoint_updates()
                 if not self.pp_group.is_last_rank:
                     self._pp_commit_comm_work(self.send_req_work)
                     with torch.profiler.record_function("send_reqs_to_next_stage"):
@@ -141,6 +146,12 @@ class SchedulerPPMixin:
                             )
 
                 self.pp_outputs = next_pp_outputs
+
+            if self.enable_hierarchical_cache:
+                # PP stages are only guaranteed to realign after all micro-batches in
+                # the current outer-loop iteration complete. Run the checkpoint
+                # collective here to avoid cross-stage skew deadlocks.
+                self.maybe_send_checkpoint_updates()
 
             # When the server is idle, self-check and re-init some states
             if server_is_idle:
@@ -215,10 +226,12 @@ class SchedulerPPMixin:
                 self.process_input_requests(recv_reqs)
                 if self.enable_hierarchical_cache:
                     self.tree_cache.check_hicache_events()
-                    self.maybe_send_checkpoint_updates()
 
                 if not self.pp_group.is_last_rank:
                     self._pp_commit_comm_work(self.send_req_work)
+                    self.send_req_work = self._pp_send_pyobj_to_next_stage(
+                        recv_reqs, async_send=True
+                    )
 
                 bootstrapped_rids = self._pp_pd_get_bootstrapped_ids()
                 bmbs[mb_id] = bootstrapped_rids
@@ -298,9 +311,6 @@ class SchedulerPPMixin:
                 if tmbs[next_mb_id] is not None:
                     self.process_disagg_prefill_inflight_queue(next_release_rids)
                 if not self.pp_group.is_last_rank:
-                    self.send_req_work = self._pp_send_pyobj_to_next_stage(
-                        recv_reqs, async_send=True
-                    )
                     send_bootstrapped_work = self._pp_send_pyobj_to_next_stage(
                         bootstrapped_rids, async_send=True
                     )
@@ -319,6 +329,12 @@ class SchedulerPPMixin:
                 consensus_bootstrapped_rids = next_consensus_bootstrapped_rids
 
                 self.running_batch.batch_is_full = False
+
+            if self.enable_hierarchical_cache:
+                # Run checkpoint synchronization only after all PP stages finish the
+                # current micro-batch sweep, otherwise different stages can enter the
+                # collective from different mb_id positions and deadlock.
+                self.maybe_send_checkpoint_updates()
 
             # When the server is idle, self-check and re-init some states
             if server_is_idle and len(self.disagg_prefill_inflight_queue) == 0:
@@ -361,10 +377,12 @@ class SchedulerPPMixin:
                 self.process_input_requests(recv_reqs)
                 if self.enable_hierarchical_cache:
                     self.tree_cache.check_hicache_events()
-                    self.maybe_send_checkpoint_updates()
 
                 if not self.pp_group.is_last_rank:
                     self._pp_commit_comm_work(self.send_req_work)
+                    self.send_req_work = self._pp_send_pyobj_to_next_stage(
+                        recv_reqs, async_send=True
+                    )
 
                 # reaching consensus through PP ranks
                 retract_rids = self._pp_pd_get_retract_ids(mb_id)
@@ -478,9 +496,6 @@ class SchedulerPPMixin:
                     self.last_mbs[next_mb_id] = self.mbs[next_mb_id]
 
                 if not self.pp_group.is_last_rank:
-                    self.send_req_work = self._pp_send_pyobj_to_next_stage(
-                        recv_reqs, async_send=True
-                    )
                     send_retract_work = self._pp_send_pyobj_to_next_stage(
                         retract_rids, async_send=True
                     )
@@ -503,6 +518,12 @@ class SchedulerPPMixin:
                 consensus_prealloc_rids = next_consensus_prealloc_rids
 
                 self.running_batch.batch_is_full = False
+
+            if self.enable_hierarchical_cache:
+                # Run checkpoint synchronization only after all PP stages finish the
+                # current micro-batch sweep, otherwise different stages can enter the
+                # collective from different mb_id positions and deadlock.
+                self.maybe_send_checkpoint_updates()
 
             # When the server is idle, self-check and re-init some states
             queue_size = (
@@ -842,7 +863,10 @@ class SchedulerPPMixin:
 
     def _pp_commit_comm_work(self: Scheduler, work: List[P2PWork]) -> None:
         for p2p_work in work:
-            p2p_work.work.wait()
+            if p2p_work.work is not None:
+                p2p_work.work.wait()
+            elif p2p_work.payload is not None and not p2p_work.payload.is_cpu:
+                torch.cuda.current_stream(p2p_work.payload.device).synchronize()
         work.clear()
 
     def _pp_commit_send_output_work_and_preprocess_output_tensors(

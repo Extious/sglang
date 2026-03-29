@@ -308,6 +308,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         self.moe_ep_rank = moe_ep_rank
         self.moe_ep_size = moe_ep_size
         self.dp_size = server_args.dp_size if server_args.enable_dp_attention else 1
+        self.dp_rank = dp_rank
         self.pp_rank = pp_rank
         self.pp_size = pp_size
         self.attn_cp_rank = attn_cp_rank
@@ -774,7 +775,21 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         if dist_init_method_override:
             dist_init_method = dist_init_method_override
         elif self.server_args.dist_init_addr:
-            dist_init_method = f"tcp://{self.server_args.dist_init_addr}"
+            dist_init_addr = self.server_args.dist_init_addr
+            # Each DP replica creates an independent TP/PP process group when DP attention
+            # is disabled, so they cannot share the same TCPStore port.
+            if (
+                self.dp_rank is not None
+                and self.server_args.dp_size > 1
+                and not self.server_args.enable_dp_attention
+            ):
+                if dist_init_addr.startswith("["):
+                    host, port = dist_init_addr.rsplit("]:", 1)
+                    dist_init_addr = f"{host}]:{int(port) + self.dp_rank}"
+                else:
+                    host, port = dist_init_addr.rsplit(":", 1)
+                    dist_init_addr = f"{host}:{int(port) + self.dp_rank}"
+            dist_init_method = f"tcp://{dist_init_addr}"
         else:
             dist_init_method = f"tcp://127.0.0.1:{self.dist_port}"
         set_custom_all_reduce(not self.server_args.disable_custom_all_reduce)

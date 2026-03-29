@@ -1844,17 +1844,64 @@ def _execute_server_warmup(server_args: ServerArgs):
         ).tolist()
         json_data["sampling_params"]["max_new_tokens"] = 0
 
+    def _get_default_timeout() -> int:
+        return warmup_timeout if warmup_timeout > 0 else 600
+
+    def _build_warmup_payloads(base_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+        peer_storage_backend = server_args.hicache_storage_backend in (
+            "peer",
+            "PeerCacheStorage",
+        )
+        use_sequential_dp_warmup = (
+            server_args.disaggregation_mode == "null"
+            and server_args.dp_size > 1
+            and peer_storage_backend
+            and request_name == "/generate"
+        )
+        if not use_sequential_dp_warmup:
+            return [base_payload]
+
+        logger.info(
+            "Using sequential per-DP warmup for peer-backed HiCache."
+        )
+
+        payloads: List[Dict[str, Any]] = []
+        for dp_rank in range(server_args.dp_size):
+            payload: Dict[str, Any] = {
+                "sampling_params": dict(base_payload["sampling_params"]),
+                "data_parallel_rank": dp_rank,
+                "rid": f"WARMUP_DP_{dp_rank}",
+            }
+            if "input_ids" in base_payload:
+                payload["input_ids"] = [10 + dp_rank, 11, 12]
+            elif "text" in base_payload:
+                payload["text"] = f"The capital city of France is warmup rank {dp_rank}."
+            else:
+                payload.update(base_payload)
+            payloads.append(payload)
+        return payloads
+
     # Send a warmup request
     warmup_timeout = envs.SGLANG_WARMUP_TIMEOUT.get()
     try:
         if server_args.disaggregation_mode == "null":
-            res = requests.post(
-                url + request_name,
-                json=json_data,
-                headers=headers,
-                timeout=warmup_timeout if warmup_timeout > 0 else 600,
-            )
-            assert res.status_code == 200, f"{res.text}"
+            session = requests.Session()
+            session.trust_env = False
+            res = None
+            for payload in _build_warmup_payloads(json_data):
+                if "data_parallel_rank" in payload:
+                    logger.info(
+                        "Warmup sending request_name=%s to data_parallel_rank=%s",
+                        request_name,
+                        payload["data_parallel_rank"],
+                    )
+                res = session.post(
+                    url + request_name,
+                    json=payload,
+                    headers=headers,
+                    timeout=_get_default_timeout(),
+                )
+                assert res.status_code == 200, f"{res.text}"
             _global_state.tokenizer_manager.server_status = ServerStatus.Up
 
         else:

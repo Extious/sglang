@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
@@ -126,6 +127,14 @@ class SchedulerOutputProcessorMixin:
         batch: ScheduleBatch,
         result: Union[GenerationBatchResult, EmbeddingBatchResult],
     ):
+        debug_request_flow = os.getenv("SGLANG_DEBUG_REQUEST_FLOW") == "1" or any(
+            str(getattr(req, "rid", "")).startswith("WARMUP_") for req in batch.reqs
+        )
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW scheduler.prefill_output.start rids=%s",
+                [req.rid for req in batch.reqs],
+            )
         skip_stream_req = None
 
         if self.is_generation:
@@ -185,7 +194,17 @@ class SchedulerOutputProcessorMixin:
                     else:
                         if not batch.decoding_reqs or req not in batch.decoding_reqs:
                             # This updates radix so others can match
+                            if debug_request_flow:
+                                logger.info(
+                                    "REQ_FLOW scheduler.prefill_output.before_cache rid=%s",
+                                    req.rid,
+                                )
                             self.tree_cache.cache_unfinished_req(req)
+                            if debug_request_flow:
+                                logger.info(
+                                    "REQ_FLOW scheduler.prefill_output.after_cache rid=%s",
+                                    req.rid,
+                                )
 
                         _replicator = getattr(
                             self.tree_cache, "decode_kv_replicator", None
@@ -338,7 +357,17 @@ class SchedulerOutputProcessorMixin:
                     thread_finish_flag=req.finished(),
                 )
 
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW scheduler.prefill_output.before_stream rids=%s",
+                [req.rid for req in batch.reqs],
+            )
         self.stream_output(batch.reqs, batch.return_logprob, skip_stream_req)
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW scheduler.prefill_output.after_stream rids=%s",
+                [req.rid for req in batch.reqs],
+            )
 
         if self.current_scheduler_metrics_enabled:
             can_run_cuda_graph = getattr(result, "can_run_cuda_graph", False)

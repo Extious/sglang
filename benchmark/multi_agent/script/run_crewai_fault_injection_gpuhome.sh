@@ -693,6 +693,14 @@ log "Events file: ${EVENTS_FILE}"
     export CREWAI_SERVER_BASE_URL="${SERVER_URL}"
     export CREWAI_MODEL_PATH="${MODEL_PATH}"
     export CREWAI_EVENTS_FILE="${EVENTS_FILE}"
+    # CrewAI's default SQLite location under ~/.local/share is unreliable on this
+    # cluster filesystem. Keep its transient DB files on node-local tmp storage.
+    CREWAI_TMP_BASE="${TMPDIR:-/tmp}/${USER}/crewai-storage"
+    CREWAI_TMP_DB_NAME="job_${SLURM_JOB_ID_VALUE}_$(basename "${OUTPUT_DIR}")"
+    export XDG_DATA_HOME="${CREWAI_TMP_BASE}/xdg"
+    export SQLITE_TMPDIR="${CREWAI_TMP_BASE}/sqlite-tmp"
+    export CREWAI_STORAGE_DIR="${CREWAI_TMP_DB_NAME}"
+    mkdir -p "${XDG_DATA_HOME}" "${SQLITE_TMPDIR}"
     exec python "${CREWAI_SCRIPT}" \
         --csv "${JOBS_CSV}" \
         --limit "${JOB_LIMIT}" \

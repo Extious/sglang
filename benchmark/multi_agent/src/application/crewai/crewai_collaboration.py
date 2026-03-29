@@ -45,6 +45,23 @@ PRINT_COMPLETED_ONLY = os.environ.get("CREWAI_PRINT_COMPLETED_ONLY", "1").strip(
 }
 
 
+def _env_flag(name, default=False):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name, default):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    raw = raw.strip()
+    if not raw:
+        return default
+    return int(raw)
+
+
 def _append_no_proxy_host(host):
     if not host:
         return
@@ -554,31 +571,76 @@ def _on_agent_err(source, event):
 
 # ── Model ──
 LLM_SEED = 42
-SHORT_MAX_TOKENS = 1024
-LONG_MAX_TOKENS = 2048
-SHORT_OUTPUT_GUIDE = (
-    "Add concrete detail, structured bullets, comparisons, and examples without filler. "
-    "If evidence is limited, state assumptions briefly and still complete every required section. "
-    "Use the full available token budget and do not end early. "
-    "If the main sections are complete, continue with extra examples, quantified comparisons, "
-    "confidence notes, edge cases, counterpoints, and source annotations until the response is cut by the token limit. "
-    "Do not write a brief wrap-up or a closing sentence. Keep adding substantive content until generation stops."
-)
-LONG_OUTPUT_GUIDE = (
-    "Expand each section with evidence, comparisons, reasoning, and actionable detail without repetition. "
-    "Balance coverage across sections so the final report remains consistently dense. "
-    "Use the full available token budget and do not end early. "
-    "If the core analysis is complete, continue with additional company profiles, scenario analysis, "
-    "regional comparisons, assumptions, implementation detail, and source commentary until the response is cut by the token limit. "
-    "Do not write a concluding paragraph that signals completion. Continue with substantive appendix-style material until generation stops."
-)
+SHORT_MAX_TOKENS = _env_int("CREWAI_SHORT_MAX_TOKENS", 1024)
+LONG_MAX_TOKENS = _env_int("CREWAI_LONG_MAX_TOKENS", 2048)
+FORCE_FULL_BUDGET = _env_flag("CREWAI_FORCE_FULL_BUDGET", default=True)
+
+if FORCE_FULL_BUDGET:
+    SHORT_OUTPUT_GUIDE = (
+        "Add concrete detail, structured bullets, comparisons, and examples without filler. "
+        "If evidence is limited, state assumptions briefly and still complete every required section. "
+        "Use the full available token budget and do not end early. "
+        "If the main sections are complete, continue with extra examples, quantified comparisons, "
+        "confidence notes, edge cases, counterpoints, and source annotations until the response is cut by the token limit. "
+        "Do not write a brief wrap-up or a closing sentence. Keep adding substantive content until generation stops."
+    )
+    LONG_OUTPUT_GUIDE = (
+        "Expand each section with evidence, comparisons, reasoning, and actionable detail without repetition. "
+        "Balance coverage across sections so the final report remains consistently dense. "
+        "Use the full available token budget and do not end early. "
+        "If the core analysis is complete, continue with additional company profiles, scenario analysis, "
+        "regional comparisons, assumptions, implementation detail, and source commentary until the response is cut by the token limit. "
+        "Do not write a concluding paragraph that signals completion. Continue with substantive appendix-style material until generation stops."
+    )
+    PLANNING_OUTPUT_GUIDE = (
+        "Use the full available token budget. "
+        "If the main planning memo is complete, continue with additional metric definitions, "
+        "source-quality criteria, validation steps, edge cases, and integration checks until the response is cut by the token limit. "
+        "Do not finish with a summary line. Keep adding concrete planning detail until generation stops."
+    )
+    SYNTHESIS_OUTPUT_GUIDE = (
+        "Use the full available token budget. "
+        "If all required sections are complete, keep writing by adding appendix-style material: "
+        "extra company comparisons, regional detail, scenario analysis, assumptions, data gaps, "
+        "confidence notes, implementation sequencing, and source commentary until the response is cut by the token limit. "
+        "Do not write a final conclusion, ending note, or sign-off. Continue with substantive appendix material until generation stops."
+    )
+else:
+    SHORT_OUTPUT_GUIDE = (
+        "Add concrete detail, structured bullets, comparisons, and examples without filler. "
+        "If evidence is limited, state assumptions briefly and still complete every required section. "
+        "Keep the answer detailed but bounded so it can finish within the allotted token budget. "
+        "Prioritize the most decision-useful facts first and stop once every requested section is complete."
+    )
+    LONG_OUTPUT_GUIDE = (
+        "Expand each section with evidence, comparisons, reasoning, and actionable detail without repetition. "
+        "Balance coverage across sections so the report remains consistently useful. "
+        "Keep the report detailed but bounded so it can finish within the allotted token budget. "
+        "Prioritize the most important companies, scenarios, assumptions, and recommendations first, then stop once all requested sections are complete."
+    )
+    PLANNING_OUTPUT_GUIDE = (
+        "Keep the planning memo detailed but bounded. "
+        "Focus on the most useful workstream structure, metrics, source guidance, validation steps, and integration checks. "
+        "Stop once every requested section is complete."
+    )
+    SYNTHESIS_OUTPUT_GUIDE = (
+        "Ensure no data is lost and resolve contradictions between sources. "
+        "Keep the final report detailed but bounded so it can finish within the allotted token budget. "
+        "Prioritize the sections that matter most for executive decision making, then stop once all required sections are complete."
+    )
 
 
 def build_llm(max_tokens):
-    extra_body = {
-        "ignore_eos": True,
-        "min_tokens": max_tokens,
-    }
+    extra_body = {}
+    if _env_flag("CREWAI_IGNORE_EOS", default=FORCE_FULL_BUDGET):
+        extra_body["ignore_eos"] = True
+
+    min_tokens = _env_int(
+        "CREWAI_MIN_TOKENS",
+        max_tokens if FORCE_FULL_BUDGET else 0,
+    )
+    if min_tokens > 0:
+        extra_body["min_tokens"] = min(min_tokens, max_tokens)
     if ENABLE_STREAM:
         extra_body["return_cached_tokens_details"] = True
         extra_body["return_resume_token_ids"] = True
@@ -594,7 +656,7 @@ def build_llm(max_tokens):
         temperature=0.0,
         seed=LLM_SEED,
         stream=ENABLE_STREAM,
-        extra_body=extra_body,
+        extra_body=extra_body or None,
     )
 
 
@@ -682,7 +744,7 @@ def build_crew():
     )
 
     planning_task = Task(
-        description="""You are given the topic '{topic}' for year {year}.
+        description=f"""You are given the topic '{{topic}}' for year {{year}}.
         Produce a detailed research framework that defines:
         1. Four parallel research workstreams and what each should cover
         2. Key questions each workstream must answer
@@ -692,10 +754,7 @@ def build_crew():
 
         Write this as a substantial planning memo, not a short note.
         Use clear section headers and dense bullet points.
-        Use the full available token budget.
-        If the main planning memo is complete, continue with additional metric definitions,
-        source-quality criteria, validation steps, edge cases, and integration checks until the response is cut by the token limit.
-        Do not finish with a summary line. Keep adding concrete planning detail until generation stops.""",
+        {PLANNING_OUTPUT_GUIDE}""",
         expected_output="A detailed planning memo with 4 workstreams, key questions, source guidance, analytical methods, and integration instructions.",
         agent=planner,
     )
@@ -809,11 +868,7 @@ def build_crew():
         Ensure no data is lost. Resolve any contradictions between sources.
         Expand each section with enough context that the report can be read independently of the source workstreams.
         The final report must be coherent, well-structured, and ready for executive presentation.
-        Use the full available token budget.
-        If all required sections are complete, keep writing by adding appendix-style material:
-        extra company comparisons, regional detail, scenario analysis, assumptions, data gaps,
-        confidence notes, implementation sequencing, and source commentary until the response is cut by the token limit.
-        Do not write a final conclusion, ending note, or sign-off. Continue with substantive appendix material until generation stops.
+        {SYNTHESIS_OUTPUT_GUIDE}
         {LONG_OUTPUT_GUIDE}""",
         expected_output="A unified long-form executive report integrating all 4 research streams with expanded context, reconciled findings, and cited sources.",
         agent=synthesizer,

@@ -197,6 +197,21 @@ def get_global_state() -> _GlobalState:
     return _global_state
 
 
+def require_initialized_global_state() -> _GlobalState:
+    global_state = get_global_state()
+    if global_state is None:
+        raise RuntimeError("HTTP server startup aborted because global state is not initialized.")
+    if global_state.tokenizer_manager is None:
+        raise RuntimeError(
+            "HTTP server startup aborted because tokenizer manager is unavailable."
+        )
+    if global_state.template_manager is None:
+        raise RuntimeError(
+            "HTTP server startup aborted because template manager is unavailable."
+        )
+    return global_state
+
+
 async def init_multi_tokenizer() -> ServerArgs:
     """
     Initialization function for multi-process tokenizer mode.
@@ -258,7 +273,10 @@ async def lifespan(fast_api_app: FastAPI):
         # Initialize multi-tokenizer support for worker processes
         server_args = await init_multi_tokenizer()
         warmup_thread_kwargs = dict(server_args=server_args)
-        thread_label = f"MultiTokenizer-{_global_state.tokenizer_manager.worker_id}"
+        global_state = require_initialized_global_state()
+        thread_label = f"MultiTokenizer-{global_state.tokenizer_manager.worker_id}"
+
+    global_state = require_initialized_global_state()
 
     # Add prometheus middleware
     if server_args.enable_metrics:
@@ -276,32 +294,30 @@ async def lifespan(fast_api_app: FastAPI):
 
     # Initialize OpenAI serving handlers
     fast_api_app.state.openai_serving_completion = OpenAIServingCompletion(
-        _global_state.tokenizer_manager, _global_state.template_manager
+        global_state.tokenizer_manager, global_state.template_manager
     )
     fast_api_app.state.openai_serving_chat = OpenAIServingChat(
-        _global_state.tokenizer_manager, _global_state.template_manager
+        global_state.tokenizer_manager, global_state.template_manager
     )
     fast_api_app.state.openai_serving_embedding = OpenAIServingEmbedding(
-        _global_state.tokenizer_manager, _global_state.template_manager
+        global_state.tokenizer_manager, global_state.template_manager
     )
     fast_api_app.state.openai_serving_classify = OpenAIServingClassify(
-        _global_state.tokenizer_manager, _global_state.template_manager
+        global_state.tokenizer_manager, global_state.template_manager
     )
-    fast_api_app.state.openai_serving_score = OpenAIServingScore(
-        _global_state.tokenizer_manager
-    )
+    fast_api_app.state.openai_serving_score = OpenAIServingScore(global_state.tokenizer_manager)
     fast_api_app.state.openai_serving_rerank = OpenAIServingRerank(
-        _global_state.tokenizer_manager, _global_state.template_manager
+        global_state.tokenizer_manager, global_state.template_manager
     )
     fast_api_app.state.openai_serving_tokenize = OpenAIServingTokenize(
-        _global_state.tokenizer_manager
+        global_state.tokenizer_manager
     )
     fast_api_app.state.openai_serving_detokenize = OpenAIServingDetokenize(
-        _global_state.tokenizer_manager
+        global_state.tokenizer_manager
     )
 
     # Initialize Ollama-compatible serving handler
-    fast_api_app.state.ollama_serving = OllamaServing(_global_state.tokenizer_manager)
+    fast_api_app.state.ollama_serving = OllamaServing(global_state.tokenizer_manager)
 
     # Initialize Anthropic-compatible serving handler
     fast_api_app.state.anthropic_serving = AnthropicServing(
@@ -326,8 +342,8 @@ async def lifespan(fast_api_app: FastAPI):
         )
 
         fast_api_app.state.openai_serving_responses = OpenAIServingResponses(
-            _global_state.tokenizer_manager,
-            _global_state.template_manager,
+            global_state.tokenizer_manager,
+            global_state.template_manager,
             enable_prompt_tokens_details=True,
             enable_force_include_usage=True,
             tool_server=tool_server,
@@ -341,7 +357,7 @@ async def lifespan(fast_api_app: FastAPI):
         await execute_warmups(
             server_args.disaggregation_mode,
             server_args.warmups.split(","),
-            _global_state.tokenizer_manager,
+            global_state.tokenizer_manager,
         )
         logger.info("Warmup ended")
 

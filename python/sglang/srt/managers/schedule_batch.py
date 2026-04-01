@@ -903,6 +903,13 @@ class Req(ReqDllmMixin):
         if self.return_logprob and self.logprob_start_len >= 0:
             max_prefix_len = min(max_prefix_len, self.logprob_start_len)
         max_prefix_len = max(max_prefix_len, 0)
+        upstream_total_cached_len = getattr(self, "pp_upstream_total_cached_len", None)
+        if upstream_total_cached_len is not None:
+            # Downstream PP stages must never discover a longer prompt prefix than
+            # the upstream stage, or extend batches will observe mismatched token
+            # counts. Apply the cap before match_prefix so the tree walk itself
+            # stays consistent with the upstream decision.
+            max_prefix_len = min(max_prefix_len, int(upstream_total_cached_len))
         token_ids = self.fill_ids[:max_prefix_len]
 
         if tree_cache is not None:
@@ -928,6 +935,26 @@ class Req(ReqDllmMixin):
                 match_result.host_hit_length,
                 match_result.mamba_branching_seqlen,
             )
+            if upstream_total_cached_len is not None:
+                local_device_cached_len = len(self.prefix_indices)
+                if local_device_cached_len > upstream_total_cached_len:
+                    logger.info(
+                        "PP cache clamp for rid=%s: local_device_cached_len=%d -> %d",
+                        self.rid,
+                        local_device_cached_len,
+                        upstream_total_cached_len,
+                    )
+                    self.prefix_indices = self.prefix_indices[
+                        :upstream_total_cached_len
+                    ]
+                    self.host_hit_length = 0
+                else:
+                    # Clamp host-cached tokens so total (device + host) stays
+                    # within the upstream PP boundary.  This preserves
+                    # prefetched host data while keeping PP stage consistency.
+                    max_host = upstream_total_cached_len - len(self.prefix_indices)
+                    if self.host_hit_length > max_host:
+                        self.host_hit_length = max_host
             self.cache_protected_len = len(self.prefix_indices)
 
         if (

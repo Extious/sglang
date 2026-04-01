@@ -13,6 +13,7 @@
 # ==============================================================================
 """A scheduler that manages a tensor parallel GPU worker."""
 
+import copy
 import faulthandler
 import logging
 import os
@@ -224,6 +225,21 @@ from sglang.srt.utils.torch_memory_saver_adapter import TorchMemorySaverAdapter
 from sglang.utils import TypeBasedDispatcher, get_exception_traceback
 
 logger = logging.getLogger(__name__)
+
+
+def _is_expected_pp_peer_disconnect(exc: Exception, server_args: ServerArgs) -> bool:
+    if server_args.pp_size <= 1 or not isinstance(exc, RuntimeError):
+        return False
+
+    error_message = str(exc)
+    expected_markers = (
+        "Connection closed by peer",
+        "Connection reset by peer",
+        "Broken pipe",
+        "transport/tcp/pair.cc",
+    )
+    return any(marker in error_message for marker in expected_markers)
+
 
 # Test retract decode for debugging purposes
 TEST_RETRACT = envs.SGLANG_TEST_RETRACT.get()
@@ -440,8 +456,12 @@ class Scheduler(
         return self.disaggregation_mode == DisaggregationMode.NULL
 
     def _is_internal_failover_control_leader(self) -> bool:
+        # Use the last PP stage as the checkpoint publisher. If the last stage
+        # has durably backed up N generated tokens, every earlier stage in the
+        # pipeline must have already processed those tokens as well.
+        checkpoint_pp_rank = self.pp_size - 1 if self.pp_size > 1 else 0
         return (
-            self.pp_rank == 0
+            self.pp_rank == checkpoint_pp_rank
             and self.attn_tp_rank == 0
             and self.attn_cp_rank == 0
         )
@@ -634,6 +654,62 @@ class Scheduler(
         self.attn_cp_cpu_group = self.attn_cp_group.cpu_group
         self.pp_group = get_pp_group()
         self.world_group = get_world_group()
+
+        # Synchronize scheduling capacity across all PP stages.  Different nodes in
+        # a pipeline may run on different GPU hardware (e.g. A100-40GB vs A10), which
+        # causes auto-selected chunked_prefill_size / max_prefill_tokens to diverge.
+        # When stages independently compute different token budgets they split the same
+        # request at different token boundaries, producing mismatched extend_input_len
+        # values in the PP batch signature and causing a permanent deadlock.
+        # Using all_reduce(MIN) ensures every stage honours the tightest constraint so
+        # all stages make identical chunking/scheduling decisions.
+        if self.pp_size > 1:
+            # Pack both capacities into one tensor for a single collective.
+            # Sentinel INT_MAX is used when a field is None (= unconstrained) so
+            # that MIN-reduction preserves any finite constraint from another rank.
+            INT_MAX = 2**31 - 1
+            sync_tensor = torch.tensor(
+                [
+                    self.chunked_prefill_size if self.chunked_prefill_size is not None else INT_MAX,
+                    self.max_prefill_tokens,
+                ],
+                dtype=torch.long,
+                device="cpu",
+            )
+            torch.distributed.all_reduce(
+                sync_tensor,
+                op=torch.distributed.ReduceOp.MIN,
+                group=self.pp_group.cpu_group,
+            )
+            new_chunk_size = int(sync_tensor[0].item())
+            new_max_prefill = int(sync_tensor[1].item())
+
+            if new_chunk_size != INT_MAX and new_chunk_size != self.chunked_prefill_size:
+                logger.info(
+                    "PP chunked_prefill_size adjusted %s -> %d via all_reduce(MIN) "
+                    "across pp_size=%d stages to prevent cross-stage batch mismatch.",
+                    self.chunked_prefill_size,
+                    new_chunk_size,
+                    self.pp_size,
+                )
+                self.chunked_prefill_size = new_chunk_size
+                self.is_mixed_chunk = (
+                    self.chunked_prefill_size is not None
+                    and self.server_args.enable_mixed_chunk
+                )
+            elif new_chunk_size == INT_MAX:
+                # All ranks had no chunk limit; preserve None.
+                pass
+
+            if new_max_prefill != self.max_prefill_tokens:
+                logger.info(
+                    "PP max_prefill_tokens adjusted %d -> %d via all_reduce(MIN) "
+                    "across pp_size=%d stages to prevent cross-stage batch mismatch.",
+                    self.max_prefill_tokens,
+                    new_max_prefill,
+                    self.pp_size,
+                )
+                self.max_prefill_tokens = new_max_prefill
 
         # NOTE: dp_tp_* are request/data-plane coordination groups (not tensor collectives).
         # When DP attention is enabled, scope to the attention-TP group; otherwise use
@@ -1622,6 +1698,19 @@ class Scheduler(
                 agent_id=getattr(recv_req, "agent_id", None),
             )
             req.tokenizer = self.tokenizer
+            req.pp_upstream_total_cached_len = getattr(
+                recv_req, "pp_upstream_total_cached_len", None
+            )
+            req.source_tokenized_req = recv_req
+            req.is_failover_resume = bool(
+                getattr(recv_req, "is_failover_resume", False)
+            )
+            req.resume_visible_output_len = int(
+                getattr(recv_req, "resume_visible_output_len", 0) or 0
+            )
+            req.resume_checkpointed_output_len = int(
+                getattr(recv_req, "resume_checkpointed_output_len", 0) or 0
+            )
 
             if self.disaggregation_mode != DisaggregationMode.NULL:
                 # Invalid request for disaggregated mode
@@ -1747,19 +1836,25 @@ class Scheduler(
             self.handle_generate_request(tokenized_req)
 
     def handle_resume_generate_request(self, recv_req: ResumeGenerateReq):
-        if not self.enable_internal_dp_failover:
-            append_failover_event(
-                "resume_rejected",
-                rid=recv_req.rid,
-                agent_id=getattr(recv_req.tokenized_req, "agent_id", None),
-                owner_dp_rank=recv_req.owner_dp_rank,
-                backup_dp_rank=recv_req.backup_dp_rank,
-                target_dp_rank=self.dp_rank,
-                checkpointed_output_len=recv_req.checkpointed_output_len,
-                visible_output_len=len(recv_req.visible_output_ids),
-                failover_epoch=recv_req.failover_epoch,
-                reason="internal_failover_disabled",
-            )
+        allow_prompt_reroute_without_backup = (
+            not self.enable_internal_dp_failover
+            and len(recv_req.visible_output_ids) == 0
+            and recv_req.checkpointed_output_len == 0
+        )
+        if not self.enable_internal_dp_failover and not allow_prompt_reroute_without_backup:
+            if self._is_internal_failover_control_leader():
+                append_failover_event(
+                    "resume_rejected",
+                    rid=recv_req.rid,
+                    agent_id=getattr(recv_req.tokenized_req, "agent_id", None),
+                    owner_dp_rank=recv_req.owner_dp_rank,
+                    backup_dp_rank=recv_req.backup_dp_rank,
+                    target_dp_rank=self.dp_rank,
+                    checkpointed_output_len=recv_req.checkpointed_output_len,
+                    visible_output_len=len(recv_req.visible_output_ids),
+                    failover_epoch=recv_req.failover_epoch,
+                    reason="internal_failover_disabled",
+                )
             self.send_to_tokenizer.send_output(
                 AbortReq(
                     rid=recv_req.rid,
@@ -1775,8 +1870,53 @@ class Scheduler(
                 recv_req.rid,
                 recv_req.failover_epoch,
             )
+            if self._is_internal_failover_control_leader():
+                append_failover_event(
+                    "resume_duplicate",
+                    rid=recv_req.rid,
+                    agent_id=getattr(recv_req.tokenized_req, "agent_id", None),
+                    owner_dp_rank=recv_req.owner_dp_rank,
+                    backup_dp_rank=recv_req.backup_dp_rank,
+                    target_dp_rank=self.dp_rank,
+                    checkpointed_output_len=recv_req.checkpointed_output_len,
+                    visible_output_len=len(recv_req.visible_output_ids),
+                    failover_epoch=recv_req.failover_epoch,
+                )
+            return
+
+        resume_input_ids = (
+            list(recv_req.tokenized_req.input_ids) + list(recv_req.visible_output_ids)
+        )
+        # For PP > 1: keep all PP stages on the same prompt-prefix boundary
+        # during failover resume.  The initial cap is set here and then
+        # refined in the scheduling loop after init_load_back determines
+        # the actual host-loaded cache length.
+        # For PP == 1 no cross-stage coordination is needed, so we leave
+        # pp_upstream_total_cached_len unset to allow full host-cache usage.
+        resume_pp_cached_len = max(len(resume_input_ids) - 1, 0)
+        resume_sampling_params = copy.deepcopy(recv_req.tokenized_req.sampling_params)
+        if resume_sampling_params.max_new_tokens is not None:
+            resume_sampling_params.max_new_tokens = max(
+                int(resume_sampling_params.max_new_tokens)
+                - len(recv_req.visible_output_ids),
+                0,
+            )
+        resume_tokenized_req = replace(
+            recv_req.tokenized_req,
+            input_ids=resume_input_ids,
+            sampling_params=resume_sampling_params,
+            data_parallel_rank=self.dp_rank,
+            is_failover_resume=True,
+            resume_visible_output_len=len(recv_req.visible_output_ids),
+            resume_checkpointed_output_len=recv_req.checkpointed_output_len,
+        )
+        if self.pp_size > 1:
+            resume_tokenized_req.pp_upstream_total_cached_len = resume_pp_cached_len
+        self.handled_resume_epochs[recv_req.rid] = recv_req.failover_epoch
+        self.handle_generate_request(resume_tokenized_req)
+        if self._is_internal_failover_control_leader():
             append_failover_event(
-                "resume_duplicate",
+                "resume_accepted",
                 rid=recv_req.rid,
                 agent_id=getattr(recv_req.tokenized_req, "agent_id", None),
                 owner_dp_rank=recv_req.owner_dp_rank,
@@ -1785,31 +1925,8 @@ class Scheduler(
                 checkpointed_output_len=recv_req.checkpointed_output_len,
                 visible_output_len=len(recv_req.visible_output_ids),
                 failover_epoch=recv_req.failover_epoch,
+                resumed_input_len=len(resume_input_ids),
             )
-            return
-
-        resume_input_ids = (
-            list(recv_req.tokenized_req.input_ids) + list(recv_req.visible_output_ids)
-        )
-        resume_tokenized_req = replace(
-            recv_req.tokenized_req,
-            input_ids=resume_input_ids,
-            data_parallel_rank=self.dp_rank,
-        )
-        self.handle_generate_request(resume_tokenized_req)
-        self.handled_resume_epochs[recv_req.rid] = recv_req.failover_epoch
-        append_failover_event(
-            "resume_accepted",
-            rid=recv_req.rid,
-            agent_id=getattr(recv_req.tokenized_req, "agent_id", None),
-            owner_dp_rank=recv_req.owner_dp_rank,
-            backup_dp_rank=recv_req.backup_dp_rank,
-            target_dp_rank=self.dp_rank,
-            checkpointed_output_len=recv_req.checkpointed_output_len,
-            visible_output_len=len(recv_req.visible_output_ids),
-            failover_epoch=recv_req.failover_epoch,
-            resumed_input_len=len(resume_input_ids),
-        )
 
         if self.disaggregation_mode != DisaggregationMode.NULL:
             return
@@ -1829,26 +1946,18 @@ class Scheduler(
         if not self.enable_internal_dp_failover or not self.enable_hierarchical_cache:
             return
 
-        pending_rids = self.tree_cache.pop_pending_checkpoint_rids()
-        # Skip empty PP/TP synchronization rounds. During PP warmup, an empty
-        # collective here can race with the next stage's request handoff and
-        # deadlock even though there is no checkpoint update to publish.
-        if not pending_rids:
+        # Avoid PP collectives in the hot event loop. Different pipe stages can
+        # legitimately be in different phases (e.g. one stage waiting in
+        # recv_requests while another stage finishes a backup), and forcing
+        # them through all_reduce/all_gather here can deadlock the whole
+        # pipeline. We only publish checkpoint progress from the last PP stage,
+        # which is a conservative lower bound for the whole pipeline.
+        if self.pp_size > 1 and self.pp_rank != self.pp_size - 1:
+            self.tree_cache.pop_pending_checkpoint_rids()
             return
-        has_pending = torch.tensor([1 if pending_rids else 0], dtype=torch.int64)
-        if self.tree_cache.tp_world_size > 1:
-            torch.distributed.all_reduce(
-                has_pending,
-                op=torch.distributed.ReduceOp.MAX,
-                group=self.tree_cache.tp_group,
-            )
-        if self.pp_size > 1:
-            torch.distributed.all_reduce(
-                has_pending,
-                op=torch.distributed.ReduceOp.MAX,
-                group=self.pp_group.cpu_group,
-            )
-        if has_pending.item() == 0:
+
+        pending_rids = self.tree_cache.pop_pending_checkpoint_rids()
+        if not pending_rids:
             return
 
         tp_pending = [pending_rids]
@@ -1860,11 +1969,6 @@ class Scheduler(
         global_pending_rids = {
             rid for rank_pending in tp_pending for rid in rank_pending
         }
-        if self.pp_size > 1:
-            for stage_pending in self.pp_group.all_gather_object(
-                sorted(global_pending_rids)
-            ):
-                global_pending_rids.update(stage_pending)
 
         for rid in sorted(global_pending_rids):
             local_len = torch.tensor(
@@ -1877,12 +1981,6 @@ class Scheduler(
                     op=torch.distributed.ReduceOp.MIN,
                     group=self.tree_cache.tp_group,
                 )
-            if self.pp_size > 1:
-                torch.distributed.all_reduce(
-                    local_len,
-                    op=torch.distributed.ReduceOp.MIN,
-                    group=self.pp_group.cpu_group,
-                )
             if self._is_internal_failover_control_leader():
                 self.send_to_tokenizer.send_output(
                     CheckpointUpdateReq(
@@ -1892,42 +1990,65 @@ class Scheduler(
                     )
                 )
 
+    def _is_pp_storage_resume(self, req: Req) -> bool:
+        return (
+            self.enable_hicache_storage
+            and self.pp_size > 1
+            and req.is_failover_resume
+            and req.resume_visible_output_len > 0
+        )
+
+    def _should_wait_for_storage_prefetch(self, req: Req) -> bool:
+        if not (self.enable_hicache_storage and req.is_failover_resume):
+            return False
+        prefetch_stop_policy = getattr(self.tree_cache, "prefetch_stop_policy", None)
+        return prefetch_stop_policy == "wait_complete"
+
+    def _should_prefetch_storage_for_req(self, req: Req) -> bool:
+        if not self.enable_hicache_storage:
+            return False
+        if self.pp_size == 1:
+            return True
+        return self._is_pp_storage_resume(req)
+
     def _prefetch_kvcache(self, req: Req):
-        if self.enable_hicache_storage:
-            req.init_next_round_input(self.tree_cache)
-            matched_len = len(req.prefix_indices) + req.host_hit_length
-            matched_tokens = req.fill_ids[:matched_len]
-            prefetch_anchor, last_hash = self.tree_cache.get_prefetch_anchor_for_req(
-                matched_tokens
-            )
-            if last_hash is None:
-                return
+        if not self._should_prefetch_storage_for_req(req):
+            return
 
-            new_input_tokens = req.fill_ids[matched_len:]
-            logger.info(
-                "_prefetch_kvcache: rid=%s, fill_ids_len=%d, matched_len=%d, "
-                "anchor_hash=%s, new_tokens=%d, first_new_token=%s",
-                req.rid,
-                len(req.fill_ids),
-                matched_len,
-                last_hash[:16] if last_hash else "None",
-                len(new_input_tokens),
-                new_input_tokens[0] if len(new_input_tokens) > 0 else "N/A",
-            )
+        req.init_next_round_input(self.tree_cache)
+        matched_len = len(req.prefix_indices) + req.host_hit_length
+        matched_tokens = req.fill_ids[:matched_len]
+        prefetch_anchor, last_hash = self.tree_cache.get_prefetch_anchor_for_req(
+            matched_tokens
+        )
+        if last_hash is None:
+            return
 
-            prefix_keys = (
-                prefetch_anchor.get_prefix_hash_values(prefetch_anchor.parent)
-                if self.tree_cache.hicache_storage_pass_prefix_keys
-                else None
-            )
-            self.tree_cache.prefetch_from_storage(
-                req.rid,
-                prefetch_anchor,
-                new_input_tokens,
-                last_hash,
-                prefix_keys,
-                prefix_token_ids=list(matched_tokens),
-            )
+        new_input_tokens = req.fill_ids[matched_len:]
+        logger.info(
+            "_prefetch_kvcache: rid=%s, fill_ids_len=%d, matched_len=%d, "
+            "anchor_hash=%s, new_tokens=%d, first_new_token=%s",
+            req.rid,
+            len(req.fill_ids),
+            matched_len,
+            last_hash[:16] if last_hash else "None",
+            len(new_input_tokens),
+            new_input_tokens[0] if len(new_input_tokens) > 0 else "N/A",
+        )
+
+        prefix_keys = (
+            prefetch_anchor.get_prefix_hash_values(prefetch_anchor.parent)
+            if self.tree_cache.hicache_storage_pass_prefix_keys
+            else None
+        )
+        self.tree_cache.prefetch_from_storage(
+            req.rid,
+            prefetch_anchor,
+            new_input_tokens,
+            last_hash,
+            prefix_keys,
+            prefix_token_ids=list(matched_tokens),
+        )
 
     def _add_request_to_queue(self, req: Req, is_retracted: bool = False):
         if self.disaggregation_mode == DisaggregationMode.NULL:
@@ -1936,6 +2057,14 @@ class Scheduler(
             if self._abort_on_queued_limit(req):
                 return
             self._prefetch_kvcache(req)
+            if (
+                self.pp_size > 1
+                and not self.pp_group.is_last_rank
+                and hasattr(req, "source_tokenized_req")
+            ):
+                req.source_tokenized_req.pp_upstream_total_cached_len = (
+                    len(req.prefix_indices) + req.host_hit_length
+                )
             self.waiting_queue.append(req)
             req.time_stats.wait_queue_entry_time = time.perf_counter()
             trace_slice_end(RequestStage.REQUEST_PROCESS, req.rid, auto_next_anon=True)
@@ -2246,6 +2375,7 @@ class Scheduler(
             return None
 
         running_bs = len(self.running_batch.reqs)
+
         # Ignore the check if self.chunked_req is not None.
         # In the non-PP case, when self.chunked_req is not None, num_allocatable_reqs should always be greater than 0,
         # as the space for the chunked requests has just been released.
@@ -2262,6 +2392,27 @@ class Scheduler(
         # Get priority queue
         self.policy.calc_priority(self.waiting_queue, self.running_batch)
 
+        waiting_head = self.waiting_queue[0] if self.waiting_queue else None
+        if (
+            self.pp_size > 1
+            and running_bs > 0
+            and self.enable_hicache_storage
+        ):
+            # PP + HiCache remains safest when new prefills only enter after the
+            # in-flight decode microbatches drain. Resume requests can still use
+            # peer-backed storage hits once they become the next clean prefill.
+            return None
+        if (
+            running_bs > 0
+            and waiting_head is not None
+            and self._is_pp_storage_resume(waiting_head)
+        ):
+            # Resume requests with peer-backed visible output must enter the PP
+            # pipeline on a clean prefill boundary; otherwise later stages can
+            # still be draining an older decode microbatch when stage 0 shortens
+            # the resumed prompt after storage prefetch.
+            return None
+
         if TEST_RETRACT and running_bs > TEST_RETRACT_NO_PREFILL_BS:
             # If we are testing retraction and the running batch size exceeds
             # TEST_RETRACT_NO_PREFILL_BS, we skip the prefill to keep the requests
@@ -2277,6 +2428,10 @@ class Scheduler(
                 chunked_prefill_size = dynamic_size
 
         # Prefill policy
+        prefill_max_requests = self.server_args.prefill_max_requests
+        if self.pp_size > 1 and self.enable_hicache_storage:
+            prefill_max_requests = 1
+
         adder = PrefillAdder(
             self.page_size,
             self.tree_cache,
@@ -2287,7 +2442,7 @@ class Scheduler(
             chunked_prefill_size,
             running_bs if self.is_mixed_chunk else 0,
             self.priority_scheduling_preemption_threshold,
-            prefill_max_requests=self.server_args.prefill_max_requests,
+            prefill_max_requests=prefill_max_requests,
             prefill_delayer_single_pass=prefill_delayer_single_pass,
             dllm_config=self.dllm_config,
         )
@@ -2332,22 +2487,60 @@ class Scheduler(
                 ):
                     break
 
-            if self.enable_hicache_storage:
-                prefetch_done = self.tree_cache.check_prefetch_progress(req.rid)
+            if self._should_prefetch_storage_for_req(req):
+                prefetch_done = self.tree_cache.check_prefetch_progress(
+                    req.rid,
+                    wait_for_complete=self._should_wait_for_storage_prefetch(req),
+                )
                 if not prefetch_done:
-                    # skip staging requests that are ongoing prefetch
+                    # Keep a prefetched failover-resume request at the head of the
+                    # queue until its peer pages are available so it can reuse the
+                    # replicated KV state instead of being bypassed by later work.
+                    if self._is_pp_storage_resume(req):
+                        break
                     continue
                 # Pop the number of tokens loaded from storage (L3 hits)
                 req.storage_hit_length = self.tree_cache.pop_prefetch_loaded_tokens(
                     req.rid
                 )
+            else:
+                req.storage_hit_length = 0
 
-            req.init_next_round_input(self.tree_cache)
+            if self.pp_size > 1 and not self._is_pp_storage_resume(req):
+                # Downstream PP stages must not independently expand prompt cache
+                # matches, or different stages can derive different extend lengths
+                # and trip KV-cache shape assertions. The only exception is an
+                # explicit storage-backed failover resume, where we intentionally
+                # preserve the matched storage prefix.
+                req.init_next_round_input(None)
+                req.prefix_indices = torch.empty(
+                    (0,), dtype=torch.int64, device=self.tree_cache.device
+                )
+                req.last_node = self.tree_cache.root_node
+                req.last_host_node = self.tree_cache.root_node
+                req.host_hit_length = 0
+                req.cache_protected_len = 0
+                req.set_extend_input_len(len(req.fill_ids))
+            else:
+                req.init_next_round_input(self.tree_cache)
             res = adder.add_one_req(
                 req,
                 has_chunked_req=(self.chunked_req is not None),
                 truncation_align_size=self.truncation_align_size,
             )
+
+            # After scheduling (including init_load_back), propagate the
+            # actual cached prefix length to downstream PP stages so they
+            # can clamp their own cache discovery to match.
+            if (
+                self.pp_size > 1
+                and not self.pp_group.is_last_rank
+                and self._is_pp_storage_resume(req)
+                and hasattr(req, "source_tokenized_req")
+            ):
+                req.source_tokenized_req.pp_upstream_total_cached_len = len(
+                    req.prefix_indices
+                )
 
             if self.enable_lora:
                 running_loras.add(req.lora_id)
@@ -2361,6 +2554,9 @@ class Scheduler(
                         ) > 0 or (not self.running_batch.is_empty())
                     else:
                         self.running_batch.batch_is_full = True
+                break
+
+            if self._is_pp_storage_resume(req):
                 break
 
         # Update waiting queue
@@ -3670,7 +3866,18 @@ def run_scheduler_process(
             else:
                 scheduler.event_loop_normal_disagg_decode()
 
-    except Exception:
+    except Exception as exc:
         traceback = get_exception_traceback()
+        if _is_expected_pp_peer_disconnect(exc, server_args):
+            # Keep the parent process alive after an expected PP peer disconnect
+            # without leaving a stale active batch that would trip the watchdog.
+            scheduler.cur_batch = None
+            scheduler.running_batch = None
+            logger.warning(
+                "Scheduler entering idle wait after PP peer disconnect without terminating parent: %s",
+                traceback,
+            )
+            while True:
+                time.sleep(3600)
         logger.error(f"Scheduler hit an exception: {traceback}")
         parent_process.send_signal(signal.SIGQUIT)

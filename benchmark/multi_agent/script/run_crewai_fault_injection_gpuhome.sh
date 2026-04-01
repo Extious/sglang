@@ -11,7 +11,7 @@ CREWAI_SCRIPT="${CREWAI_APP_DIR}/crewai_collaboration.py"
 FAILOVER_METRICS_SCRIPT="${CREWAI_APP_DIR}/build_internal_failover_metrics.py"
 
 SERVER_URL="${SERVER_URL:-}"
-STAGE_MANIFEST="${STAGE_MANIFEST:-${MULTI_AGENT_DIR}/logs_qwen3_8b_gpuhome/stage_manifest.json}"
+STAGE_MANIFEST="${STAGE_MANIFEST:-${MULTI_AGENT_DIR}/logs/logs_qwen3_8b_gpuhome/stage_manifest.json}"
 RUNTIME_FAILOVER_EVENTS_FILE="${RUNTIME_FAILOVER_EVENTS_FILE:-}"
 SLURM_JOB_ID_VALUE="${SLURM_JOB_ID_VALUE:-}"
 MODEL_PATH="${MODEL_PATH:-Qwen/Qwen3-8B}"
@@ -22,11 +22,14 @@ JOBS_CSV="${JOBS_CSV:-${CREWAI_APP_DIR}/topics.csv}"
 INJECT_AFTER_JOB="${INJECT_AFTER_JOB:-}"
 INJECT_AFTER_TASK="${INJECT_AFTER_TASK:-}"
 INJECT_DELAY="${INJECT_DELAY:-10}"
+INJECT_MATCH_TASK_LABEL="${INJECT_MATCH_TASK_LABEL:-}"
+INJECT_MATCH_AGENT_ROLE="${INJECT_MATCH_AGENT_ROLE:-}"
+INJECT_MATCH_WORKER_ID="${INJECT_MATCH_WORKER_ID:-}"
 FAULT_DP_RANK="${FAULT_DP_RANK:-}"
 FAULT_PP_RANK="${FAULT_PP_RANK:-0}"
 FAULT_TP_RANK="${FAULT_TP_RANK:-0}"
 UNHEALTHY_TIMEOUT="${UNHEALTHY_TIMEOUT:-20}"
-OUTPUT_DIR="${OUTPUT_DIR:-${MULTI_AGENT_DIR}/logs_qwen3_8b_gpuhome/crewai_fault_$(date +%Y%m%d_%H%M%S)}"
+OUTPUT_DIR="${OUTPUT_DIR:-${MULTI_AGENT_DIR}/logs/logs_qwen3_8b_gpuhome/crewai_fault_$(date +%Y%m%d_%H%M%S)}"
 TRACE_FILE=""
 
 usage() {
@@ -46,6 +49,9 @@ Options:
   --inject-after-job N[,M]    Inject after job completion count(s)
   --inject-after-task N[,M]   Inject after task completion count(s)
   --inject-delay SECS         Delay after trigger before fault injection
+  --inject-match-task-label S Only count matching task_label events for injection
+  --inject-match-agent-role S Only count matching agent_role events for injection
+  --inject-match-worker-id N  Only count matching worker_id events for injection
   --fault-dp-rank N           Optional fixed replica rank to kill
   --fault-pp-rank N           Pipeline stage rank to kill (default: 0)
   --fault-tp-rank N           Tensor rank to kill (default: 0)
@@ -74,6 +80,9 @@ while [[ $# -gt 0 ]]; do
         --inject-after-job|--inject-after-topic) INJECT_AFTER_JOB="$2"; shift 2 ;;
         --inject-after-task) INJECT_AFTER_TASK="$2"; shift 2 ;;
         --inject-delay) INJECT_DELAY="$2"; shift 2 ;;
+        --inject-match-task-label) INJECT_MATCH_TASK_LABEL="$2"; shift 2 ;;
+        --inject-match-agent-role) INJECT_MATCH_AGENT_ROLE="$2"; shift 2 ;;
+        --inject-match-worker-id) INJECT_MATCH_WORKER_ID="$2"; shift 2 ;;
         --fault-dp-rank) FAULT_DP_RANK="$2"; shift 2 ;;
         --fault-pp-rank) FAULT_PP_RANK="$2"; shift 2 ;;
         --fault-tp-rank) FAULT_TP_RANK="$2"; shift 2 ;;
@@ -142,6 +151,28 @@ log() {
     echo "${msg}" | tee -a "${RUN_LOG}"
 }
 
+snapshot_server_logs() {
+    local log_dir=""
+    if [[ -n "${RUNTIME_FAILOVER_EVENTS_FILE}" ]]; then
+        log_dir="$(dirname "${RUNTIME_FAILOVER_EVENTS_FILE}")"
+    fi
+    if [[ -z "${log_dir}" || ! -d "${log_dir}" ]]; then
+        return 0
+    fi
+
+    local snapshot_dir="${OUTPUT_DIR}/server_logs"
+    mkdir -p "${snapshot_dir}"
+    shopt -s nullglob
+    local path=""
+    for path in "${log_dir}"/node_*/server.log; do
+        local node_name
+        node_name="$(basename "$(dirname "${path}")")"
+        mkdir -p "${snapshot_dir}/${node_name}"
+        cp "${path}" "${snapshot_dir}/${node_name}/server.log"
+    done
+    shopt -u nullglob
+}
+
 append_events_file_record() {
     local event_type="$1"
     shift
@@ -202,6 +233,36 @@ PY
     )"
 fi
 
+FAULT_PP_MATCH_ALL=0
+if [[ -z "${FAULT_PP_RANK}" || "${FAULT_PP_RANK}" == "all" || "${FAULT_PP_RANK}" == "*" ]]; then
+    FAULT_PP_MATCH_ALL=1
+fi
+
+FAULT_TP_MATCH_ALL=0
+if [[ -z "${FAULT_TP_RANK}" || "${FAULT_TP_RANK}" == "all" || "${FAULT_TP_RANK}" == "*" ]]; then
+    FAULT_TP_MATCH_ALL=1
+fi
+
+mapfile -t ALL_STAGE_TARGETS < <(
+    python3 - "${STAGE_MANIFEST}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+for stage in payload.get("stages", []):
+    fields = [
+        str(stage.get("dp_rank", "")),
+        str(stage.get("pp_rank", "")),
+        str(stage.get("tp_rank", "")),
+        str(stage.get("node", "")),
+        str(stage.get("node_url", "")),
+        str(stage.get("kill_pattern", "")),
+    ]
+    print("\t".join(fields))
+PY
+)
+
 mapfile -t STAGE_TARGETS < <(
     python3 - "${STAGE_MANIFEST}" "${FAULT_DP_RANK}" "${FAULT_PP_RANK}" "${FAULT_TP_RANK}" <<'PY'
 import json
@@ -216,9 +277,9 @@ fault_tp = sys.argv[4].strip()
 for stage in payload.get("stages", []):
     if fault_dp and str(stage.get("dp_rank")) != fault_dp:
         continue
-    if fault_pp and str(stage.get("pp_rank")) != fault_pp:
+    if fault_pp and fault_pp not in {"all", "*"} and str(stage.get("pp_rank")) != fault_pp:
         continue
-    if fault_tp and str(stage.get("tp_rank")) != fault_tp:
+    if fault_tp and fault_tp not in {"all", "*"} and str(stage.get("tp_rank")) != fault_tp:
         continue
     fields = [
         str(stage.get("dp_rank", "")),
@@ -235,6 +296,23 @@ PY
 if [[ "${#STAGE_TARGETS[@]}" -eq 0 ]]; then
     die "No stage targets matched the requested (dp, pp, tp) filter"
 fi
+
+collect_replica_group_targets() {
+    local selected_spec="$1"
+    local -n out_specs_ref="$2"
+    local selected_dp_rank selected_pp_rank selected_tp_rank selected_node_name selected_node_url selected_kill_pattern
+    IFS=$'\t' read -r selected_dp_rank selected_pp_rank selected_tp_rank selected_node_name selected_node_url selected_kill_pattern <<< "${selected_spec}"
+
+    local candidate_spec=""
+    local dp_rank pp_rank tp_rank node_name node_url kill_pattern
+    for candidate_spec in "${ALL_STAGE_TARGETS[@]}"; do
+        IFS=$'\t' read -r dp_rank pp_rank tp_rank node_name node_url kill_pattern <<< "${candidate_spec}"
+        if [[ "${dp_rank}" != "${selected_dp_rank}" ]]; then
+            continue
+        fi
+        out_specs_ref+=("${candidate_spec}")
+    done
+}
 
 if [[ -n "${INJECT_AFTER_TASK}" ]]; then
     INJECT_KIND="task"
@@ -261,8 +339,14 @@ JOB_DONE_COUNT=0
 TASK_DONE_COUNT=0
 NEXT_INJECT_IDX=0
 APP_PID=""
+_FI_CLEANUP_HANDLED=0
 
 _fi_cleanup() {
+    if [ "${_FI_CLEANUP_HANDLED}" -eq 1 ]; then
+        exit 130
+    fi
+    _FI_CLEANUP_HANDLED=1
+    trap - INT TERM
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Fault-injection script interrupted — killing child processes..."
     if [ -n "${APP_PID}" ] && kill -0 "${APP_PID}" 2>/dev/null; then
         kill -TERM "${APP_PID}" 2>/dev/null || true
@@ -354,19 +438,64 @@ kill_stage_via_slurm() {
     local slurm_job_id="$1"
     local node_name="$2"
     local kill_pattern="$3"
+    local remote_script
+    remote_script=$(cat <<'EOF'
+set -euo pipefail
+matches=$(pgrep -f "${KILL_PATTERN}" || true)
+if [ -z "${matches}" ]; then
+    echo "No process matched ${KILL_PATTERN}" >&2
+    exit 3
+fi
+pgrep -af "${KILL_PATTERN}" || true
+pkill -9 -f "${KILL_PATTERN}"
+EOF
+)
 
-    srun --jobid "${slurm_job_id}" -w "${node_name}" --nodes=1 --ntasks=1 --kill-on-bad-exit=0 \
-        env KILL_PATTERN="${kill_pattern}" \
-        bash -lc '
-            set -euo pipefail
-            matches=$(pgrep -f "${KILL_PATTERN}" || true)
-            if [ -z "${matches}" ]; then
-                echo "No process matched ${KILL_PATTERN}" >&2
-                exit 3
-            fi
-            pgrep -af "${KILL_PATTERN}" || true
-            pkill -9 -f "${KILL_PATTERN}"
-        ' >> "${RUN_LOG}" 2>&1
+    local -a srun_base=(
+        srun
+        --jobid "${slurm_job_id}"
+        -w "${node_name}"
+        --nodes=1
+        --ntasks=1
+        --overlap
+        --kill-on-bad-exit=0
+    )
+    local -a gpu_release_opts=(
+        "--gres=none"
+        "--gpus=0"
+        ""
+    )
+    local gpu_opt=""
+    local rc=1
+
+    for gpu_opt in "${gpu_release_opts[@]}"; do
+        local -a cmd=("${srun_base[@]}")
+        if [ -n "${gpu_opt}" ]; then
+            cmd+=("${gpu_opt}")
+        fi
+        cmd+=(
+            env
+            "KILL_PATTERN=${kill_pattern}"
+            bash
+            -lc
+            "${remote_script}"
+        )
+
+        set +e
+        env NO_PROXY="*" no_proxy="*" "${cmd[@]}" >> "${RUN_LOG}" 2>&1
+        rc=$?
+        set -e
+
+        if [ "${rc}" -eq 0 ]; then
+            return 0
+        fi
+
+        if [ -n "${gpu_opt}" ]; then
+            log "Kill step retry: srun ${gpu_opt} failed with rc=${rc}, falling back..."
+        fi
+    done
+
+    return "${rc}"
 }
 
 inject_stage_kill_fault() {
@@ -466,8 +595,122 @@ delayed_inject_stage_kill_fault() {
     inject_stage_kill_fault "${event_id}" "${trigger_kind}" "${trigger_count}" "${stage_spec}"
 }
 
+delayed_inject_stage_group_kill_fault() {
+    local event_id="$1"
+    local trigger_kind="$2"
+    local trigger_count="$3"
+    shift 3
+    local -a stage_specs=("$@")
+    log "Fault ${event_id}: waiting ${INJECT_DELAY}s after ${trigger_kind}=${trigger_count}"
+    sleep "${INJECT_DELAY}"
+
+    local stage_spec=""
+    local dp_rank pp_rank tp_rank node_name node_url kill_pattern
+    local fault_start_epoch
+    fault_start_epoch=$(date +%s)
+
+    local -a kill_bg_pids=()
+    local -a kill_stage_descs=()
+    local first_dp_rank=""
+    local first_node_url=""
+
+    for stage_spec in "${stage_specs[@]}"; do
+        IFS=$'\t' read -r dp_rank pp_rank tp_rank node_name node_url kill_pattern <<< "${stage_spec}"
+        if [[ -z "${first_dp_rank}" ]]; then
+            first_dp_rank="${dp_rank}"
+            first_node_url="${node_url}"
+        fi
+
+        log "Fault ${event_id}: killing dp=${dp_rank} pp=${pp_rank} tp=${tp_rank} on ${node_name} after ${trigger_kind}=${trigger_count}"
+        append_events_file_record \
+            "fault_injected" \
+            "event_id=${event_id}" \
+            "trigger_kind=${trigger_kind}" \
+            "trigger_count=${trigger_count}" \
+            "dp_rank=${dp_rank}" \
+            "pp_rank=${pp_rank}" \
+            "tp_rank=${tp_rank}" \
+            "node=${node_name}" \
+            "node_url=${node_url}" \
+            "kill_pattern=${kill_pattern}" \
+            "slurm_job_id=${SLURM_JOB_ID_VALUE}"
+
+        (
+            if kill_stage_via_slurm "${SLURM_JOB_ID_VALUE}" "${node_name}" "${kill_pattern}"; then
+                log "Fault ${event_id}: kill command completed for ${kill_pattern}"
+            else
+                rc=$?
+                log "Fault ${event_id}: failed to kill ${kill_pattern} (rc=${rc})"
+                append_events_file_record \
+                    "fault_injection_failed" \
+                    "event_id=${event_id}" \
+                    "trigger_kind=${trigger_kind}" \
+                    "trigger_count=${trigger_count}" \
+                    "dp_rank=${dp_rank}" \
+                    "pp_rank=${pp_rank}" \
+                    "tp_rank=${tp_rank}" \
+                    "node=${node_name}" \
+                    "node_url=${node_url}" \
+                    "kill_pattern=${kill_pattern}" \
+                    "status=kill_failed"
+                exit "${rc}"
+            fi
+        ) &
+        kill_bg_pids+=($!)
+        kill_stage_descs+=("dp=${dp_rank} pp=${pp_rank} tp=${tp_rank} node=${node_name} pattern=${kill_pattern}")
+    done
+
+    local idx=0
+    for pid in "${kill_bg_pids[@]}"; do
+        wait "${pid}"
+        local rc=$?
+        if [[ "${rc}" -ne 0 ]]; then
+            log "Fault ${event_id}: concurrent kill failed for ${kill_stage_descs[$idx]} (rc=${rc})"
+            return "${rc}"
+        fi
+        idx=$((idx + 1))
+    done
+
+    local runtime_event=""
+    if runtime_event=$(wait_for_runtime_reaction "${first_dp_rank}" "${fault_start_epoch}" "${UNHEALTHY_TIMEOUT}" 2>/dev/null); then
+        log "Fault ${event_id}: runtime observed failure reaction ${runtime_event}"
+        append_events_file_record \
+            "runtime_failover_reaction" \
+            "event_id=${event_id}" \
+            "dp_rank=${first_dp_rank}" \
+            "node_url=${first_node_url}" \
+            "status=runtime_reaction"
+        return 0
+    fi
+
+    if wait_worker_unhealthy "${first_node_url}" "${UNHEALTHY_TIMEOUT}"; then
+        log "Fault ${event_id}: node-local health became unhealthy at ${first_node_url}"
+        append_events_file_record \
+            "node_became_unhealthy" \
+            "event_id=${event_id}" \
+            "dp_rank=${first_dp_rank}" \
+            "node_url=${first_node_url}" \
+            "status=unhealthy"
+        return 0
+    fi
+
+    log "Fault ${event_id}: no runtime reaction or health transition observed within ${UNHEALTHY_TIMEOUT}s"
+    append_events_file_record \
+        "runtime_reaction_timeout" \
+        "event_id=${event_id}" \
+        "dp_rank=${first_dp_rank}" \
+        "node_url=${first_node_url}" \
+        "status=timeout"
+    return 1
+}
+
 schedule_injection_if_needed() {
     local current_count="$1"
+    local task_label="${2:-}"
+    local agent_role="${3:-}"
+    local worker_id="${4:-}"
+    local job_id="${5:-}"
+    local job_name="${6:-}"
     if (( NEXT_INJECT_IDX >= ${#INJECT_THRESHOLDS[@]} )); then
         return
     fi
@@ -478,26 +721,59 @@ schedule_injection_if_needed() {
     fi
 
     local event_id=$((NEXT_INJECT_IDX + 1))
-    local stage_index=$((NEXT_INJECT_IDX % ${#STAGE_TARGETS[@]}))
-    local stage_spec="${STAGE_TARGETS[$stage_index]}"
-    local dp_rank pp_rank tp_rank node_name node_url kill_pattern
-    IFS=$'\t' read -r dp_rank pp_rank tp_rank node_name node_url kill_pattern <<< "${stage_spec}"
+    local -a target_specs=()
+    if [[ "${FAULT_PP_MATCH_ALL}" -eq 1 || "${FAULT_TP_MATCH_ALL}" -eq 1 ]]; then
+        target_specs=("${STAGE_TARGETS[@]}")
+    else
+        local stage_index=$((NEXT_INJECT_IDX % ${#STAGE_TARGETS[@]}))
+        collect_replica_group_targets "${STAGE_TARGETS[$stage_index]}" target_specs
+    fi
 
-    log "Fault ${event_id}: trigger matched ${INJECT_KIND}=${current_count}, target=dp${dp_rank}/pp${pp_rank}/tp${tp_rank} on ${node_name}"
-    append_events_file_record \
-        "fault_scheduled" \
-        "event_id=${event_id}" \
-        "trigger_kind=${INJECT_KIND}" \
-        "trigger_count=${current_count}" \
-        "dp_rank=${dp_rank}" \
-        "pp_rank=${pp_rank}" \
-        "tp_rank=${tp_rank}" \
-        "node=${node_name}" \
-        "node_url=${node_url}" \
-        "inject_delay=${INJECT_DELAY}"
-    delayed_inject_stage_kill_fault "${event_id}" "${INJECT_KIND}" "${current_count}" "${stage_spec}" &
+    local first_spec="${target_specs[0]}"
+    local dp_rank pp_rank tp_rank node_name node_url kill_pattern
+    IFS=$'\t' read -r dp_rank pp_rank tp_rank node_name node_url kill_pattern <<< "${first_spec}"
+
+    log "Fault ${event_id}: trigger matched ${INJECT_KIND}=${current_count}, target-count=${#target_specs[@]}, primary=dp${dp_rank}/pp${pp_rank}/tp${tp_rank} on ${node_name}"
+    local stage_spec
+    for stage_spec in "${target_specs[@]}"; do
+        IFS=$'\t' read -r dp_rank pp_rank tp_rank node_name node_url kill_pattern <<< "${stage_spec}"
+        append_events_file_record \
+            "fault_scheduled" \
+            "event_id=${event_id}" \
+            "trigger_kind=${INJECT_KIND}" \
+            "trigger_count=${current_count}" \
+            "dp_rank=${dp_rank}" \
+            "pp_rank=${pp_rank}" \
+            "tp_rank=${tp_rank}" \
+            "node=${node_name}" \
+            "node_url=${node_url}" \
+            "inject_delay=${INJECT_DELAY}" \
+            "task_label=${task_label}" \
+            "agent_role=${agent_role}" \
+            "worker_id=${worker_id}" \
+            "job_id=${job_id}" \
+            "job=${job_name}"
+    done
+    delayed_inject_stage_group_kill_fault "${event_id}" "${INJECT_KIND}" "${current_count}" "${target_specs[@]}" &
     FAULT_BG_PIDS+=($!)
     NEXT_INJECT_IDX=$((NEXT_INJECT_IDX + 1))
+}
+
+task_event_matches_filters() {
+    local task_label="${1:-}"
+    local agent_role="${2:-}"
+    local worker_id="${3:-}"
+
+    if [[ -n "${INJECT_MATCH_TASK_LABEL}" && "${task_label}" != "${INJECT_MATCH_TASK_LABEL}" ]]; then
+        return 1
+    fi
+    if [[ -n "${INJECT_MATCH_AGENT_ROLE}" && "${agent_role}" != "${INJECT_MATCH_AGENT_ROLE}" ]]; then
+        return 1
+    fi
+    if [[ -n "${INJECT_MATCH_WORKER_ID}" && "${worker_id}" != "${INJECT_MATCH_WORKER_ID}" ]]; then
+        return 1
+    fi
+    return 0
 }
 
 write_job_summary() {
@@ -640,11 +916,13 @@ process_new_events() {
                 JOB_DONE_COUNT=$((JOB_DONE_COUNT + 1))
                 local job_id
                 local job_name
+                local job_worker_id
                 job_id=$(extract_event_field "${event_line}" "job_id")
                 job_name=$(extract_event_field "${event_line}" "job")
+                job_worker_id=$(extract_event_field "${event_line}" "worker_id")
                 log "Observed job completion ${JOB_DONE_COUNT}: job_id=${job_id} job=${job_name}"
                 if [[ "${INJECT_KIND}" == "job" ]]; then
-                    schedule_injection_if_needed "${JOB_DONE_COUNT}"
+                    schedule_injection_if_needed "${JOB_DONE_COUNT}" "" "" "${job_worker_id}" "${job_id}" "${job_name}"
                 fi
                 ;;
             job_failed)
@@ -655,12 +933,24 @@ process_new_events() {
                 log "Observed job failure: job_id=${failed_job_id} job=${failed_job_name}"
                 ;;
             task_completed)
-                TASK_DONE_COUNT=$((TASK_DONE_COUNT + 1))
                 local task_label
+                local agent_role
+                local worker_id
+                local job_id
+                local job_name
                 task_label=$(extract_event_field "${event_line}" "task_label")
-                log "Observed task completion ${TASK_DONE_COUNT}: ${task_label}"
+                agent_role=$(extract_event_field "${event_line}" "agent_role")
+                worker_id=$(extract_event_field "${event_line}" "worker_id")
+                job_id=$(extract_event_field "${event_line}" "job_id")
+                job_name=$(extract_event_field "${event_line}" "job")
+                if ! task_event_matches_filters "${task_label}" "${agent_role}" "${worker_id}"; then
+                    log "Observed task completion (ignored by filter): ${task_label} -> ${agent_role}"
+                    continue
+                fi
+                TASK_DONE_COUNT=$((TASK_DONE_COUNT + 1))
+                log "Observed task completion ${TASK_DONE_COUNT}: ${task_label} -> ${agent_role}"
                 if [[ "${INJECT_KIND}" == "task" ]]; then
-                    schedule_injection_if_needed "${TASK_DONE_COUNT}"
+                    schedule_injection_if_needed "${TASK_DONE_COUNT}" "${task_label}" "${agent_role}" "${worker_id}" "${job_id}" "${job_name}"
                 fi
                 ;;
             task_failed)
@@ -682,6 +972,15 @@ log "Runtime failover events: ${RUNTIME_FAILOVER_EVENTS_FILE:-<none>}"
 log "Trigger kind: ${INJECT_KIND}"
 log "Trigger thresholds: ${INJECT_THRESHOLDS_RAW}"
 log "Inject delay: ${INJECT_DELAY}s"
+if [[ -n "${INJECT_MATCH_TASK_LABEL}" ]]; then
+    log "Inject match task_label: ${INJECT_MATCH_TASK_LABEL}"
+fi
+if [[ -n "${INJECT_MATCH_AGENT_ROLE}" ]]; then
+    log "Inject match agent_role: ${INJECT_MATCH_AGENT_ROLE}"
+fi
+if [[ -n "${INJECT_MATCH_WORKER_ID}" ]]; then
+    log "Inject match worker_id: ${INJECT_MATCH_WORKER_ID}"
+fi
 log "Fault filter: dp=${FAULT_DP_RANK:-any}, pp=${FAULT_PP_RANK}, tp=${FAULT_TP_RANK}"
 log "Output dir: ${OUTPUT_DIR}"
 log "Trace file: ${TRACE_FILE}"
@@ -746,6 +1045,7 @@ set -e
 
 write_job_summary
 write_task_summary
+snapshot_server_logs
 
 INTERNAL_FAILOVER_METRICS_JSON="${OUTPUT_DIR}/internal_failover_metrics.json"
 if [[ -f "${FAILOVER_METRICS_SCRIPT}" ]]; then

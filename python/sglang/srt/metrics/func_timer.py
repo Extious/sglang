@@ -27,18 +27,40 @@ enable_metrics = False
 
 def enable_func_timer():
     # We need to import prometheus_client after setting the env variable `PROMETHEUS_MULTIPROC_DIR`
-    from prometheus_client import Histogram
+    from prometheus_client import Histogram, REGISTRY
 
     global enable_metrics, FUNC_LATENCY
     enable_metrics = True
 
-    FUNC_LATENCY = Histogram(
-        "sglang:func_latency_seconds",
-        "Function latency in seconds",
-        # captures latency in range [50ms - ~50s]
-        buckets=exponential_buckets(start=0.05, width=1.5, length=18),
-        labelnames=["name"],
+    if FUNC_LATENCY is not None:
+        return FUNC_LATENCY
+
+    existing_metric = getattr(REGISTRY, "_names_to_collectors", {}).get(
+        "sglang:func_latency_seconds"
     )
+    if existing_metric is not None:
+        FUNC_LATENCY = existing_metric
+        return FUNC_LATENCY
+
+    try:
+        FUNC_LATENCY = Histogram(
+            "sglang:func_latency_seconds",
+            "Function latency in seconds",
+            # captures latency in range [50ms - ~50s]
+            buckets=exponential_buckets(start=0.05, width=1.5, length=18),
+            labelnames=["name"],
+        )
+    except ValueError as exc:
+        if "Duplicated timeseries" not in str(exc):
+            raise
+        existing_metric = getattr(REGISTRY, "_names_to_collectors", {}).get(
+            "sglang:func_latency_seconds"
+        )
+        if existing_metric is None:
+            raise
+        FUNC_LATENCY = existing_metric
+
+    return FUNC_LATENCY
 
 
 FUNC_LATENCY = None

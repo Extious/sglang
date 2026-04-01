@@ -1,11 +1,11 @@
 #!/bin/bash
-# CrewAI PP2+DP2 fault-tolerance experiment on GPUHome.
+# CrewAI DP2+PP2 fault-tolerance experiment on two GPUHome nodes with 4x4090.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MULTI_AGENT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-LOG_DIR="${MULTI_AGENT_DIR}/logs_qwen3_8b_gpuhome"
+LOG_DIR="${MULTI_AGENT_DIR}/logs/logs_qwen3_8b_gpuhome"
 RESULTS_DIR="${MULTI_AGENT_DIR}/results/crewai_ab_qwen3_8b_gpuhome"
 SLURM_DIR="${MULTI_AGENT_DIR}/slurm"
 REPO_ROOT="$(cd "${MULTI_AGENT_DIR}/../.." && pwd)"
@@ -17,12 +17,16 @@ CREWAI_PEER_CACHE_PLOT_SCRIPT="${MULTI_AGENT_DIR}/src/application/crewai/plot_pe
 CREWAI_AB_COMPARISON_PLOT_SCRIPT="${MULTI_AGENT_DIR}/src/application/crewai/plot_ab_comparison.py"
 
 _ACTIVE_SLURM_JOB=""
+_SIGNAL_HANDLED=0
 
 JOB_LIMIT=6
 APP_WORKERS=2
 INJECT_AFTER_JOB="1"
 INJECT_AFTER_TASK=""
 INJECT_DELAY=10
+INJECT_MATCH_TASK_LABEL=""
+INJECT_MATCH_AGENT_ROLE=""
+INJECT_MATCH_WORKER_ID=""
 RECOVER_AFTER=""
 MODEL_PATH="Qwen/Qwen3-8B"
 HICACHE_SIZE=16
@@ -58,9 +62,13 @@ Options:
   --inject-after-job N[,M]   Inject after job completion count(s)
   --inject-after-task N[,M]  Inject after task completion count(s)
   --inject-delay SECS        Delay after trigger before fault injection
+  --inject-match-task-label S  Only count matching task_label events for injection
+  --inject-match-agent-role S  Only count matching agent_role events for injection
+  --inject-match-worker-id N   Only count matching worker_id events for injection
   --recover-after SECS       Deprecated compatibility option, ignored
-  --dp-size N                Replica count / node count (default: 2)
-  --pp-size N                Pipeline parallel size per replica (default: 2)
+  --dp-size N                Replica count (default: 2)
+  --nodes N                  SLURM node count override (default: 1)
+  --pp-size N                Pipeline parallel size per replica (default: 1)
   --tp-size N                Tensor parallel size per stage (default: 1)
   --fault-dp-rank N          Replica rank to kill (default: 0)
   --fault-pp-rank N          Pipeline stage rank to kill (default: 0)
@@ -84,8 +92,12 @@ while [[ $# -gt 0 ]]; do
         --inject-after-job|--inject-after-topic) INJECT_AFTER_JOB="$2"; INJECT_AFTER_TASK=""; shift 2 ;;
         --inject-after-task) INJECT_AFTER_TASK="$2"; INJECT_AFTER_JOB=""; shift 2 ;;
         --inject-delay) INJECT_DELAY="$2"; shift 2 ;;
+        --inject-match-task-label) INJECT_MATCH_TASK_LABEL="$2"; shift 2 ;;
+        --inject-match-agent-role) INJECT_MATCH_AGENT_ROLE="$2"; shift 2 ;;
+        --inject-match-worker-id) INJECT_MATCH_WORKER_ID="$2"; shift 2 ;;
         --recover-after) RECOVER_AFTER="$2"; shift 2 ;;
         --dp-size) DP_SIZE="$2"; shift 2 ;;
+        --nodes) NNODES="$2"; shift 2 ;;
         --pp-size) PP_SIZE="$2"; shift 2 ;;
         --tp-size) TP_SIZE="$2"; shift 2 ;;
         --fault-dp-rank) FAULT_DP_RANK="$2"; shift 2 ;;
@@ -111,12 +123,19 @@ while [[ $# -gt 0 ]]; do
 done
 
 on_signal() {
+    if [ "${_SIGNAL_HANDLED}" -eq 1 ]; then
+        exit 130
+    fi
+    _SIGNAL_HANDLED=1
+    trap - INT TERM
     echo ""
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Signal caught — cleaning up..."
     if [ -n "${_ACTIVE_SLURM_JOB}" ] && squeue -j "${_ACTIVE_SLURM_JOB}" -h >/dev/null 2>&1; then
         scancel "${_ACTIVE_SLURM_JOB}" 2>/dev/null || true
     fi
-    kill -- -$$ 2>/dev/null || true
+    jobs -pr 2>/dev/null | xargs -r kill -TERM 2>/dev/null || true
+    sleep 1
+    jobs -pr 2>/dev/null | xargs -r kill -KILL 2>/dev/null || true
     exit 130
 }
 
@@ -189,6 +208,27 @@ wait_for_server_artifacts() {
     local start_ts
     start_ts=$(date +%s)
     while true; do
+        if [ -s "${stage_manifest_file}" ] && [ ! -s "${server_url_file}" ]; then
+            python3 - "${stage_manifest_file}" "${server_url_file}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+server_url_path = Path(sys.argv[2])
+try:
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(0)
+server_url = str(
+    payload.get("head_server_url")
+    or payload.get("server_url")
+    or ""
+).strip()
+if server_url:
+    server_url_path.write_text(server_url.rstrip("/") + "\n", encoding="utf-8")
+PY
+        fi
         if [ -s "${server_url_file}" ] && [ -s "${stage_manifest_file}" ]; then
             return 0
         fi
@@ -325,6 +365,15 @@ run_experiment() {
         log "  inject-after-job:  ${INJECT_AFTER_JOB}"
     fi
     log "  inject-delay:     ${INJECT_DELAY}s"
+    if [ -n "${INJECT_MATCH_TASK_LABEL}" ]; then
+        log "  inject-match-task-label: ${INJECT_MATCH_TASK_LABEL}"
+    fi
+    if [ -n "${INJECT_MATCH_AGENT_ROLE}" ]; then
+        log "  inject-match-agent-role: ${INJECT_MATCH_AGENT_ROLE}"
+    fi
+    if [ -n "${INJECT_MATCH_WORKER_ID}" ]; then
+        log "  inject-match-worker-id: ${INJECT_MATCH_WORKER_ID}"
+    fi
     log "  server port base: ${SERVER_PORT_BASE}"
     log "  peer port base:   ${PEER_PORT_BASE}"
     log "  results:          ${result_dir}"
@@ -417,6 +466,9 @@ run_experiment() {
             --default-year "${DEFAULT_YEAR}" \
             --inject-after-task "${INJECT_AFTER_TASK}" \
             --inject-delay "${INJECT_DELAY}" \
+            ${INJECT_MATCH_TASK_LABEL:+--inject-match-task-label "${INJECT_MATCH_TASK_LABEL}"} \
+            ${INJECT_MATCH_AGENT_ROLE:+--inject-match-agent-role "${INJECT_MATCH_AGENT_ROLE}"} \
+            ${INJECT_MATCH_WORKER_ID:+--inject-match-worker-id "${INJECT_MATCH_WORKER_ID}"} \
             --fault-dp-rank "${FAULT_DP_RANK}" \
             --fault-pp-rank "${FAULT_PP_RANK}" \
             --fault-tp-rank "${FAULT_TP_RANK}" \
@@ -434,6 +486,9 @@ run_experiment() {
             --default-year "${DEFAULT_YEAR}" \
             --inject-after-job "${INJECT_AFTER_JOB}" \
             --inject-delay "${INJECT_DELAY}" \
+            ${INJECT_MATCH_TASK_LABEL:+--inject-match-task-label "${INJECT_MATCH_TASK_LABEL}"} \
+            ${INJECT_MATCH_AGENT_ROLE:+--inject-match-agent-role "${INJECT_MATCH_AGENT_ROLE}"} \
+            ${INJECT_MATCH_WORKER_ID:+--inject-match-worker-id "${INJECT_MATCH_WORKER_ID}"} \
             --fault-dp-rank "${FAULT_DP_RANK}" \
             --fault-pp-rank "${FAULT_PP_RANK}" \
             --fault-tp-rank "${FAULT_TP_RANK}" \
@@ -467,7 +522,7 @@ run_experiment() {
 }
 
 log "============================================================"
-log "CrewAI PP2+DP2 Fault Tolerance Experiment — Qwen3-8B GPUHome"
+log "CrewAI DP2+PP2 Fault Tolerance Experiment — Qwen3-8B GPUHome"
 log "============================================================"
 log "  Timestamp:          ${TIMESTAMP}"
 log "  Model:              ${MODEL_PATH}"

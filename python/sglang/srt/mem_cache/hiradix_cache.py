@@ -648,7 +648,11 @@ class HiRadixCache(RadixCache):
         TreeNode.counter = 0
         self.cache_controller.reset()
         self.token_to_kv_pool_host.clear()
-        # Clear per-request tracking dicts
+        # Clear per-request tracking dicts.
+        # ongoing_backup must be cleared here because the backup thread exits
+        # without draining its queue during reset, leaving pending ack IDs that
+        # will never arrive and would otherwise stall check_hicache_events.
+        self.ongoing_backup.clear()
         self.prefetch_loaded_tokens_by_reqid.clear()
         self.evictable_host_leaves.clear()
         super().reset()
@@ -1135,26 +1139,38 @@ class HiRadixCache(RadixCache):
             + len(operation.hash_value) * self.prefetch_timeout_per_page
         )
 
-    def can_terminate_prefetch(self, operation: PrefetchOperation):
+    def can_terminate_prefetch(
+        self, operation: PrefetchOperation, wait_for_complete: bool = False
+    ):
         can_terminate = True
 
-        if self.prefetch_stop_policy == "best_effort":
+        if wait_for_complete:
+            if len(operation.hash_value) == 0:
+                can_terminate = False
+            else:
+                can_terminate = (
+                    operation.completed_tokens
+                    == len(operation.hash_value) * self.page_size
+                )
+        elif self.prefetch_stop_policy == "best_effort":
             return can_terminate
 
-        if len(operation.hash_value) == 0:
-            completed = False
-        else:
-            completed = (
-                operation.completed_tokens == len(operation.hash_value) * self.page_size
-            )
+        if not wait_for_complete:
+            if len(operation.hash_value) == 0:
+                completed = False
+            else:
+                completed = (
+                    operation.completed_tokens
+                    == len(operation.hash_value) * self.page_size
+                )
 
-        if self.prefetch_stop_policy == "wait_complete":
-            can_terminate = completed
-        elif self.prefetch_stop_policy == "timeout":
-            can_terminate = completed or self.is_prefetch_timeout(operation)
-        else:
-            # unknown prefetch stop policy, just return True
-            return True
+            if self.prefetch_stop_policy == "wait_complete":
+                can_terminate = completed
+            elif self.prefetch_stop_policy == "timeout":
+                can_terminate = completed or self.is_prefetch_timeout(operation)
+            else:
+                # unknown prefetch stop policy, just return True
+                return True
 
         operation_terminated = operation.is_terminated()
         if self.tp_world_size > 1:
@@ -1174,7 +1190,9 @@ class HiRadixCache(RadixCache):
         can_terminate = can_terminate or operation_terminated
         return can_terminate
 
-    def check_prefetch_progress(self, req_id: str) -> bool:
+    def check_prefetch_progress(
+        self, req_id: str, wait_for_complete: bool = False
+    ) -> bool:
         if req_id not in self.ongoing_prefetch:
             # there is no ongoing prefetch for this request or it has been revoked
             return True
@@ -1189,13 +1207,31 @@ class HiRadixCache(RadixCache):
             # prefetch has not been issued due to insufficient host memory
             return True
 
-        if not self.can_terminate_prefetch(operation):
+        if not self.can_terminate_prefetch(
+            operation, wait_for_complete=wait_for_complete
+        ):
+            if wait_for_complete and logger.isEnabledFor(logging.INFO):
+                expected_tokens = len(operation.hash_value) * self.page_size
+                if expected_tokens > 0:
+                    logger.info(
+                        "Prefetch WAITING for %s: completed=%d / expected=%d tokens",
+                        req_id,
+                        operation.completed_tokens,
+                        expected_tokens,
+                    )
             return False
 
         completed_tokens, hash_value = self.cache_controller.terminate_prefetch(
             operation
         )
         logger.debug(f"Prefetch {req_id} completed with {completed_tokens} tokens")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Prefetch TERMINATING for %s: completed=%d wait_for_complete=%s",
+                req_id,
+                completed_tokens,
+                wait_for_complete,
+            )
 
         min_completed_tokens = completed_tokens
         if self.tp_world_size > 1:
@@ -1211,6 +1247,13 @@ class HiRadixCache(RadixCache):
             min_completed_tokens = completed_tokens_tensor.item()
         fetched_token_ids = token_ids[:min_completed_tokens]
         written_indices = host_indices[:min_completed_tokens]
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Prefetch INSERT START for %s: fetched=%d host_indices=%d",
+                req_id,
+                len(fetched_token_ids),
+                len(written_indices),
+            )
         matched_length = self._insert_helper_host(
             last_host_node,
             RadixKey(
@@ -1219,6 +1262,13 @@ class HiRadixCache(RadixCache):
             written_indices,
             hash_value[: min_completed_tokens // self.page_size],
         )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Prefetch INSERT END for %s: matched_length=%d loaded=%d",
+                req_id,
+                matched_length,
+                min_completed_tokens - matched_length,
+            )
 
         self.cache_controller.mem_pool_host.free(host_indices[:matched_length])
         self.cache_controller.append_host_mem_release(
@@ -1227,6 +1277,8 @@ class HiRadixCache(RadixCache):
         last_host_node.release_host()
         del self.ongoing_prefetch[req_id]
         self.cache_controller.prefetch_tokens_occupied -= len(token_ids)
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Prefetch CLEANUP END for %s", req_id)
 
         loaded_from_storage = min_completed_tokens - matched_length
         self.prefetch_loaded_tokens_by_reqid[req_id] = loaded_from_storage

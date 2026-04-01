@@ -8,13 +8,12 @@
 #SBATCH --mem=120G
 #SBATCH --time=24:00:00
 #SBATCH --exclude=gpu[10-13]
-#SBATCH --output=/home/comp/%u/sglang/benchmark/multi_agent/logs_qwen3_8b_gpuhome/run_server_%j.out
-#SBATCH --error=/home/comp/%u/sglang/benchmark/multi_agent/logs_qwen3_8b_gpuhome/run_server_%j.err
+#SBATCH --output=/home/comp/%u/sglang/benchmark/multi_agent/logs/logs_qwen3_8b_gpuhome/run_server_%j.out
+#SBATCH --error=/home/comp/%u/sglang/benchmark/multi_agent/logs/logs_qwen3_8b_gpuhome/run_server_%j.err
 
 set -euo pipefail
 
-SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
-SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
+SCRIPT_BASENAME="run_server_qwen3_8b_gpuhome.slurm"
 
 module load gcc/11.2.0 2>/dev/null || true
 GCC_ROOT="/usr/local/gcc/gcc-11.2.0"
@@ -74,9 +73,9 @@ Script options:
   -h, --help               Show this help
 
 Outputs:
-  benchmark/multi_agent/logs_qwen3_8b_gpuhome/server_url.txt
-  benchmark/multi_agent/logs_qwen3_8b_gpuhome/stage_manifest.json
-  benchmark/multi_agent/logs_qwen3_8b_gpuhome/runtime_failover_events.jsonl
+  benchmark/multi_agent/logs/logs_qwen3_8b_gpuhome/server_url.txt
+  benchmark/multi_agent/logs/logs_qwen3_8b_gpuhome/stage_manifest.json
+  benchmark/multi_agent/logs/logs_qwen3_8b_gpuhome/runtime_failover_events.jsonl
 
 Notes:
   This script launches one internal DP+PP service across all allocated nodes.
@@ -141,6 +140,11 @@ run_node_server() {
     export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
     export SGLANG_DISABLE_CUDNN_CHECK="${SGLANG_DISABLE_CUDNN_CHECK:-1}"
     export SGLANG_FAILOVER_EVENTS_FILE="${FAILOVER_EVENTS_FILE:-}"
+    # The failed DP replica may own the bootstrap TCPStore. Disable NCCL
+    # heartbeat monitoring so surviving replicas do not get stuck on repeated
+    # Broken pipe checks against that dead store during failover recovery.
+    export TORCH_NCCL_ENABLE_MONITORING="${TORCH_NCCL_ENABLE_MONITORING:-0}"
+    export TORCH_NCCL_DUMP_ON_TIMEOUT="${TORCH_NCCL_DUMP_ON_TIMEOUT:-0}"
 
     local local_health_url="http://127.0.0.1:${server_port}/health"
     local external_server_url="http://${node_name}:${server_port}"
@@ -471,8 +475,14 @@ else
 fi
 
 MULTI_AGENT_DIR="${REPO_ROOT}/benchmark/multi_agent"
-LOG_DIR="${MULTI_AGENT_DIR}/logs_qwen3_8b_gpuhome"
+SCRIPT_PATH="${MULTI_AGENT_DIR}/slurm/${SCRIPT_BASENAME}"
+LOG_DIR="${MULTI_AGENT_DIR}/logs/logs_qwen3_8b_gpuhome"
 VENV_DIR="${REPO_ROOT}/.venv"
+
+if [ ! -f "${SCRIPT_PATH}" ]; then
+    echo "ERROR: Cannot locate shared script path: ${SCRIPT_PATH}" >&2
+    exit 1
+fi
 
 mkdir -p "${LOG_DIR}"
 rm -f \
@@ -601,7 +611,7 @@ for node_rank in $(seq 0 $((TOTAL_NODES - 1))); do
             QUANTIZATION="${QUANTIZATION}" \
             FAILOVER_EVENTS_FILE="${FAILOVER_EVENTS_FILE}" \
             WAIT_TIMEOUT="${WAIT_TIMEOUT}" \
-        bash -lc '"${SCRIPT_PATH}" __run_node_server' &
+        bash -lc 'bash "${SCRIPT_PATH}" __run_node_server' &
 
     SRUN_PIDS+=($!)
     NODE_MANIFESTS+=("${node_log_dir}/node_manifest.json")

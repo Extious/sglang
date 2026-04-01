@@ -66,6 +66,7 @@ from sglang.srt.managers.io_struct import (
     LoadLoRAAdapterReqInput,
     OpenSessionReqOutput,
     PauseGenerationReqInput,
+    ResetVisibleStateReq,
     SessionParams,
     TokenizedEmbeddingReqInput,
     TokenizedGenerateReqInput,
@@ -474,6 +475,7 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
                 ),
                 (AbortReq, self._handle_abort_req),
                 (CheckpointUpdateReq, self._forward_internal_control_req),
+                (ResetVisibleStateReq, self._handle_reset_visible_state_req),
                 (OpenSessionReqOutput, self._handle_open_session_req_output),
                 (
                     UpdateWeightFromDiskReqOutput,
@@ -2262,6 +2264,43 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
         )
         state.out_list.append(out)
         state.event.set()
+
+    def _handle_reset_visible_state_req(self, recv_obj: ResetVisibleStateReq):
+        state = self.rid_to_state.get(recv_obj.rid)
+        if state is None:
+            return
+
+        # Reset accumulated generation state so a rerouted request can replay
+        # from the original prompt without mixing in stale partial outputs.
+        state.finished = False
+        state.out_list = []
+        state.event.clear()
+        state.last_output_offset = 0
+        state.text = ""
+        state.output_ids = []
+        state.input_token_logprobs_val = []
+        state.input_token_logprobs_idx = []
+        state.output_token_logprobs_val = []
+        state.output_token_logprobs_idx = []
+        state.input_top_logprobs_val = []
+        state.input_top_logprobs_idx = []
+        state.output_top_logprobs_val = []
+        state.output_top_logprobs_idx = []
+        state.input_token_ids_logprobs_val = []
+        state.input_token_ids_logprobs_idx = []
+        state.output_token_ids_logprobs_val = []
+        state.output_token_ids_logprobs_idx = []
+        state.input_token_logprobs = []
+        state.output_token_logprobs = []
+        state.input_top_logprobs = []
+        state.output_top_logprobs = []
+        state.input_token_ids_logprobs = []
+        state.output_token_ids_logprobs = []
+        state.first_token_time = 0.0
+        state.first_token_time_perf = 0.0
+        state.last_time = 0.0
+        state.last_completion_tokens = 1
+        state.response_sent_to_client_ts = 0.0
 
     def update_active_ranks(self, ranks: ActiveRanksOutput):
         self.send_to_scheduler.send_pyobj(ranks)

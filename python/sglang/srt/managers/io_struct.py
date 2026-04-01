@@ -775,6 +775,11 @@ class TokenizedGenerateReqInput(BaseReq):
     # Agent identifier for attribution tracking
     agent_id: Optional[str] = None
 
+    # Internal failover metadata used to keep PP resume scheduling aligned.
+    is_failover_resume: bool = False
+    resume_visible_output_len: int = 0
+    resume_checkpointed_output_len: int = 0
+
     need_wait_for_image: bool = False
     num_items_assigned: Optional[List] = None
 
@@ -804,6 +809,11 @@ class CheckpointUpdateReq(BaseReq):
 class VisibleStateUpdateReq(BaseReq):
     output_ids_delta: List[int]
     finished: bool = False
+
+
+@dataclass
+class ResetVisibleStateReq(BaseReq):
+    pass
 
 
 @dataclass

@@ -37,6 +37,7 @@ from sglang.srt.managers.io_struct import (
     BatchTokenizedGenerateReqInput,
     BlockReqInput,
     CheckpointUpdateReq,
+    ResetVisibleStateReq,
     ResumeGenerateReq,
     TokenizedEmbeddingReqInput,
     TokenizedGenerateReqInput,
@@ -180,6 +181,11 @@ class DataParallelController:
         # Load balance budget
         self.dp_budget = DPBudget(server_args.dp_size)
         self.enable_internal_failover = self._should_enable_internal_failover()
+        # Prompt reroute (without KV backup) is the fallback when internal
+        # failover is unavailable but multiple DP ranks exist.
+        self.enable_prompt_reroute = (
+            server_args.dp_size > 1 and not self.enable_internal_failover
+        )
         self.tracked_generate_reqs: Dict[str, TrackedGenerateRequest] = {}
 
         # To protect changing env vars to set CUDA_VISIBLE_DEVICES.
@@ -223,6 +229,15 @@ class DataParallelController:
             logger.warning(
                 "Internal DP failover is disabled because pp_async_batch_depth=%d.",
                 self.server_args.pp_async_batch_depth,
+            )
+            return False
+        # Must match the scheduler-side condition: disaggregation and internal
+        # failover are mutually exclusive because the checkpoint/resume protocol
+        # assumes a NULL disaggregation mode.
+        if self.server_args.disaggregation_mode != "null":
+            logger.warning(
+                "Internal DP failover is disabled because disaggregation_mode=%s.",
+                self.server_args.disaggregation_mode,
             )
             return False
         return True
@@ -311,17 +326,72 @@ class DataParallelController:
         if not self.enable_internal_failover:
             for rid in affected_rids:
                 tracked = self.tracked_generate_reqs.get(rid)
+                if tracked is None:
+                    continue
+                backup_dp_rank = tracked.backup_dp_rank
+                if backup_dp_rank is None or not self.status[backup_dp_rank]:
+                    self._emit_failover_event(
+                        "failover_aborted",
+                        tracked,
+                        rid=rid,
+                        failed_owner_dp_rank=failed_dp_rank,
+                        backup_dp_rank=backup_dp_rank,
+                        reason="backup_worker_unavailable",
+                    )
+                    self._abort_tracked_request(
+                        rid,
+                        "The owner worker failed and no live worker is available to reroute the prompt.",
+                    )
+                    continue
+                if getattr(tracked.tokenized_req, "stream", False):
+                    self._emit_failover_event(
+                        "failover_aborted",
+                        tracked,
+                        rid=rid,
+                        failed_owner_dp_rank=failed_dp_rank,
+                        backup_dp_rank=backup_dp_rank,
+                        reason="streaming_prompt_reroute_unsupported",
+                    )
+                    self._abort_tracked_request(
+                        rid,
+                        "The owner worker failed and prompt reroute without backup is not supported for streaming requests.",
+                    )
+                    continue
+
+                failover_epoch = tracked.failover_epoch + 1
+                if self.send_to_tokenizer is not None:
+                    self.send_to_tokenizer.send_pyobj(ResetVisibleStateReq(rid=rid))
+                resume_req = ResumeGenerateReq(
+                    rid=rid,
+                    tokenized_req=tracked.tokenized_req,
+                    visible_output_ids=[],
+                    checkpointed_output_len=0,
+                    owner_dp_rank=failed_dp_rank,
+                    backup_dp_rank=backup_dp_rank,
+                    failover_epoch=failover_epoch,
+                )
+                self.workers[backup_dp_rank].send_pyobj(resume_req)
                 self._emit_failover_event(
-                    "failover_aborted",
+                    "failover_dispatched",
                     tracked,
                     rid=rid,
                     failed_owner_dp_rank=failed_dp_rank,
-                    backup_dp_rank=getattr(tracked, "backup_dp_rank", None),
-                    reason="internal_failover_disabled",
+                    backup_dp_rank=backup_dp_rank,
+                    checkpointed_output_len=0,
+                    visible_output_len=0,
+                    failover_epoch=failover_epoch,
+                    reason="prompt_reroute_without_backup",
                 )
-                self._abort_tracked_request(
+                tracked.owner_dp_rank = backup_dp_rank
+                tracked.visible_output_ids = []
+                tracked.checkpointed_output_len = 0
+                tracked.failover_epoch = failover_epoch
+                tracked.failover_completed = True
+                logger.warning(
+                    "Rerouting rid=%s from failed dp_rank=%d to dp_rank=%d without peer backup",
                     rid,
-                    "The owner worker failed and internal DP failover is disabled.",
+                    failed_dp_rank,
+                    backup_dp_rank,
                 )
             return
 
@@ -856,8 +926,25 @@ class DataParallelController:
 
     def maybe_external_dp_rank_routing(self, req: Req):
         if req.data_parallel_rank is not None:
-            logger.debug(f"Direct routing to DP rank {req.data_parallel_rank}")
-            return self._send_request_to_worker(req, req.data_parallel_rank)
+            requested_dp_rank = int(req.data_parallel_rank)
+            target_dp_rank = requested_dp_rank
+            if not self.status[requested_dp_rank]:
+                backup_dp_rank = self._choose_backup_dp_rank(requested_dp_rank)
+                if (
+                    backup_dp_rank is not None
+                    and self.status[backup_dp_rank]
+                    and (self.enable_internal_failover or self.enable_prompt_reroute)
+                ):
+                    logger.info(
+                        "Rerouting explicitly targeted request rid=%s from failed dp_rank=%s to backup dp_rank=%s",
+                        getattr(req, "rid", None),
+                        requested_dp_rank,
+                        backup_dp_rank,
+                    )
+                    target_dp_rank = backup_dp_rank
+                    req.data_parallel_rank = backup_dp_rank
+            logger.debug(f"Direct routing to DP rank {target_dp_rank}")
+            return self._send_request_to_worker(req, target_dp_rank)
         return None
 
     def round_robin_scheduler(self, req: Req):

@@ -62,6 +62,19 @@ def _env_int(name, default):
     return int(raw)
 
 
+def _env_json_dict(name):
+    raw = os.environ.get(name)
+    if raw is None:
+        return {}
+    raw = raw.strip()
+    if not raw:
+        return {}
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{name} must be a JSON object")
+    return parsed
+
+
 def _append_no_proxy_host(host):
     if not host:
         return
@@ -86,7 +99,12 @@ _progress_state = {
     "wall_start": None,
     "wall_end": None,
 }
-_prefill_stats = {"llm_calls": 0, "prompt_tokens": 0, "cached_tokens": 0}
+_prefill_stats = {
+    "llm_calls": 0,
+    "prompt_tokens": 0,
+    "cached_tokens": 0,
+    "peer_buffer_cached_tokens": 0,
+}
 _run_context_lock = threading.Lock()
 _run_context = {
     "job_id": None,
@@ -238,6 +256,7 @@ def _start_progress_monitor(total_tasks):
         _prefill_stats["llm_calls"] = 0
         _prefill_stats["prompt_tokens"] = 0
         _prefill_stats["cached_tokens"] = 0
+        _prefill_stats["peer_buffer_cached_tokens"] = 0
 
 def _stop_progress_monitor():
     crewai_event_bus.flush(timeout=10.0)
@@ -261,12 +280,70 @@ def _usage_get(obj, key, default=None):
     return getattr(obj, key, default)
 
 
-def _extract_usage_stats(usage):
+def _extract_cached_tokens_details_from_obj(obj):
+    if obj is None:
+        return None
+
+    details = _usage_get(_usage_get(obj, "sglext"), "cached_tokens_details")
+    if details:
+        return details
+
+    provider_fields = _usage_get(obj, "provider_specific_fields")
+    details = _usage_get(provider_fields, "cached_tokens_details")
+    if details:
+        return details
+
+    hidden_params = _usage_get(obj, "_hidden_params")
+    provider_fields = _usage_get(hidden_params, "provider_specific_fields")
+    details = _usage_get(provider_fields, "cached_tokens_details")
+    if details:
+        return details
+
+    return None
+
+
+def _extract_cached_tokens_details(payload):
+    if payload is None:
+        return None
+
+    details = _extract_cached_tokens_details_from_obj(payload)
+    if details:
+        return details
+
+    choices = _usage_get(payload, "choices") or []
+    for choice in choices:
+        details = _extract_cached_tokens_details_from_obj(choice)
+        if details:
+            return details
+
+        delta = _usage_get(choice, "delta")
+        details = _extract_cached_tokens_details_from_obj(delta)
+        if details:
+            return details
+
+        message = _usage_get(choice, "message")
+        details = _extract_cached_tokens_details_from_obj(message)
+        if details:
+            return details
+
+    return None
+
+
+def _extract_usage_stats(usage, response_payload=None):
+    cache_details = _extract_cached_tokens_details(response_payload)
+    storage_backend = str(_usage_get(cache_details, "storage_backend") or "").lower()
+    peer_buffer_cached_tokens = 0
+    if storage_backend in ("peercachestorage", "peer"):
+        peer_buffer_cached_tokens = int(
+            max(0, _usage_get(cache_details, "storage", 0) or 0)
+        )
+
     if usage is None:
         return {
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "cached_prompt_tokens": 0,
+            "peer_buffer_cached_tokens": peer_buffer_cached_tokens,
         }
 
     prompt_tokens = (
@@ -301,15 +378,34 @@ def _extract_usage_stats(usage):
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "cached_prompt_tokens": cached_prompt_tokens,
+        "peer_buffer_cached_tokens": min(peer_buffer_cached_tokens, cached_prompt_tokens),
     }
 
 
-def _store_usage_stats(call_id, usage):
-    if not usage:
+def _store_usage_stats(call_id, usage, response_payload=None):
+    if not usage and response_payload is None:
         return
-    stats = _extract_usage_stats(usage)
+    stats = _extract_usage_stats(usage, response_payload)
     with _usage_lock:
-        _pending_usage[call_id] = stats
+        prev = _pending_usage.get(call_id, {})
+        _pending_usage[call_id] = {
+            "prompt_tokens": max(
+                int(prev.get("prompt_tokens", 0) or 0),
+                int(stats.get("prompt_tokens", 0) or 0),
+            ),
+            "completion_tokens": max(
+                int(prev.get("completion_tokens", 0) or 0),
+                int(stats.get("completion_tokens", 0) or 0),
+            ),
+            "cached_prompt_tokens": max(
+                int(prev.get("cached_prompt_tokens", 0) or 0),
+                int(stats.get("cached_prompt_tokens", 0) or 0),
+            ),
+            "peer_buffer_cached_tokens": max(
+                int(prev.get("peer_buffer_cached_tokens", 0) or 0),
+                int(stats.get("peer_buffer_cached_tokens", 0) or 0),
+            ),
+        }
 
 def _inject_request_user(kwargs):
     payload = _build_request_context_payload()
@@ -347,15 +443,14 @@ def _inject_request_user(kwargs):
 
 def _capture_usage_stats(result, call_id=None):
     usage = getattr(result, "usage", None)
-    if usage:
-        _store_usage_stats(call_id or get_current_call_id(), usage)
+    _store_usage_stats(call_id or get_current_call_id(), usage, result)
 
 
 def _capture_stream_chunk_usage(call_id, chunk):
     usage = getattr(chunk, "usage", None)
     if usage is None and isinstance(chunk, dict):
         usage = chunk.get("usage")
-    _store_usage_stats(call_id, usage)
+    _store_usage_stats(call_id, usage, chunk)
 
 
 class _SyncUsageStreamWrapper:
@@ -424,6 +519,7 @@ _agent_tokens = defaultdict(lambda: {
     "prompt_tokens": 0,
     "completion_tokens": 0,
     "cached_prompt_tokens": 0,
+    "peer_buffer_cached_tokens": 0,
     "llm_calls": 0,
 })
 agent_timings = []
@@ -487,11 +583,17 @@ def _on_llm_done(source, event):
     _agent_tokens[role]["prompt_tokens"] += usage.get("prompt_tokens", 0)
     _agent_tokens[role]["completion_tokens"] += usage.get("completion_tokens", 0)
     _agent_tokens[role]["cached_prompt_tokens"] += usage.get("cached_prompt_tokens", 0)
+    _agent_tokens[role]["peer_buffer_cached_tokens"] += usage.get(
+        "peer_buffer_cached_tokens", 0
+    )
     _agent_tokens[role]["llm_calls"] += 1
     with _progress_lock:
         _prefill_stats["llm_calls"] += 1
         _prefill_stats["prompt_tokens"] += usage.get("prompt_tokens", 0)
         _prefill_stats["cached_tokens"] += usage.get("cached_prompt_tokens", 0)
+        _prefill_stats["peer_buffer_cached_tokens"] += usage.get(
+            "peer_buffer_cached_tokens", 0
+        )
 
 @crewai_event_bus.on(AgentExecutionStartedEvent)
 def _on_agent_start(source, event):
@@ -507,6 +609,7 @@ def _on_agent_done(source, event):
         "prompt_tokens": 0,
         "completion_tokens": 0,
         "cached_prompt_tokens": 0,
+        "peer_buffer_cached_tokens": 0,
         "llm_calls": 0,
     })
     prefill_hit_rate = (
@@ -521,6 +624,7 @@ def _on_agent_done(source, event):
         "duration_s": round(duration, 3),
         "prompt_tokens": tokens["prompt_tokens"],
         "cached_prompt_tokens": tokens["cached_prompt_tokens"],
+        "peer_buffer_cached_tokens": tokens["peer_buffer_cached_tokens"],
         "completion_tokens": tokens["completion_tokens"],
         "total_tokens": tokens["prompt_tokens"] + tokens["completion_tokens"],
         "llm_calls": tokens["llm_calls"],
@@ -542,6 +646,7 @@ def _on_agent_err(source, event):
         "prompt_tokens": 0,
         "completion_tokens": 0,
         "cached_prompt_tokens": 0,
+        "peer_buffer_cached_tokens": 0,
         "llm_calls": 0,
     })
     prefill_hit_rate = (
@@ -556,6 +661,7 @@ def _on_agent_err(source, event):
         "duration_s": round(duration, 3),
         "prompt_tokens": tokens["prompt_tokens"],
         "cached_prompt_tokens": tokens["cached_prompt_tokens"],
+        "peer_buffer_cached_tokens": tokens["peer_buffer_cached_tokens"],
         "completion_tokens": tokens["completion_tokens"],
         "total_tokens": tokens["prompt_tokens"] + tokens["completion_tokens"],
         "llm_calls": tokens["llm_calls"],
@@ -574,6 +680,7 @@ LLM_SEED = 42
 SHORT_MAX_TOKENS = _env_int("CREWAI_SHORT_MAX_TOKENS", 1024)
 LONG_MAX_TOKENS = _env_int("CREWAI_LONG_MAX_TOKENS", 2048)
 FORCE_FULL_BUDGET = _env_flag("CREWAI_FORCE_FULL_BUDGET", default=True)
+AGENT_DP_RANK_MAP = _env_json_dict("CREWAI_AGENT_DP_RANK_MAP")
 
 if FORCE_FULL_BUDGET:
     SHORT_OUTPUT_GUIDE = (
@@ -630,10 +737,15 @@ else:
     )
 
 
-def build_llm(max_tokens):
+def build_llm(max_tokens, agent_role=None):
     extra_body = {}
     if _env_flag("CREWAI_IGNORE_EOS", default=FORCE_FULL_BUDGET):
         extra_body["ignore_eos"] = True
+    extra_body["return_cached_tokens_details"] = True
+    if agent_role:
+        dp_rank = AGENT_DP_RANK_MAP.get(agent_role)
+        if dp_rank is not None:
+            extra_body["data_parallel_rank"] = int(dp_rank)
 
     min_tokens = _env_int(
         "CREWAI_MIN_TOKENS",
@@ -642,7 +754,6 @@ def build_llm(max_tokens):
     if min_tokens > 0:
         extra_body["min_tokens"] = min(min_tokens, max_tokens)
     if ENABLE_STREAM:
-        extra_body["return_cached_tokens_details"] = True
         extra_body["return_resume_token_ids"] = True
         extra_body["stream_options"] = {
             "include_usage": True,
@@ -671,6 +782,7 @@ def reset_run_state():
         _prefill_stats["llm_calls"] = 0
         _prefill_stats["prompt_tokens"] = 0
         _prefill_stats["cached_tokens"] = 0
+        _prefill_stats["peer_buffer_cached_tokens"] = 0
 
     with _usage_lock:
         _pending_usage.clear()
@@ -682,14 +794,11 @@ def reset_run_state():
 
 
 def build_crew():
-    short_output_llm = build_llm(SHORT_MAX_TOKENS)
-    long_output_llm = build_llm(LONG_MAX_TOKENS)
-
     planner = Agent(
         role="Planning Coordinator",
         goal="Decompose the analysis request into a structured research framework with four workstreams",
         backstory="Senior strategist who excels at breaking complex problems into parallel sub-tasks.",
-        llm=short_output_llm,
+        llm=build_llm(SHORT_MAX_TOKENS, "Planning Coordinator"),
         allow_delegation=False,
         verbose=False,
     )
@@ -698,7 +807,7 @@ def build_crew():
         role="Data Collector",
         goal="Quickly gather key market statistics and figures",
         backstory="Efficient data analyst who rapidly extracts essential numbers from market reports.",
-        llm=short_output_llm,
+        llm=build_llm(SHORT_MAX_TOKENS, "Data Collector"),
         allow_delegation=False,
         verbose=False,
     )
@@ -711,7 +820,7 @@ def build_crew():
             "You always provide detailed SWOT analysis, technology evaluations, "
             "and quantitative comparisons. Your reports are comprehensive and data-rich."
         ),
-        llm=long_output_llm,
+        llm=build_llm(LONG_MAX_TOKENS, "Deep Analyst"),
         allow_delegation=False,
         verbose=False,
     )
@@ -720,7 +829,7 @@ def build_crew():
         role="Trend Scout",
         goal="Identify emerging trends and regional patterns concisely",
         backstory="Trend-spotting specialist who delivers punchy summaries of emerging patterns across regions.",
-        llm=short_output_llm,
+        llm=build_llm(SHORT_MAX_TOKENS, "Trend Scout"),
         allow_delegation=False,
         verbose=False,
     )
@@ -729,7 +838,7 @@ def build_crew():
         role="Risk Assessor",
         goal="Quickly evaluate key risks and regulatory challenges",
         backstory="Risk analyst who delivers concise risk assessments covering regulatory, technical, and geopolitical factors.",
-        llm=short_output_llm,
+        llm=build_llm(SHORT_MAX_TOKENS, "Risk Assessor"),
         allow_delegation=False,
         verbose=False,
     )
@@ -738,7 +847,7 @@ def build_crew():
         role="Report Synthesizer",
         goal="Merge all research streams into a single cohesive executive report",
         backstory="Expert report writer who unifies diverse inputs into polished, publication-ready documents.",
-        llm=long_output_llm,
+        llm=build_llm(LONG_MAX_TOKENS, "Report Synthesizer"),
         allow_delegation=False,
         verbose=False,
     )
@@ -929,6 +1038,9 @@ def print_run_summary(topic_id, topic, year):
     print(f"{'=' * 100}")
     total_prompt = sum(t["prompt_tokens"] for t in agent_timings)
     total_cached_prompt = sum(t["cached_prompt_tokens"] for t in agent_timings)
+    total_peer_buffer_cached_prompt = sum(
+        t.get("peer_buffer_cached_tokens", 0) for t in agent_timings
+    )
     total_compl = sum(t["completion_tokens"] for t in agent_timings)
     print(f"  Total prompt tokens:     {total_prompt:>8}")
     print(f"  Total cached prompt:     {total_cached_prompt:>8}")
@@ -940,6 +1052,9 @@ def print_run_summary(topic_id, topic, year):
     print(f"  Critical path:           {max_dur:>8.2f}s (longest single agent)")
     print(f"  LLM calls observed:      {prefill_stats['llm_calls']:>8}")
     print(f"  Prefill cached tokens:   {prefill_stats['cached_tokens']:>8}")
+    print(
+        f"  Peer buffer cached:      {total_peer_buffer_cached_prompt:>8}"
+    )
     print(f"  Job ID:                  {topic_id:>8}")
     print(f"  Job:                     {topic}")
     print(f"  Year:                    {year}")
@@ -966,6 +1081,9 @@ def build_trace_record(topic_id, topic, year, worker_id, status, error=None):
     progress_snapshot = _snapshot_progress()
     total_prompt = sum(t["prompt_tokens"] for t in agent_timings)
     total_cached_prompt = sum(t["cached_prompt_tokens"] for t in agent_timings)
+    total_peer_buffer_cached_prompt = sum(
+        t.get("peer_buffer_cached_tokens", 0) for t in agent_timings
+    )
     total_completion = sum(t["completion_tokens"] for t in agent_timings)
     return {
         "topic_id": topic_id,
@@ -977,11 +1095,15 @@ def build_trace_record(topic_id, topic, year, worker_id, status, error=None):
         "summary": {
             "total_prompt_tokens": total_prompt,
             "total_cached_prompt_tokens": total_cached_prompt,
+            "total_peer_buffer_cached_prompt_tokens": total_peer_buffer_cached_prompt,
             "total_completion_tokens": total_completion,
             "total_tokens": total_prompt + total_completion,
             "wall_time_s": round(progress_snapshot["elapsed"], 3),
             "llm_calls": progress_snapshot["prefill"]["llm_calls"],
             "prefill_cached_tokens": progress_snapshot["prefill"]["cached_tokens"],
+            "prefill_peer_buffer_cached_tokens": progress_snapshot["prefill"][
+                "peer_buffer_cached_tokens"
+            ],
         },
         "agent_timings": list(agent_timings),
     }

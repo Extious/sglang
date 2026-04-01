@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 AGENT_COLORS = {
     "Planning Coordinator": "#1f77b4",
@@ -148,6 +149,22 @@ def style_job_axis(
     axis.margins(x=0.01)
 
 
+def build_marker_indices(
+    point_count: int,
+    series_index: int,
+    series_count: int,
+) -> list[int]:
+    if point_count <= 0:
+        return []
+    if point_count == 1:
+        return [0]
+
+    group_count = min(series_count, point_count, 4)
+    start = series_index % group_count
+    indices = list(range(start, point_count, group_count))
+    return indices or [start % point_count]
+
+
 def plot_chart(topic_ids: list[str], metrics: dict, completion_times: list[float], output_path: Path) -> None:
     try:
         plt.style.use("seaborn-v0_8-whitegrid")
@@ -171,21 +188,21 @@ def plot_chart(topic_ids: list[str], metrics: dict, completion_times: list[float
         ("completion_tokens", "(B) Agent Completion Tokens by Job", "Tokens"),
         ("duration_s", "(C) Agent Runtime by Job", "Time (s)"),
     ]
+    legend_handles = []
 
-    n_agents = len(agent_names)
     for axis, (metric_key, title, ylabel) in zip(axes.flat[:3], panels):
         for agent in agent_names:
             color = AGENT_COLORS.get(agent)
             marker = AGENT_MARKERS.get(agent, "o")
             idx = AGENT_ORDER_INDEX.get(agent, 0)
-            offset = (idx - (len(AGENT_ORDER) - 1) / 2) * 0.1
-            x_shifted = [x + offset for x in x_values]
+            marker_indices = build_marker_indices(len(x_values), idx, len(agent_names))
             axis.plot(
-                x_shifted,
+                x_values,
                 metrics[agent][metric_key],
                 color=color,
                 label=agent,
                 marker=marker,
+                markevery=marker_indices,
                 linestyle="-",
                 linewidth=1.6,
                 markersize=4.5,
@@ -200,6 +217,21 @@ def plot_chart(topic_ids: list[str], metrics: dict, completion_times: list[float
             tick_positions,
             tick_labels,
             show_labels=axis in (axes.flat[2], axes.flat[3]),
+        )
+
+    for agent in agent_names:
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=AGENT_COLORS.get(agent),
+                marker=AGENT_MARKERS.get(agent, "o"),
+                linestyle="-",
+                linewidth=1.6,
+                markersize=4.5,
+                alpha=0.9,
+                label=agent,
+            )
         )
 
     completion_axis = axes.flat[3]
@@ -248,8 +280,14 @@ def plot_chart(topic_ids: list[str], metrics: dict, completion_times: list[float
     )
     completion_axis.legend(loc="upper right", fontsize=9)
 
-    handles, labels = axes.flat[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=3, frameon=True, bbox_to_anchor=(0.5, -0.01))
+    fig.legend(
+        legend_handles,
+        [handle.get_label() for handle in legend_handles],
+        loc="lower center",
+        ncol=3,
+        frameon=True,
+        bbox_to_anchor=(0.5, -0.01),
+    )
     fig.suptitle("CrewAI Runtime and Token Profiling", fontsize=18, fontweight="bold")
     fig.tight_layout(rect=(0, 0.05, 1, 0.95))
 

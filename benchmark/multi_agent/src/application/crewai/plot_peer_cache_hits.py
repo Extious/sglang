@@ -36,10 +36,16 @@ TASK_COLORS = {
     "Phase 3 / Synthesis": "#72b7b2",
 }
 
+METRIC_KEY = "peer_cache_hit_tokens"
+CHART_TITLE = "Peer Cache-Hit Prompt Tokens by Task"
+CHART_YLABEL = "Peer cache-hit prompt tokens"
+TOTAL_LABEL = "Total peer cache-hit tokens"
+EMPTY_TEXT = "No peer cache-hit tokens were recorded."
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Plot internal failover recovery profile by task."
+        description="Plot peer cache-hit profile by task."
     )
     parser.add_argument(
         "--failover-metrics",
@@ -69,11 +75,13 @@ def load_metrics(path: Path) -> dict:
     return payload
 
 
-def build_task_matrix(metrics: dict) -> tuple[list[str], dict[str, list[int]], list[int]]:
+def build_task_matrix(
+    metrics: dict,
+) -> tuple[list[str], dict[str, list[int]], list[int]]:
     impacted_jobs = [
         job
         for job in metrics.get("jobs", [])
-        if job.get("impacted") or job.get("recovered_checkpointed_tokens", 0)
+        if job.get("impacted") or job.get(METRIC_KEY, 0)
     ]
     impacted_jobs.sort(key=lambda item: topic_sort_key(str(item.get("job_id", ""))))
     job_ids = [str(job.get("job_id", "")) for job in impacted_jobs]
@@ -86,7 +94,7 @@ def build_task_matrix(metrics: dict) -> tuple[list[str], dict[str, list[int]], l
         job_id = str(item.get("job_id", ""))
         if task_label not in per_task or job_id not in index:
             continue
-        value = int(item.get("recovered_checkpointed_tokens", 0) or 0)
+        value = int(item.get(METRIC_KEY, 0) or 0)
         row = index[job_id]
         per_task[task_label][row] += value
         totals[row] += value
@@ -101,55 +109,45 @@ def plot_chart(
     output_path: Path,
 ) -> None:
     plt.style.use("seaborn-v0_8-whitegrid")
-    fig, ax = plt.subplots(figsize=(13, 6))
+    fig, ax = plt.subplots(figsize=(13, 5.5))
 
     if not job_ids:
         ax.text(
-            0.5,
-            0.5,
-            "No failover recovery events were recorded.",
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-            fontsize=12,
-            color="gray",
+            0.5, 0.5, EMPTY_TEXT,
+            ha="center", va="center", transform=ax.transAxes,
+            fontsize=12, color="gray",
         )
         ax.set_axis_off()
     else:
         x = list(range(len(job_ids)))
+        tick_step = max(1, len(job_ids) // 15)
+        tick_positions = x[::tick_step]
+        tick_labels = job_ids[::tick_step]
+
         bottoms = [0] * len(job_ids)
         for task_label in TASK_LABEL_ORDER:
             values = per_task[task_label]
             if not any(values):
                 continue
             ax.bar(
-                x,
-                values,
-                bottom=bottoms,
+                x, values, bottom=bottoms,
                 color=TASK_COLORS[task_label],
                 label=TASK_LABEL_DISPLAY[task_label],
-                width=0.7,
-                edgecolor="white",
-                linewidth=0.5,
+                width=0.7, edgecolor="white", linewidth=0.5,
             )
-            bottoms = [bottom + value for bottom, value in zip(bottoms, values)]
+            bottoms = [b + v for b, v in zip(bottoms, values)]
 
         ax.plot(
-            x,
-            totals,
-            color="#222222",
-            marker="o",
-            linewidth=1.4,
-            markersize=4,
-            label="Total recovered checkpointed tokens",
+            x, totals,
+            color="#222222", marker="o", linewidth=1.4, markersize=4,
+            label=TOTAL_LABEL,
         )
-        ax.set_ylabel("Recovered checkpointed tokens")
-        ax.set_xlabel("Job ID")
-        tick_step = max(1, len(job_ids) // 15)
-        ax.set_xticks(x[::tick_step])
-        ax.set_xticklabels(job_ids[::tick_step], rotation=45, ha="right")
-        ax.set_title("Internal failover recovery profile by task")
+        ax.set_ylabel(CHART_YLABEL)
+        ax.set_title(CHART_TITLE)
         ax.legend(loc="upper left", frameon=True, ncol=2)
+        ax.set_xlabel("Job ID")
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels(tick_labels, rotation=45, ha="right")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()

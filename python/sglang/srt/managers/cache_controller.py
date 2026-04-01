@@ -452,10 +452,18 @@ class HiCacheController:
         self.storage_config = self._generate_storage_config(
             model_name, storage_backend_extra_config
         )
-        # for MLA models, only one rank needs to backup the KV cache
+        # MLA absorbs the KV projection into the attention weights, so the
+        # latent KV representation is identical across all TP ranks.  Only
+        # tp_rank 0 writes to the peer storage to avoid redundant copies.
+        # All other TP ranks skip the actual write but still emit an ack so
+        # that the HiRadixCache backup-completion logic (which runs on every
+        # rank) sees a consistent signal.
+        #
+        # Failover assumption: the backup DP rank's tp_rank-0 worker holds the
+        # full MLA KV and is the one that will serve the prefetch on resume.
+        # TODO: consider round-robin across ranks for write load balancing.
         self.backup_skip = (
             self.storage_config.is_mla_model
-            # todo: load balancing
             and self.storage_config.tp_rank != 0
         )
 
@@ -629,35 +637,29 @@ class HiCacheController:
         )
 
     def reset(self):
+        # Stop host-device transfer threads.
         self.stop_event.set()
-        self.storage_stop_event.set()
-
         self.write_queue.clear()
         self.load_queue.clear()
         self.write_buffer.clear()
         self.load_buffer.clear()
         self.ack_write_queue.clear()
         self.ack_load_queue.clear()
-        if self.enable_storage:
-            self.prefetch_thread.join()
-            self.backup_thread.join()
-            self.prefetch_queue.queue.clear()
-            self.backup_queue.queue.clear()
-            self.prefetch_revoke_queue.queue.clear()
-            self.ack_backup_queue.queue.clear()
-
         self.stop_event.clear()
-        self.storage_stop_event.clear()
 
         if self.enable_storage:
-            self.prefetch_thread = threading.Thread(
-                target=self.prefetch_thread_func, daemon=True
-            )
-            self.backup_thread = threading.Thread(
-                target=self.backup_thread_func, daemon=True
-            )
-            self.prefetch_thread.start()
-            self.backup_thread.start()
+            # Use the canonical stop helper which: sets the stop event, sends
+            # sentinel None values to unblock blocking queue.get() calls, and
+            # joins all threads with a timeout.  This avoids a deadlock where
+            # the prefetch thread would otherwise loop over residual queue items
+            # performing all_reduce operations after peer TP ranks have already
+            # exited.
+            self._stop_storage_threads()
+            # storage_stop_event is now set; clear it before restarting.
+            self.storage_stop_event.clear()
+            # _start_storage_threads creates fresh Queue objects, so stale
+            # items and pending ack signals from before the reset are dropped.
+            self._start_storage_threads()
 
     def write(
         self,
@@ -925,7 +927,19 @@ class HiCacheController:
                 operation = self.prefetch_buffer.get(block=True, timeout=1)
                 if operation is None:
                     continue
+                logger.info(
+                    "Prefetch IO START for %s: pages=%d tokens=%d",
+                    getattr(operation, "request_id", "?"),
+                    len(operation.hash_value),
+                    len(operation.hash_value) * self.page_size,
+                )
                 self._page_transfer(operation)
+                logger.info(
+                    "Prefetch IO END for %s: completed=%d / expected=%d tokens",
+                    getattr(operation, "request_id", "?"),
+                    operation.completed_tokens,
+                    len(operation.hash_value) * self.page_size,
+                )
                 # operation terminated by controller, release pre-allocated memory
                 self.append_host_mem_release(
                     operation.host_indices[operation.completed_tokens :]
@@ -1039,7 +1053,11 @@ class HiCacheController:
             target=self.prefetch_io_aux_func, daemon=True
         )
         self.prefetch_io_aux_thread.start()
-        while (not self.storage_stop_event.is_set()) or not self.prefetch_queue.empty():
+        # Exit as soon as the stop event fires. Remaining items in the queue are
+        # discarded intentionally: the caller (reset/detach) is responsible for
+        # clearing the queue and the host-memory pool, so no all_reduce should be
+        # attempted after stop because peer TP ranks may have already exited.
+        while not self.storage_stop_event.is_set():
             try:
                 operation = self.prefetch_queue.get(block=True, timeout=1)
                 if operation is None:

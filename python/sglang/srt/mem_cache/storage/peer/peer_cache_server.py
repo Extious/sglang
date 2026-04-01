@@ -29,6 +29,7 @@ import socketserver
 import struct
 import sys
 import threading
+import time
 from collections import OrderedDict
 from typing import Dict, List, Optional
 
@@ -492,20 +493,54 @@ class PeerCacheServer:
 class PeerCacheClient:
     """TCP client that sends KV Cache pages to a remote PeerCacheServer."""
 
+    CONNECT_TIMEOUT_S = 1.0
+    IO_TIMEOUT_S = 1.0
+    FAILURE_COOLDOWN_S = 15.0
+    FAILURE_THRESHOLD = 2
+
     def __init__(self, peer_url: str):
         parts = peer_url.split(":")
         self.host = parts[0]
         self.port = int(parts[1])
         self._sock: Optional[socket.socket] = None
         self._lock = threading.Lock()
+        self._consecutive_failures = 0
+        self._cooldown_until = 0.0
+
+    def _is_in_cooldown(self) -> bool:
+        return time.monotonic() < self._cooldown_until
+
+    def _record_success(self) -> None:
+        self._consecutive_failures = 0
+        self._cooldown_until = 0.0
+
+    def _record_failure(self, exc: Exception) -> None:
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= self.FAILURE_THRESHOLD:
+            self._cooldown_until = time.monotonic() + self.FAILURE_COOLDOWN_S
+            logger.warning(
+                "PeerCacheClient entering cooldown for %s:%d after %d failures: %s",
+                self.host,
+                self.port,
+                self._consecutive_failures,
+                exc,
+            )
+        else:
+            logger.warning("PeerCacheClient.put_pages_tokens failed: %s", exc)
+        self._reset()
 
     def _connect(self) -> socket.socket:
         if self._sock is not None:
             return self._sock
+        if self._is_in_cooldown():
+            raise TimeoutError(
+                f"peer {self.host}:{self.port} is in cooldown after repeated failures"
+            )
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        sock.settimeout(10.0)
+        sock.settimeout(self.CONNECT_TIMEOUT_S)
         sock.connect((self.host, self.port))
+        sock.settimeout(self.IO_TIMEOUT_S)
         self._sock = sock
         return sock
 
@@ -525,6 +560,8 @@ class PeerCacheClient:
     ) -> List[bool]:
         """Send pages with their token context to the remote PeerCacheServer."""
         with self._lock:
+            if self._is_in_cooldown():
+                return [False] * len(pages)
             try:
                 sock = self._connect()
                 seq_len = len(token_ids)
@@ -543,11 +580,11 @@ class PeerCacheClient:
                 resp_hdr = _recvall(sock, 5)
                 _, count = struct.unpack("!BI", resp_hdr)
                 resp_data = _recvall(sock, count)
+                self._record_success()
                 return [bool(b) for b in resp_data]
 
             except Exception as exc:
-                logger.warning("PeerCacheClient.put_pages_tokens failed: %s", exc)
-                self._reset()
+                self._record_failure(exc)
                 return [False] * len(pages)
 
     def close(self):

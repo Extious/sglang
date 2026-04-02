@@ -49,6 +49,7 @@ from sglang.srt.managers.disagg_service import start_disagg_service
 from sglang.srt.managers.io_struct import (
     AbortReq,
     ActiveRanksOutput,
+    BaseReq,
     BatchEmbeddingOutput,
     BatchMultimodalOutput,
     BatchStrOutput,
@@ -57,6 +58,7 @@ from sglang.srt.managers.io_struct import (
     BatchTokenizedGenerateReqInput,
     ConfigureLoggingReq,
     ContinueGenerationReqInput,
+    CheckpointUpdateReq,
     EmbeddingReqInput,
     FreezeGCReq,
     GenerateReqInput,
@@ -64,11 +66,13 @@ from sglang.srt.managers.io_struct import (
     LoadLoRAAdapterReqInput,
     OpenSessionReqOutput,
     PauseGenerationReqInput,
+    ResetVisibleStateReq,
     SessionParams,
     TokenizedEmbeddingReqInput,
     TokenizedGenerateReqInput,
     UpdateWeightFromDiskReqInput,
     UpdateWeightFromDiskReqOutput,
+    VisibleStateUpdateReq,
     WatchLoadUpdateReq,
 )
 from sglang.srt.managers.mm_utils import TensorTransportMode, wrap_shm_features
@@ -470,6 +474,8 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
                     self._handle_batch_output,
                 ),
                 (AbortReq, self._handle_abort_req),
+                (CheckpointUpdateReq, self._forward_internal_control_req),
+                (ResetVisibleStateReq, self._handle_reset_visible_state_req),
                 (OpenSessionReqOutput, self._handle_open_session_req_output),
                 (
                     UpdateWeightFromDiskReqOutput,
@@ -943,6 +949,7 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
                 data_parallel_rank=obj.data_parallel_rank,
                 priority=obj.priority,
                 extra_key=obj.extra_key,
+                agent_id=getattr(obj, "agent_id", None),
                 routing_key=obj.routing_key,
                 need_wait_for_image=obj.need_wait_for_image,
                 num_items_assigned=obj.num_items_assigned,
@@ -1063,6 +1070,16 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
         trace_slice_start(RequestStage.TOKENIZER_DISPATCH, obj.rid)
         tokenized_obj.trace_context = trace_get_proc_propagate_context(obj.rid)
         tokenized_obj = wrap_shm_features(tokenized_obj)
+        debug_request_flow = os.getenv("SGLANG_DEBUG_REQUEST_FLOW") == "1" or str(
+            getattr(tokenized_obj, "rid", "")
+        ).startswith("WARMUP_")
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW tokenizer.send_request type=%s rid=%s dp_rank=%s",
+                type(tokenized_obj).__name__,
+                getattr(tokenized_obj, "rid", None),
+                getattr(tokenized_obj, "data_parallel_rank", None),
+            )
         self.send_to_scheduler.send_pyobj(tokenized_obj)
         state = self.req_state_class(
             [], False, asyncio.Event(), obj, created_time=created_time
@@ -1088,6 +1105,16 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
         else:
             batch_req = BatchTokenizedEmbeddingReqInput(batch=tokenized_objs)
 
+        debug_request_flow = os.getenv("SGLANG_DEBUG_REQUEST_FLOW") == "1" or any(
+            str(getattr(item, "rid", "")).startswith("WARMUP_")
+            for item in tokenized_objs
+        )
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW tokenizer.send_batch type=%s rids=%s",
+                type(batch_req).__name__,
+                [getattr(item, "rid", None) for item in tokenized_objs],
+            )
         self.send_to_scheduler.send_pyobj(batch_req)
         # Create states for each individual request in the batch
         for i, tokenized_obj in enumerate(tokenized_objs):
@@ -1473,6 +1500,23 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
             self.last_receive_tstamp = time.time()
             self.soft_watchdog.feed()
 
+    def _maybe_publish_visible_state_update(
+        self,
+        rid: str,
+        state_obj: Union[GenerateReqInput, EmbeddingReqInput],
+        delta_output_ids: List[int],
+        finished: bool,
+    ) -> None:
+        if self.server_args.dp_size <= 1 or not isinstance(state_obj, GenerateReqInput):
+            return
+        self.send_to_scheduler.send_pyobj(
+            VisibleStateUpdateReq(
+                rid=rid,
+                output_ids_delta=list(delta_output_ids),
+                finished=finished,
+            )
+        )
+
     def _handle_batch_output(
         self,
         recv_obj: Union[
@@ -1482,6 +1526,15 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
             BatchTokenIDOutput,
         ],
     ):
+        debug_request_flow = os.getenv("SGLANG_DEBUG_REQUEST_FLOW") == "1" or any(
+            str(rid).startswith("WARMUP_") for rid in recv_obj.rids
+        )
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW tokenizer.recv_output type=%s rids=%s",
+                type(recv_obj).__name__,
+                recv_obj.rids,
+            )
         for i, rid in enumerate(recv_obj.rids):
             state = self.rid_to_state.get(rid, None)
             if state is None:
@@ -1589,6 +1642,17 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
                 }
 
             state.finished = recv_obj.finished_reasons[i] is not None
+            delta_output_ids = (
+                recv_obj.output_ids[i]
+                if isinstance(recv_obj, (BatchStrOutput, BatchTokenIDOutput))
+                else []
+            )
+            self._maybe_publish_visible_state_update(
+                rid=rid,
+                state_obj=state.obj,
+                delta_output_ids=delta_output_ids,
+                finished=state.finished,
+            )
             if state.finished:
                 state.finished_time = time.time()
                 state.finished_time_perf = time.perf_counter()
@@ -2192,11 +2256,57 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerMultiItemMixi
             "output_ids": output_ids,
             "meta_info": meta_info,
         }
+        self._maybe_publish_visible_state_update(
+            rid=recv_obj.rid,
+            state_obj=state.obj,
+            delta_output_ids=[],
+            finished=True,
+        )
         state.out_list.append(out)
         state.event.set()
 
+    def _handle_reset_visible_state_req(self, recv_obj: ResetVisibleStateReq):
+        state = self.rid_to_state.get(recv_obj.rid)
+        if state is None:
+            return
+
+        # Reset accumulated generation state so a rerouted request can replay
+        # from the original prompt without mixing in stale partial outputs.
+        state.finished = False
+        state.out_list = []
+        state.event.clear()
+        state.last_output_offset = 0
+        state.text = ""
+        state.output_ids = []
+        state.input_token_logprobs_val = []
+        state.input_token_logprobs_idx = []
+        state.output_token_logprobs_val = []
+        state.output_token_logprobs_idx = []
+        state.input_top_logprobs_val = []
+        state.input_top_logprobs_idx = []
+        state.output_top_logprobs_val = []
+        state.output_top_logprobs_idx = []
+        state.input_token_ids_logprobs_val = []
+        state.input_token_ids_logprobs_idx = []
+        state.output_token_ids_logprobs_val = []
+        state.output_token_ids_logprobs_idx = []
+        state.input_token_logprobs = []
+        state.output_token_logprobs = []
+        state.input_top_logprobs = []
+        state.output_top_logprobs = []
+        state.input_token_ids_logprobs = []
+        state.output_token_ids_logprobs = []
+        state.first_token_time = 0.0
+        state.first_token_time_perf = 0.0
+        state.last_time = 0.0
+        state.last_completion_tokens = 1
+        state.response_sent_to_client_ts = 0.0
+
     def update_active_ranks(self, ranks: ActiveRanksOutput):
         self.send_to_scheduler.send_pyobj(ranks)
+
+    def _forward_internal_control_req(self, req: BaseReq):
+        self.send_to_scheduler.send_pyobj(req)
 
     def _handle_open_session_req_output(self, recv_obj):
         self.session_futures[recv_obj.session_id].set_result(

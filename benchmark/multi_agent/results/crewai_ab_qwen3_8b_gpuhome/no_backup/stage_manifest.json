@@ -1,0 +1,85 @@
+{
+  "slurm_job_id": "24131",
+  "model_path": "Qwen/Qwen3-8B",
+  "dp_size": 2,
+  "pp_size": 1,
+  "tp_size": 1,
+  "nnodes": 1,
+  "server_port": 28000,
+  "dist_init_addr": "gpu14:28100",
+  "peer_port_base": 29000,
+  "server_url": "http://gpu14:28000",
+  "head_server_url": "http://gpu14:28000",
+  "runtime_failover_events_file": "/home/comp/zhanzhao/sglang/benchmark/multi_agent/logs/logs_qwen3_8b_gpuhome/runtime_failover_events.jsonl",
+  "peer_targets": {
+    "0:0:0": "gpu14:29000",
+    "1:0:0": "gpu14:29000"
+  },
+  "servers": [
+    {
+      "node_rank": 0,
+      "node": "gpu14",
+      "node_url": "http://gpu14:28000",
+      "head_server_url": "http://gpu14:28000",
+      "server_port": 28000,
+      "server_main_pid": 165839,
+      "runtime_failover_events_file": "/home/comp/zhanzhao/sglang/benchmark/multi_agent/logs/logs_qwen3_8b_gpuhome/runtime_failover_events.jsonl",
+      "stages": [
+        {
+          "stage_key": "0:0:0",
+          "dp_rank": 0,
+          "pp_rank": 0,
+          "tp_rank": 0,
+          "node_rank": 0,
+          "node": "gpu14",
+          "node_url": "http://gpu14:28000",
+          "head_server_url": "http://gpu14:28000",
+          "kill_pattern": "sglang::scheduler_DP0",
+          "peer_listen_port": 29000,
+          "peer_target_stage_key": ""
+        },
+        {
+          "stage_key": "1:0:0",
+          "dp_rank": 1,
+          "pp_rank": 0,
+          "tp_rank": 0,
+          "node_rank": 0,
+          "node": "gpu14",
+          "node_url": "http://gpu14:28000",
+          "head_server_url": "http://gpu14:28000",
+          "kill_pattern": "sglang::scheduler_DP1",
+          "peer_listen_port": 29001,
+          "peer_target_stage_key": ""
+        }
+      ]
+    }
+  ],
+  "stages": [
+    {
+      "stage_key": "0:0:0",
+      "dp_rank": 0,
+      "pp_rank": 0,
+      "tp_rank": 0,
+      "node_rank": 0,
+      "node": "gpu14",
+      "node_url": "http://gpu14:28000",
+      "head_server_url": "http://gpu14:28000",
+      "kill_pattern": "sglang::scheduler_DP0",
+      "peer_listen_port": 29000,
+      "peer_target_stage_key": ""
+    },
+    {
+      "stage_key": "1:0:0",
+      "dp_rank": 1,
+      "pp_rank": 0,
+      "tp_rank": 0,
+      "node_rank": 0,
+      "node": "gpu14",
+      "node_url": "http://gpu14:28000",
+      "head_server_url": "http://gpu14:28000",
+      "kill_pattern": "sglang::scheduler_DP1",
+      "peer_listen_port": 29001,
+      "peer_target_stage_key": ""
+    }
+  ]
+}

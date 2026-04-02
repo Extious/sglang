@@ -545,6 +545,7 @@ class Req(ReqDllmMixin):
         routing_key: Optional[str] = None,
         dimensions: Optional[int] = None,
         http_worker_ipc: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ):
         # Input and output info
         self.rid = rid
@@ -606,6 +607,7 @@ class Req(ReqDllmMixin):
 
         self.extra_key = extra_key
         self.lora_id = lora_id
+        self.agent_id = agent_id
         self.routing_key = routing_key
 
         # Memory pool info
@@ -685,6 +687,9 @@ class Req(ReqDllmMixin):
         # TODO (Byron): send_output_token_logprobs_offset and send_decode_id_offset can be different in disaggregation mode
         # because the decode server does not have the first output token logprobs
         self.send_output_token_logprobs_offset: int = 0
+        self.is_failover_resume: bool = False
+        self.resume_visible_output_len: int = 0
+        self.resume_checkpointed_output_len: int = 0
 
         # Logprobs (arguments)
         self.return_logprob = return_logprob
@@ -898,6 +903,13 @@ class Req(ReqDllmMixin):
         if self.return_logprob and self.logprob_start_len >= 0:
             max_prefix_len = min(max_prefix_len, self.logprob_start_len)
         max_prefix_len = max(max_prefix_len, 0)
+        upstream_total_cached_len = getattr(self, "pp_upstream_total_cached_len", None)
+        if upstream_total_cached_len is not None:
+            # Downstream PP stages must never discover a longer prompt prefix than
+            # the upstream stage, or extend batches will observe mismatched token
+            # counts. Apply the cap before match_prefix so the tree walk itself
+            # stays consistent with the upstream decision.
+            max_prefix_len = min(max_prefix_len, int(upstream_total_cached_len))
         token_ids = self.fill_ids[:max_prefix_len]
 
         if tree_cache is not None:
@@ -906,6 +918,8 @@ class Req(ReqDllmMixin):
                     key=RadixKey(token_ids=token_ids, extra_key=self.extra_key),
                     req=self if tree_cache.supports_mamba() else None,
                     cow_mamba=tree_cache.supports_mamba(),
+                    agent_id=getattr(self, "agent_id", None),
+                    agent_req_id=getattr(self, "rid", None),
                 )
             )
             (
@@ -921,6 +935,26 @@ class Req(ReqDllmMixin):
                 match_result.host_hit_length,
                 match_result.mamba_branching_seqlen,
             )
+            if upstream_total_cached_len is not None:
+                local_device_cached_len = len(self.prefix_indices)
+                if local_device_cached_len > upstream_total_cached_len:
+                    logger.info(
+                        "PP cache clamp for rid=%s: local_device_cached_len=%d -> %d",
+                        self.rid,
+                        local_device_cached_len,
+                        upstream_total_cached_len,
+                    )
+                    self.prefix_indices = self.prefix_indices[
+                        :upstream_total_cached_len
+                    ]
+                    self.host_hit_length = 0
+                else:
+                    # Clamp host-cached tokens so total (device + host) stays
+                    # within the upstream PP boundary.  This preserves
+                    # prefetched host data while keeping PP stage consistency.
+                    max_host = upstream_total_cached_len - len(self.prefix_indices)
+                    if self.host_hit_length > max_host:
+                        self.host_hit_length = max_host
             self.cache_protected_len = len(self.prefix_indices)
 
         if (

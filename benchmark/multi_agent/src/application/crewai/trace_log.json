@@ -1,0 +1,1822 @@
+[
+  {
+    "topic_id": "1",
+    "topic": "Global AI Market",
+    "year": "2025",
+    "worker_id": 3,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11600,
+      "total_cached_prompt_tokens": 693,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19792,
+      "wall_time_s": 103.017,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 693
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:53:09.743000+00:00",
+        "end": "2026-03-23T10:53:29.020488+00:00",
+        "duration_s": 19.277,
+        "prompt_tokens": 307,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 1024,
+        "total_tokens": 1331,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:53:29.043736+00:00",
+        "end": "2026-03-23T10:53:51.356395+00:00",
+        "duration_s": 22.313,
+        "prompt_tokens": 1373,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2397,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:53:29.046719+00:00",
+        "end": "2026-03-23T10:53:51.357897+00:00",
+        "duration_s": 22.311,
+        "prompt_tokens": 1411,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2435,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:53:29.034927+00:00",
+        "end": "2026-03-23T10:53:51.358566+00:00",
+        "duration_s": 22.324,
+        "prompt_tokens": 1349,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 1024,
+        "total_tokens": 2373,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0037
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:53:29.040010+00:00",
+        "end": "2026-03-23T10:54:10.931683+00:00",
+        "duration_s": 41.892,
+        "prompt_tokens": 1546,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3594,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0563
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:54:11.199621+00:00",
+        "end": "2026-03-23T10:54:52.482714+00:00",
+        "duration_s": 41.283,
+        "prompt_tokens": 5614,
+        "cached_prompt_tokens": 482,
+        "completion_tokens": 2048,
+        "total_tokens": 7662,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0859
+      }
+    ]
+  },
+  {
+    "topic_id": "10",
+    "topic": "Global Healthtech Market",
+    "year": "2025",
+    "worker_id": 3,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11606,
+      "total_cached_prompt_tokens": 320,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19798,
+      "wall_time_s": 100.676,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 320
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:56:26.535364+00:00",
+        "end": "2026-03-23T10:56:45.856278+00:00",
+        "duration_s": 19.321,
+        "prompt_tokens": 308,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1332,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1851
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:56:45.882678+00:00",
+        "end": "2026-03-23T10:57:06.596409+00:00",
+        "duration_s": 20.714,
+        "prompt_tokens": 1412,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2436,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:56:45.872895+00:00",
+        "end": "2026-03-23T10:57:06.599035+00:00",
+        "duration_s": 20.726,
+        "prompt_tokens": 1350,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2374,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0422
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:56:45.879139+00:00",
+        "end": "2026-03-23T10:57:06.869505+00:00",
+        "duration_s": 20.99,
+        "prompt_tokens": 1374,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2398,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:56:45.875809+00:00",
+        "end": "2026-03-23T10:57:29.221269+00:00",
+        "duration_s": 43.345,
+        "prompt_tokens": 1547,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3595,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0562
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:57:29.240694+00:00",
+        "end": "2026-03-23T10:58:07.198130+00:00",
+        "duration_s": 37.957,
+        "prompt_tokens": 5615,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 2048,
+        "total_tokens": 7663,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0
+      }
+    ]
+  },
+  {
+    "topic_id": "11",
+    "topic": "Global Renewable Energy Market",
+    "year": "2025",
+    "worker_id": 1,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 10655,
+      "total_cached_prompt_tokens": 805,
+      "total_completion_tokens": 7242,
+      "total_tokens": 17897,
+      "wall_time_s": 85.352,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 805
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:56:32.159567+00:00",
+        "end": "2026-03-23T10:56:51.660043+00:00",
+        "duration_s": 19.5,
+        "prompt_tokens": 308,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1332,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1851
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:56:51.681650+00:00",
+        "end": "2026-03-23T10:57:12.131043+00:00",
+        "duration_s": 20.449,
+        "prompt_tokens": 1412,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2436,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:56:51.678779+00:00",
+        "end": "2026-03-23T10:57:12.663175+00:00",
+        "duration_s": 20.984,
+        "prompt_tokens": 1350,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2374,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0422
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:56:51.684776+00:00",
+        "end": "2026-03-23T10:57:12.663739+00:00",
+        "duration_s": 20.979,
+        "prompt_tokens": 1374,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2398,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:56:51.928558+00:00",
+        "end": "2026-03-23T10:57:13.589502+00:00",
+        "duration_s": 21.661,
+        "prompt_tokens": 1547,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 1098,
+        "total_tokens": 2645,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0562
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:57:13.619705+00:00",
+        "end": "2026-03-23T10:57:56.996027+00:00",
+        "duration_s": 43.376,
+        "prompt_tokens": 4664,
+        "cached_prompt_tokens": 485,
+        "completion_tokens": 2048,
+        "total_tokens": 6712,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.104
+      }
+    ]
+  },
+  {
+    "topic_id": "12",
+    "topic": "Global Battery Storage Market",
+    "year": "2025",
+    "worker_id": 2,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 10650,
+      "total_cached_prompt_tokens": 805,
+      "total_completion_tokens": 7237,
+      "total_tokens": 17887,
+      "wall_time_s": 84.964,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 805
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:56:32.303006+00:00",
+        "end": "2026-03-23T10:56:52.161368+00:00",
+        "duration_s": 19.858,
+        "prompt_tokens": 308,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1332,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1851
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:56:52.185217+00:00",
+        "end": "2026-03-23T10:57:12.322697+00:00",
+        "duration_s": 20.137,
+        "prompt_tokens": 1374,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2398,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:56:52.184390+00:00",
+        "end": "2026-03-23T10:57:12.906630+00:00",
+        "duration_s": 20.722,
+        "prompt_tokens": 1412,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2436,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:56:52.180058+00:00",
+        "end": "2026-03-23T10:57:12.907770+00:00",
+        "duration_s": 20.728,
+        "prompt_tokens": 1350,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2374,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0422
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:56:52.180028+00:00",
+        "end": "2026-03-23T10:57:13.589154+00:00",
+        "duration_s": 21.409,
+        "prompt_tokens": 1547,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 1093,
+        "total_tokens": 2640,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0562
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:57:13.874472+00:00",
+        "end": "2026-03-23T10:57:56.995505+00:00",
+        "duration_s": 43.121,
+        "prompt_tokens": 4659,
+        "cached_prompt_tokens": 485,
+        "completion_tokens": 2048,
+        "total_tokens": 6707,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1041
+      }
+    ]
+  },
+  {
+    "topic_id": "13",
+    "topic": "Global Biotechnology Market",
+    "year": "2025",
+    "worker_id": 4,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11601,
+      "total_cached_prompt_tokens": 665,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19793,
+      "wall_time_s": 98.631,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 665
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:57:57.014769+00:00",
+        "end": "2026-03-23T10:58:15.176882+00:00",
+        "duration_s": 18.162,
+        "prompt_tokens": 308,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1332,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1851
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:58:15.194838+00:00",
+        "end": "2026-03-23T10:58:36.553960+00:00",
+        "duration_s": 21.359,
+        "prompt_tokens": 1411,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2435,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:58:15.447218+00:00",
+        "end": "2026-03-23T10:58:36.618243+00:00",
+        "duration_s": 21.171,
+        "prompt_tokens": 1373,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 1024,
+        "total_tokens": 2397,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0036
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:58:15.444944+00:00",
+        "end": "2026-03-23T10:58:36.679911+00:00",
+        "duration_s": 21.235,
+        "prompt_tokens": 1349,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2373,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0423
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:58:15.195334+00:00",
+        "end": "2026-03-23T10:58:55.165088+00:00",
+        "duration_s": 39.97,
+        "prompt_tokens": 1546,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 2048,
+        "total_tokens": 3594,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0032
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:58:55.182169+00:00",
+        "end": "2026-03-23T10:59:35.632981+00:00",
+        "duration_s": 40.451,
+        "prompt_tokens": 5614,
+        "cached_prompt_tokens": 482,
+        "completion_tokens": 2048,
+        "total_tokens": 7662,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0859
+      }
+    ]
+  },
+  {
+    "topic_id": "14",
+    "topic": "Global Pharmaceutical Market",
+    "year": "2025",
+    "worker_id": 2,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11601,
+      "total_cached_prompt_tokens": 696,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19793,
+      "wall_time_s": 100.83,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 696
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:57:57.264451+00:00",
+        "end": "2026-03-23T10:58:16.642784+00:00",
+        "duration_s": 19.378,
+        "prompt_tokens": 307,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 1024,
+        "total_tokens": 1331,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0163
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:58:16.661098+00:00",
+        "end": "2026-03-23T10:58:37.627422+00:00",
+        "duration_s": 20.966,
+        "prompt_tokens": 1349,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2373,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0423
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:58:16.670248+00:00",
+        "end": "2026-03-23T10:58:37.627903+00:00",
+        "duration_s": 20.958,
+        "prompt_tokens": 1411,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 1024,
+        "total_tokens": 2435,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0035
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:58:16.662048+00:00",
+        "end": "2026-03-23T10:58:37.630304+00:00",
+        "duration_s": 20.968,
+        "prompt_tokens": 1373,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2397,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:58:16.662022+00:00",
+        "end": "2026-03-23T10:58:56.891115+00:00",
+        "duration_s": 40.229,
+        "prompt_tokens": 1546,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3594,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0563
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:58:56.909100+00:00",
+        "end": "2026-03-23T10:59:38.082537+00:00",
+        "duration_s": 41.173,
+        "prompt_tokens": 5615,
+        "cached_prompt_tokens": 482,
+        "completion_tokens": 2048,
+        "total_tokens": 7663,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0858
+      }
+    ]
+  },
+  {
+    "topic_id": "15",
+    "topic": "Global Medical Device Market",
+    "year": "2025",
+    "worker_id": 1,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11601,
+      "total_cached_prompt_tokens": 750,
+      "total_completion_tokens": 7175,
+      "total_tokens": 18776,
+      "wall_time_s": 79.79,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 750
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:57:57.514347+00:00",
+        "end": "2026-03-23T10:58:15.987986+00:00",
+        "duration_s": 18.474,
+        "prompt_tokens": 308,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1332,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1851
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:58:16.008556+00:00",
+        "end": "2026-03-23T10:58:37.085612+00:00",
+        "duration_s": 21.077,
+        "prompt_tokens": 1349,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 1024,
+        "total_tokens": 2373,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0037
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:58:16.006122+00:00",
+        "end": "2026-03-23T10:58:37.144220+00:00",
+        "duration_s": 21.138,
+        "prompt_tokens": 1373,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2397,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:58:16.013388+00:00",
+        "end": "2026-03-23T10:58:37.145142+00:00",
+        "duration_s": 21.132,
+        "prompt_tokens": 1411,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2435,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:58:16.005737+00:00",
+        "end": "2026-03-23T10:58:56.678961+00:00",
+        "duration_s": 40.673,
+        "prompt_tokens": 1546,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3594,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0563
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:58:56.697501+00:00",
+        "end": "2026-03-23T10:59:17.292006+00:00",
+        "duration_s": 20.595,
+        "prompt_tokens": 5614,
+        "cached_prompt_tokens": 482,
+        "completion_tokens": 1031,
+        "total_tokens": 6645,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0859
+      }
+    ]
+  },
+  {
+    "topic_id": "16",
+    "topic": "Global Digital Health Market",
+    "year": "2025",
+    "worker_id": 3,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11605,
+      "total_cached_prompt_tokens": 802,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19797,
+      "wall_time_s": 101.413,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 802
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:58:07.213610+00:00",
+        "end": "2026-03-23T10:58:27.182195+00:00",
+        "duration_s": 19.969,
+        "prompt_tokens": 308,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1332,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1851
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:58:27.199739+00:00",
+        "end": "2026-03-23T10:58:47.380774+00:00",
+        "duration_s": 20.181,
+        "prompt_tokens": 1350,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2374,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0422
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:58:27.205486+00:00",
+        "end": "2026-03-23T10:58:47.382236+00:00",
+        "duration_s": 20.177,
+        "prompt_tokens": 1412,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2436,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:58:27.203189+00:00",
+        "end": "2026-03-23T10:58:47.637351+00:00",
+        "duration_s": 20.434,
+        "prompt_tokens": 1374,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2398,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:58:27.453219+00:00",
+        "end": "2026-03-23T10:59:07.862313+00:00",
+        "duration_s": 40.409,
+        "prompt_tokens": 1547,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3595,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0562
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:59:07.881559+00:00",
+        "end": "2026-03-23T10:59:48.615287+00:00",
+        "duration_s": 40.734,
+        "prompt_tokens": 5614,
+        "cached_prompt_tokens": 482,
+        "completion_tokens": 2048,
+        "total_tokens": 7662,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0859
+      }
+    ]
+  },
+  {
+    "topic_id": "17",
+    "topic": "Global E-commerce Market",
+    "year": "2025",
+    "worker_id": 1,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11604,
+      "total_cached_prompt_tokens": 802,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19796,
+      "wall_time_s": 101.075,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 802
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:59:17.308983+00:00",
+        "end": "2026-03-23T10:59:36.751290+00:00",
+        "duration_s": 19.442,
+        "prompt_tokens": 308,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1332,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1851
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:59:36.761979+00:00",
+        "end": "2026-03-23T10:59:56.581672+00:00",
+        "duration_s": 19.82,
+        "prompt_tokens": 1350,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2374,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0422
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:59:36.771492+00:00",
+        "end": "2026-03-23T10:59:56.582328+00:00",
+        "duration_s": 19.811,
+        "prompt_tokens": 1412,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2436,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:59:36.768517+00:00",
+        "end": "2026-03-23T10:59:56.653640+00:00",
+        "duration_s": 19.885,
+        "prompt_tokens": 1374,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2398,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:59:36.765750+00:00",
+        "end": "2026-03-23T11:00:17.124273+00:00",
+        "duration_s": 40.359,
+        "prompt_tokens": 1547,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3595,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0562
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T11:00:17.141018+00:00",
+        "end": "2026-03-23T11:00:58.370614+00:00",
+        "duration_s": 41.23,
+        "prompt_tokens": 5613,
+        "cached_prompt_tokens": 482,
+        "completion_tokens": 2048,
+        "total_tokens": 7661,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0859
+      }
+    ]
+  },
+  {
+    "topic_id": "18",
+    "topic": "Global Retail Technology Market",
+    "year": "2025",
+    "worker_id": 4,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11603,
+      "total_cached_prompt_tokens": 802,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19795,
+      "wall_time_s": 99.735,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 802
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:59:35.649122+00:00",
+        "end": "2026-03-23T10:59:55.117485+00:00",
+        "duration_s": 19.468,
+        "prompt_tokens": 308,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1332,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1851
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:59:55.130681+00:00",
+        "end": "2026-03-23T11:00:15.575280+00:00",
+        "duration_s": 20.445,
+        "prompt_tokens": 1350,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2374,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0422
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:59:55.133346+00:00",
+        "end": "2026-03-23T11:00:15.965108+00:00",
+        "duration_s": 20.832,
+        "prompt_tokens": 1412,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2436,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:59:55.130663+00:00",
+        "end": "2026-03-23T11:00:15.967384+00:00",
+        "duration_s": 20.837,
+        "prompt_tokens": 1374,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2398,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:59:55.380490+00:00",
+        "end": "2026-03-23T11:00:34.473942+00:00",
+        "duration_s": 39.093,
+        "prompt_tokens": 1547,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3595,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0562
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T11:00:34.491555+00:00",
+        "end": "2026-03-23T11:01:15.369425+00:00",
+        "duration_s": 40.878,
+        "prompt_tokens": 5612,
+        "cached_prompt_tokens": 482,
+        "completion_tokens": 2048,
+        "total_tokens": 7660,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0859
+      }
+    ]
+  },
+  {
+    "topic_id": "19",
+    "topic": "Global Logistics Market",
+    "year": "2025",
+    "worker_id": 2,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11601,
+      "total_cached_prompt_tokens": 806,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19793,
+      "wall_time_s": 101.416,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 806
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:59:38.097395+00:00",
+        "end": "2026-03-23T10:59:57.725161+00:00",
+        "duration_s": 19.628,
+        "prompt_tokens": 307,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1331,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1857
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:59:57.736492+00:00",
+        "end": "2026-03-23T11:00:17.983293+00:00",
+        "duration_s": 20.247,
+        "prompt_tokens": 1349,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2373,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0423
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:59:57.744294+00:00",
+        "end": "2026-03-23T11:00:17.985421+00:00",
+        "duration_s": 20.241,
+        "prompt_tokens": 1411,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2435,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:59:57.741814+00:00",
+        "end": "2026-03-23T11:00:19.033421+00:00",
+        "duration_s": 21.292,
+        "prompt_tokens": 1373,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2397,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:59:57.736522+00:00",
+        "end": "2026-03-23T11:00:39.116146+00:00",
+        "duration_s": 41.38,
+        "prompt_tokens": 1546,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3594,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0563
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T11:00:39.134017+00:00",
+        "end": "2026-03-23T11:01:19.498927+00:00",
+        "duration_s": 40.365,
+        "prompt_tokens": 5615,
+        "cached_prompt_tokens": 486,
+        "completion_tokens": 2048,
+        "total_tokens": 7663,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0866
+      }
+    ]
+  },
+  {
+    "topic_id": "2",
+    "topic": "Global Semiconductor Market",
+    "year": "2025",
+    "worker_id": 2,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11600,
+      "total_cached_prompt_tokens": 25,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19792,
+      "wall_time_s": 101.68,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 25
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:53:09.783606+00:00",
+        "end": "2026-03-23T10:53:28.770579+00:00",
+        "duration_s": 18.987,
+        "prompt_tokens": 307,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 1024,
+        "total_tokens": 1331,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:53:28.786635+00:00",
+        "end": "2026-03-23T10:53:51.004717+00:00",
+        "duration_s": 22.218,
+        "prompt_tokens": 1349,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 1024,
+        "total_tokens": 2373,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0037
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:53:28.791145+00:00",
+        "end": "2026-03-23T10:53:51.240217+00:00",
+        "duration_s": 22.449,
+        "prompt_tokens": 1411,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 1024,
+        "total_tokens": 2435,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0035
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:53:29.041410+00:00",
+        "end": "2026-03-23T10:53:51.349867+00:00",
+        "duration_s": 22.308,
+        "prompt_tokens": 1373,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 1024,
+        "total_tokens": 2397,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0036
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:53:28.791408+00:00",
+        "end": "2026-03-23T10:54:10.902205+00:00",
+        "duration_s": 42.111,
+        "prompt_tokens": 1546,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 2048,
+        "total_tokens": 3594,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0032
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:54:10.922869+00:00",
+        "end": "2026-03-23T10:54:51.443961+00:00",
+        "duration_s": 40.521,
+        "prompt_tokens": 5614,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 2048,
+        "total_tokens": 7662,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0009
+      }
+    ]
+  },
+  {
+    "topic_id": "20",
+    "topic": "Global Supply Chain Technology Market",
+    "year": "2025",
+    "worker_id": 3,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11609,
+      "total_cached_prompt_tokens": 802,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19801,
+      "wall_time_s": 99.07,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 802
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:59:48.630692+00:00",
+        "end": "2026-03-23T11:00:08.298475+00:00",
+        "duration_s": 19.668,
+        "prompt_tokens": 309,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1333,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1845
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T11:00:08.310198+00:00",
+        "end": "2026-03-23T11:00:28.165550+00:00",
+        "duration_s": 19.855,
+        "prompt_tokens": 1351,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2375,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0422
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T11:00:08.320331+00:00",
+        "end": "2026-03-23T11:00:28.166344+00:00",
+        "duration_s": 19.846,
+        "prompt_tokens": 1413,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2437,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T11:00:08.567218+00:00",
+        "end": "2026-03-23T11:00:29.634374+00:00",
+        "duration_s": 21.067,
+        "prompt_tokens": 1375,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2399,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0436
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T11:00:08.310563+00:00",
+        "end": "2026-03-23T11:00:49.392101+00:00",
+        "duration_s": 41.082,
+        "prompt_tokens": 1548,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3596,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0562
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T11:00:49.460323+00:00",
+        "end": "2026-03-23T11:01:27.687133+00:00",
+        "duration_s": 38.227,
+        "prompt_tokens": 5613,
+        "cached_prompt_tokens": 482,
+        "completion_tokens": 2048,
+        "total_tokens": 7661,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0859
+      }
+    ]
+  },
+  {
+    "topic_id": "3",
+    "topic": "Global Cloud Computing Market",
+    "year": "2025",
+    "worker_id": 1,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11603,
+      "total_cached_prompt_tokens": 216,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19795,
+      "wall_time_s": 102.463,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 216
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:53:10.041014+00:00",
+        "end": "2026-03-23T10:53:29.705806+00:00",
+        "duration_s": 19.665,
+        "prompt_tokens": 308,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1332,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1851
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:53:29.724904+00:00",
+        "end": "2026-03-23T10:53:51.197042+00:00",
+        "duration_s": 21.472,
+        "prompt_tokens": 1374,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 1024,
+        "total_tokens": 2398,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0036
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:53:29.733495+00:00",
+        "end": "2026-03-23T10:53:51.197860+00:00",
+        "duration_s": 21.464,
+        "prompt_tokens": 1412,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 1024,
+        "total_tokens": 2436,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0035
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:53:29.723742+00:00",
+        "end": "2026-03-23T10:53:51.396461+00:00",
+        "duration_s": 21.673,
+        "prompt_tokens": 1350,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2374,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0422
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:53:29.724426+00:00",
+        "end": "2026-03-23T10:54:11.087241+00:00",
+        "duration_s": 41.363,
+        "prompt_tokens": 1547,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3595,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0562
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:54:11.104378+00:00",
+        "end": "2026-03-23T10:54:52.482342+00:00",
+        "duration_s": 41.378,
+        "prompt_tokens": 5612,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 2048,
+        "total_tokens": 7660,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0009
+      }
+    ]
+  },
+  {
+    "topic_id": "4",
+    "topic": "Global Cybersecurity Market",
+    "year": "2025",
+    "worker_id": 4,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11606,
+      "total_cached_prompt_tokens": 802,
+      "total_completion_tokens": 7175,
+      "total_tokens": 18781,
+      "wall_time_s": 82.249,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 802
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:53:09.893008+00:00",
+        "end": "2026-03-23T10:53:29.069791+00:00",
+        "duration_s": 19.177,
+        "prompt_tokens": 308,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1332,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1851
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:53:29.085302+00:00",
+        "end": "2026-03-23T10:53:51.029599+00:00",
+        "duration_s": 21.944,
+        "prompt_tokens": 1350,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2374,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0422
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:53:29.089332+00:00",
+        "end": "2026-03-23T10:53:51.353170+00:00",
+        "duration_s": 22.264,
+        "prompt_tokens": 1374,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2398,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:53:29.090499+00:00",
+        "end": "2026-03-23T10:53:51.353431+00:00",
+        "duration_s": 22.263,
+        "prompt_tokens": 1412,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2436,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:53:29.089017+00:00",
+        "end": "2026-03-23T10:54:10.930192+00:00",
+        "duration_s": 41.841,
+        "prompt_tokens": 1547,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3595,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0562
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:54:10.947452+00:00",
+        "end": "2026-03-23T10:54:32.120002+00:00",
+        "duration_s": 21.173,
+        "prompt_tokens": 5615,
+        "cached_prompt_tokens": 482,
+        "completion_tokens": 1031,
+        "total_tokens": 6646,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0858
+      }
+    ]
+  },
+  {
+    "topic_id": "5",
+    "topic": "Global Data Center Market",
+    "year": "2025",
+    "worker_id": 4,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11604,
+      "total_cached_prompt_tokens": 723,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19796,
+      "wall_time_s": 101.351,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 723
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:54:32.138984+00:00",
+        "end": "2026-03-23T10:54:51.639075+00:00",
+        "duration_s": 19.5,
+        "prompt_tokens": 308,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1332,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1851
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:54:51.657725+00:00",
+        "end": "2026-03-23T10:55:10.503871+00:00",
+        "duration_s": 18.846,
+        "prompt_tokens": 1412,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2436,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:54:51.647862+00:00",
+        "end": "2026-03-23T10:55:11.288416+00:00",
+        "duration_s": 19.641,
+        "prompt_tokens": 1350,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2374,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0422
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:54:51.654466+00:00",
+        "end": "2026-03-23T10:55:11.288996+00:00",
+        "duration_s": 19.635,
+        "prompt_tokens": 1374,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2398,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:54:51.653591+00:00",
+        "end": "2026-03-23T10:55:32.425606+00:00",
+        "duration_s": 40.772,
+        "prompt_tokens": 1547,
+        "cached_prompt_tokens": 5,
+        "completion_tokens": 2048,
+        "total_tokens": 3595,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0032
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:55:32.692126+00:00",
+        "end": "2026-03-23T10:56:13.475517+00:00",
+        "duration_s": 40.783,
+        "prompt_tokens": 5613,
+        "cached_prompt_tokens": 485,
+        "completion_tokens": 2048,
+        "total_tokens": 7661,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0864
+      }
+    ]
+  },
+  {
+    "topic_id": "6",
+    "topic": "Global Robotics Market",
+    "year": "2025",
+    "worker_id": 2,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11599,
+      "total_cached_prompt_tokens": 802,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19791,
+      "wall_time_s": 100.833,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 802
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:54:51.463021+00:00",
+        "end": "2026-03-23T10:55:10.977853+00:00",
+        "duration_s": 19.515,
+        "prompt_tokens": 307,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1331,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1857
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:55:10.996671+00:00",
+        "end": "2026-03-23T10:55:31.793424+00:00",
+        "duration_s": 20.797,
+        "prompt_tokens": 1349,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2373,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0423
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:55:11.001594+00:00",
+        "end": "2026-03-23T10:55:31.794111+00:00",
+        "duration_s": 20.793,
+        "prompt_tokens": 1373,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2397,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:55:11.247604+00:00",
+        "end": "2026-03-23T10:55:32.399056+00:00",
+        "duration_s": 21.151,
+        "prompt_tokens": 1411,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2435,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:55:10.998990+00:00",
+        "end": "2026-03-23T10:55:51.205239+00:00",
+        "duration_s": 40.206,
+        "prompt_tokens": 1546,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3594,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0563
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:55:51.224786+00:00",
+        "end": "2026-03-23T10:56:32.280059+00:00",
+        "duration_s": 41.055,
+        "prompt_tokens": 5613,
+        "cached_prompt_tokens": 482,
+        "completion_tokens": 2048,
+        "total_tokens": 7661,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0859
+      }
+    ]
+  },
+  {
+    "topic_id": "7",
+    "topic": "Global Autonomous Vehicle Market",
+    "year": "2025",
+    "worker_id": 1,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11605,
+      "total_cached_prompt_tokens": 813,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19797,
+      "wall_time_s": 99.657,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 813
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:54:52.499833+00:00",
+        "end": "2026-03-23T10:55:11.379455+00:00",
+        "duration_s": 18.88,
+        "prompt_tokens": 308,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1332,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1851
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:55:11.642518+00:00",
+        "end": "2026-03-23T10:55:32.011245+00:00",
+        "duration_s": 20.369,
+        "prompt_tokens": 1374,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2398,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:55:11.397732+00:00",
+        "end": "2026-03-23T10:55:32.427570+00:00",
+        "duration_s": 21.03,
+        "prompt_tokens": 1412,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2436,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:55:11.392049+00:00",
+        "end": "2026-03-23T10:55:32.428569+00:00",
+        "duration_s": 21.037,
+        "prompt_tokens": 1350,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2374,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0422
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:55:11.394627+00:00",
+        "end": "2026-03-23T10:55:51.968039+00:00",
+        "duration_s": 40.573,
+        "prompt_tokens": 1547,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3595,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0562
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:55:51.986984+00:00",
+        "end": "2026-03-23T10:56:32.144023+00:00",
+        "duration_s": 40.157,
+        "prompt_tokens": 5614,
+        "cached_prompt_tokens": 493,
+        "completion_tokens": 2048,
+        "total_tokens": 7662,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0878
+      }
+    ]
+  },
+  {
+    "topic_id": "8",
+    "topic": "Global Enterprise Software Market",
+    "year": "2025",
+    "worker_id": 3,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11606,
+      "total_cached_prompt_tokens": 802,
+      "total_completion_tokens": 7873,
+      "total_tokens": 19479,
+      "wall_time_s": 93.781,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 802
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:54:52.749993+00:00",
+        "end": "2026-03-23T10:55:11.919137+00:00",
+        "duration_s": 19.169,
+        "prompt_tokens": 308,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1332,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1851
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:55:11.938288+00:00",
+        "end": "2026-03-23T10:55:32.169159+00:00",
+        "duration_s": 20.231,
+        "prompt_tokens": 1412,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2436,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:55:11.932342+00:00",
+        "end": "2026-03-23T10:55:32.169546+00:00",
+        "duration_s": 20.237,
+        "prompt_tokens": 1350,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2374,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0422
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:55:11.940704+00:00",
+        "end": "2026-03-23T10:55:32.684502+00:00",
+        "duration_s": 20.744,
+        "prompt_tokens": 1374,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2398,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:55:11.931857+00:00",
+        "end": "2026-03-23T10:55:52.197664+00:00",
+        "duration_s": 40.266,
+        "prompt_tokens": 1547,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3595,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0562
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:55:52.214193+00:00",
+        "end": "2026-03-23T10:56:26.517909+00:00",
+        "duration_s": 34.304,
+        "prompt_tokens": 5615,
+        "cached_prompt_tokens": 482,
+        "completion_tokens": 1729,
+        "total_tokens": 7344,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0858
+      }
+    ]
+  },
+  {
+    "topic_id": "9",
+    "topic": "Global Fintech Market",
+    "year": "2025",
+    "worker_id": 4,
+    "status": "success",
+    "error": null,
+    "summary": {
+      "total_prompt_tokens": 11606,
+      "total_cached_prompt_tokens": 804,
+      "total_completion_tokens": 8192,
+      "total_tokens": 19798,
+      "wall_time_s": 103.518,
+      "llm_calls": 6,
+      "prefill_cached_tokens": 804
+    },
+    "agent_timings": [
+      {
+        "agent": "Planning Coordinator",
+        "start": "2026-03-23T10:56:13.496533+00:00",
+        "end": "2026-03-23T10:56:32.979411+00:00",
+        "duration_s": 19.483,
+        "prompt_tokens": 309,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 1333,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.1845
+      },
+      {
+        "agent": "Data Collector",
+        "start": "2026-03-23T10:56:32.996956+00:00",
+        "end": "2026-03-23T10:56:53.134674+00:00",
+        "duration_s": 20.138,
+        "prompt_tokens": 1350,
+        "cached_prompt_tokens": 57,
+        "completion_tokens": 1024,
+        "total_tokens": 2374,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0422
+      },
+      {
+        "agent": "Risk Assessor",
+        "start": "2026-03-23T10:56:32.999953+00:00",
+        "end": "2026-03-23T10:56:53.213626+00:00",
+        "duration_s": 20.214,
+        "prompt_tokens": 1412,
+        "cached_prompt_tokens": 59,
+        "completion_tokens": 1024,
+        "total_tokens": 2436,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0418
+      },
+      {
+        "agent": "Trend Scout",
+        "start": "2026-03-23T10:56:33.250278+00:00",
+        "end": "2026-03-23T10:56:53.335227+00:00",
+        "duration_s": 20.085,
+        "prompt_tokens": 1374,
+        "cached_prompt_tokens": 60,
+        "completion_tokens": 1024,
+        "total_tokens": 2398,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0437
+      },
+      {
+        "agent": "Deep Analyst",
+        "start": "2026-03-23T10:56:33.000315+00:00",
+        "end": "2026-03-23T10:57:13.505370+00:00",
+        "duration_s": 40.505,
+        "prompt_tokens": 1547,
+        "cached_prompt_tokens": 87,
+        "completion_tokens": 2048,
+        "total_tokens": 3595,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0562
+      },
+      {
+        "agent": "Report Synthesizer",
+        "start": "2026-03-23T10:57:13.536828+00:00",
+        "end": "2026-03-23T10:57:56.995787+00:00",
+        "duration_s": 43.459,
+        "prompt_tokens": 5614,
+        "cached_prompt_tokens": 484,
+        "completion_tokens": 2048,
+        "total_tokens": 7662,
+        "llm_calls": 1,
+        "prefill_cache_hit_rate": 0.0862
+      }
+    ]
+  }
+]

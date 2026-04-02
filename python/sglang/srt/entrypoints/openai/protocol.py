@@ -19,16 +19,6 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple, TypeAlias, Union
 
-from openai.types.responses import (
-    ResponseFunctionToolCall,
-    ResponseInputItemParam,
-    ResponseOutputItem,
-    ResponseOutputMessage,
-    ResponseOutputText,
-    ResponseReasoningItem,
-)
-from openai.types.responses.response import ToolChoice
-from openai.types.responses.tool import Tool
 from pydantic import (
     BaseModel,
     Field,
@@ -37,6 +27,31 @@ from pydantic import (
     model_validator,
 )
 from typing_extensions import Literal
+
+try:
+    from openai.types.responses import (  # type: ignore
+        ResponseFunctionToolCall,
+        ResponseInputItemParam,
+        ResponseOutputItem,
+        ResponseOutputMessage,
+        ResponseOutputText,
+        ResponseReasoningItem,
+    )
+except Exception:  # pragma: no cover
+    # `openai` (and its transitive deps) is optional for serving. Some
+    # environments may have intermittent filesystem issues when importing
+    # heavy dependencies (e.g., pygments). Fallback to lightweight stubs so
+    # the server can still start and serve /v1/chat/completions.
+
+    class _OpenAIResponsesStub(BaseModel):
+        pass
+
+    ResponseFunctionToolCall = _OpenAIResponsesStub
+    ResponseInputItemParam = _OpenAIResponsesStub
+    ResponseOutputItem = _OpenAIResponsesStub
+    ResponseOutputMessage = _OpenAIResponsesStub
+    ResponseOutputText = _OpenAIResponsesStub
+    ResponseReasoningItem = _OpenAIResponsesStub
 
 try:
     from xgrammar import StructuralTag
@@ -257,9 +272,12 @@ class CompletionRequest(BaseModel):
     temperature: float = 1.0
     top_p: float = 1.0
     user: Optional[str] = None
+    # Optional caller-specified identifier. Useful when proxy/router strips custom headers.
+    safety_identifier: Optional[str] = None
     return_hidden_states: bool = False
     return_routed_experts: bool = False
     return_cached_tokens_details: bool = False
+    return_resume_token_ids: bool = False
 
     # Extra parameters for SRT backend only and will be ignored by OpenAI models.
     top_k: int = -1
@@ -317,6 +335,8 @@ class SglExt(BaseModel):
 
     routed_experts: Optional[str] = None
     cached_tokens_details: Optional[CachedTokensDetails] = None
+    input_token_ids: Optional[List[int]] = None
+    output_token_ids: Optional[List[int]] = None
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler):
@@ -472,7 +492,7 @@ class ChatCompletionMessageGenericParam(BaseModel):
     name: Optional[str] = None
     reasoning_content: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = Field(default=None, examples=[None])
-    tools: Optional[List[Tool]] = Field(default=None, examples=[None])
+    tools: Optional[List["Tool"]] = Field(default=None, examples=[None])
 
     @field_validator("role", mode="before")
     @classmethod
@@ -558,6 +578,8 @@ class ChatCompletionRequest(BaseModel):
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     user: Optional[str] = None
+    # Optional caller-specified identifier. Useful when proxy/router strips custom headers.
+    safety_identifier: Optional[str] = None
     tools: Optional[List[Tool]] = Field(default=None, examples=[None])
     tool_choice: Union[ToolChoice, Literal["auto", "required", "none"]] = Field(
         default="auto", examples=["none"]
@@ -565,6 +587,7 @@ class ChatCompletionRequest(BaseModel):
     return_hidden_states: bool = False
     return_routed_experts: bool = False
     return_cached_tokens_details: bool = False
+    return_resume_token_ids: bool = False
     reasoning_effort: Optional[Literal["low", "medium", "high"]] = Field(
         default="medium",
         description="Constrains effort on reasoning for reasoning models. "
@@ -586,6 +609,7 @@ class ChatCompletionRequest(BaseModel):
     ignore_eos: bool = False
     continue_final_message: bool = False
     skip_special_tokens: bool = True
+    input_ids: Optional[List[int]] = None
     lora_path: Optional[Union[List[Optional[str]], Optional[str]]] = None
     session_params: Optional[Dict] = None
     separate_reasoning: bool = True
@@ -1135,6 +1159,8 @@ class ResponsesRequest(BaseModel):
     top_p: Optional[float] = None
     truncation: Optional[Literal["auto", "disabled"]] = "disabled"
     user: Optional[str] = None
+    # Optional caller-specified identifier. Useful when proxy/router strips custom headers.
+    safety_identifier: Optional[str] = None
 
     # Extra SGLang parameters
     request_id: str = Field(

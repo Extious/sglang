@@ -45,16 +45,21 @@ def apply_torchao_config_to_model(
     if torchao_config == "" or torchao_config is None:
         return model
 
-    # Lazy import to suppress some warnings
-    from torchao.quantization import (
-        float8_dynamic_activation_float8_weight,
-        float8_weight_only,
-        int4_weight_only,
-        int8_dynamic_activation_int8_weight,
-        int8_weight_only,
-        quantize_,
-    )
-    from torchao.quantization.observer import PerRow, PerTensor
+    try:
+        from torchao.quantization import (
+            float8_dynamic_activation_float8_weight,
+            float8_weight_only,
+            int4_weight_only,
+            int8_dynamic_activation_int8_weight,
+            int8_weight_only,
+            quantize_,
+        )
+        from torchao.quantization.observer import PerRow, PerTensor
+    except Exception as e:
+        raise ImportError(
+            "torchao is required when --torchao-config is set. "
+            "Install torchao or clear --torchao-config."
+        ) from e
 
     if "int8wo" in torchao_config:
         quantize_(model, int8_weight_only(), filter_fn=proj_filter_conv3d)

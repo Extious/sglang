@@ -264,7 +264,9 @@ class OpenAIServingChat(OpenAIServingBase):
         )
 
         # Handle single vs multiple requests
-        if is_multimodal:
+        if not is_multimodal and request.input_ids is not None:
+            prompt_kwargs = {"input_ids": request.input_ids}
+        elif is_multimodal:
             prompt_kwargs = {"text": processed_messages.prompt}
         else:
             if isinstance(processed_messages.prompt_ids, str):
@@ -274,6 +276,22 @@ class OpenAIServingChat(OpenAIServingBase):
 
         # Extract custom labels from raw request headers
         custom_labels = self.extract_custom_labels(raw_request)
+
+        # Agent attribution:
+        # 1) explicit header, 2) OpenAI user, 3) safety_identifier, 4) metadata hint.
+        agent_id = None
+        if raw_request is not None:
+            agent_id = raw_request.headers.get("x-sglang-agent-id")
+        if not agent_id:
+            agent_id = request.user
+        if not agent_id:
+            agent_id = getattr(request, "safety_identifier", None)
+        if not agent_id:
+            metadata = getattr(request, "metadata", None)
+            if isinstance(metadata, dict):
+                agent_id = metadata.get("agent_id") or metadata.get(
+                    "x_sglang_agent_id"
+                )
 
         # Resolve LoRA adapter from model parameter or explicit lora_path
         lora_path = self._resolve_lora_path(request.model, request.lora_path)
@@ -306,6 +324,7 @@ class OpenAIServingChat(OpenAIServingBase):
             routing_key=self.extract_routing_key(raw_request),
             custom_labels=custom_labels,
             custom_logit_processor=request.custom_logit_processor,
+            agent_id=agent_id,
             image_max_dynamic_patch=img_max_dynamic_patch,
             video_max_dynamic_patch=vid_max_dynamic_patch,
             max_dynamic_patch=getattr(request, "max_dynamic_patch", None),
@@ -617,6 +636,7 @@ class OpenAIServingChat(OpenAIServingBase):
         n_prev_tokens = {}
         has_tool_calls = {}
         finish_reasons = {}
+        prompt_token_ids_sent = {}
 
         # Usage tracking
         prompt_tokens = {}
@@ -624,6 +644,20 @@ class OpenAIServingChat(OpenAIServingBase):
         cached_tokens = {}
         hidden_states = {}
         routed_experts = {}
+        cached_tokens_details = {}
+        cache_details_sent = {}
+
+        def _get_resume_input_token_ids(index: int) -> Optional[List[int]]:
+            if not request.return_resume_token_ids:
+                return None
+            input_ids = adapted_request.input_ids
+            if input_ids is None:
+                return None
+            if isinstance(input_ids, list) and input_ids and isinstance(input_ids[0], list):
+                return input_ids[index]
+            if isinstance(input_ids, list):
+                return input_ids
+            return None
 
         try:
             async for content in self.tokenizer_manager.generate_request(
@@ -636,6 +670,9 @@ class OpenAIServingChat(OpenAIServingBase):
                 cached_tokens[index] = content["meta_info"].get("cached_tokens", 0)
                 hidden_states[index] = content["meta_info"].get("hidden_states", None)
                 routed_experts[index] = content["meta_info"].get("routed_experts", None)
+                cached_tokens_details[index] = content["meta_info"].get(
+                    "cached_tokens_details", None
+                )
 
                 # Handle logprobs
                 finish_reason = content["meta_info"]["finish_reason"]
@@ -660,6 +697,31 @@ class OpenAIServingChat(OpenAIServingBase):
                 if finish_reason_type:
                     finish_reasons[index] = finish_reason
 
+                if request.return_cached_tokens_details and not cache_details_sent.get(
+                    index, False
+                ):
+                    cache_details_sent[index] = True
+                    cache_details = cached_tokens_details.get(index)
+                    if cache_details is not None:
+                        cache_details_chunk = ChatCompletionStreamResponse(
+                            id=content["meta_info"]["id"],
+                            created=int(time.time()),
+                            choices=[],
+                            model=request.model,
+                            sglext=SglExt(cached_tokens_details=cache_details),
+                        )
+                        yield f"data: {cache_details_chunk.model_dump_json()}\n\n"
+
+                if request.return_resume_token_ids and content.get("output_ids"):
+                    token_ids_chunk = ChatCompletionStreamResponse(
+                        id=content["meta_info"]["id"],
+                        created=int(time.time()),
+                        choices=[],
+                        model=request.model,
+                        sglext=SglExt(output_token_ids=content["output_ids"]),
+                    )
+                    yield f"data: {token_ids_chunk.model_dump_json()}\n\n"
+
                 # First chunk with role
                 if is_firsts.get(index, True):
                     is_firsts[index] = False
@@ -676,6 +738,13 @@ class OpenAIServingChat(OpenAIServingBase):
                         choices=[choice_data],
                         model=request.model,
                     )
+                    input_token_ids = _get_resume_input_token_ids(index)
+                    if (
+                        input_token_ids is not None
+                        and not prompt_token_ids_sent.get(index, False)
+                    ):
+                        prompt_token_ids_sent[index] = True
+                        chunk.sglext = SglExt(input_token_ids=input_token_ids)
                     yield f"data: {chunk.model_dump_json()}\n\n"
 
                 stream_buffer = stream_buffers.get(index, "")

@@ -221,6 +221,22 @@ class OpenAIServingResponses(OpenAIServingChat):
                 "streaming mode"
             )
 
+        # Agent attribution:
+        # 1) explicit header, 2) OpenAI user, 3) safety_identifier, 4) metadata hint.
+        agent_id = None
+        if raw_request is not None:
+            agent_id = raw_request.headers.get("x-sglang-agent-id")
+        if not agent_id:
+            agent_id = getattr(request, "user", None)
+        if not agent_id:
+            agent_id = getattr(request, "safety_identifier", None)
+        if not agent_id:
+            metadata = getattr(request, "metadata", None)
+            if isinstance(metadata, dict):
+                agent_id = metadata.get("agent_id") or metadata.get(
+                    "x_sglang_agent_id"
+                )
+
         # Schedule the request and get the result generator
         generators: list[AsyncGenerator[Any, None]] = []
         tool_list = []
@@ -282,6 +298,7 @@ class OpenAIServingResponses(OpenAIServingChat):
                         rid=request.request_id,
                         extra_key=self._compute_extra_key(request),
                         background=request.background,
+                        agent_id=agent_id,
                     )
 
                     generator = self._generate_with_builtin_tools(
@@ -1304,6 +1321,7 @@ class OpenAIServingResponses(OpenAIServingChat):
                 return_text_in_logprobs=adapted_request.return_text_in_logprobs,
                 return_hidden_states=adapted_request.return_hidden_states,
                 background=adapted_request.background,
+                agent_id=adapted_request.agent_id,
             )
 
             # Update sampling params with reduced max_tokens

@@ -46,7 +46,7 @@ import orjson
 import requests
 import uvicorn
 import uvloop
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse, Response, StreamingResponse
@@ -105,6 +105,7 @@ from sglang.srt.managers.io_struct import (
     ContinueGenerationReqInput,
     DestroyWeightsUpdateGroupReqInput,
     DumperControlReqInput,
+    DumpRadixTreeReqInput,
     EmbeddingReqInput,
     GenerateReqInput,
     GetWeightsByNameReqInput,
@@ -196,6 +197,21 @@ def get_global_state() -> _GlobalState:
     return _global_state
 
 
+def require_initialized_global_state() -> _GlobalState:
+    global_state = get_global_state()
+    if global_state is None:
+        raise RuntimeError("HTTP server startup aborted because global state is not initialized.")
+    if global_state.tokenizer_manager is None:
+        raise RuntimeError(
+            "HTTP server startup aborted because tokenizer manager is unavailable."
+        )
+    if global_state.template_manager is None:
+        raise RuntimeError(
+            "HTTP server startup aborted because template manager is unavailable."
+        )
+    return global_state
+
+
 async def init_multi_tokenizer() -> ServerArgs:
     """
     Initialization function for multi-process tokenizer mode.
@@ -257,7 +273,10 @@ async def lifespan(fast_api_app: FastAPI):
         # Initialize multi-tokenizer support for worker processes
         server_args = await init_multi_tokenizer()
         warmup_thread_kwargs = dict(server_args=server_args)
-        thread_label = f"MultiTokenizer-{_global_state.tokenizer_manager.worker_id}"
+        global_state = require_initialized_global_state()
+        thread_label = f"MultiTokenizer-{global_state.tokenizer_manager.worker_id}"
+
+    global_state = require_initialized_global_state()
 
     # Add prometheus middleware
     if server_args.enable_metrics:
@@ -275,32 +294,30 @@ async def lifespan(fast_api_app: FastAPI):
 
     # Initialize OpenAI serving handlers
     fast_api_app.state.openai_serving_completion = OpenAIServingCompletion(
-        _global_state.tokenizer_manager, _global_state.template_manager
+        global_state.tokenizer_manager, global_state.template_manager
     )
     fast_api_app.state.openai_serving_chat = OpenAIServingChat(
-        _global_state.tokenizer_manager, _global_state.template_manager
+        global_state.tokenizer_manager, global_state.template_manager
     )
     fast_api_app.state.openai_serving_embedding = OpenAIServingEmbedding(
-        _global_state.tokenizer_manager, _global_state.template_manager
+        global_state.tokenizer_manager, global_state.template_manager
     )
     fast_api_app.state.openai_serving_classify = OpenAIServingClassify(
-        _global_state.tokenizer_manager, _global_state.template_manager
+        global_state.tokenizer_manager, global_state.template_manager
     )
-    fast_api_app.state.openai_serving_score = OpenAIServingScore(
-        _global_state.tokenizer_manager
-    )
+    fast_api_app.state.openai_serving_score = OpenAIServingScore(global_state.tokenizer_manager)
     fast_api_app.state.openai_serving_rerank = OpenAIServingRerank(
-        _global_state.tokenizer_manager, _global_state.template_manager
+        global_state.tokenizer_manager, global_state.template_manager
     )
     fast_api_app.state.openai_serving_tokenize = OpenAIServingTokenize(
-        _global_state.tokenizer_manager
+        global_state.tokenizer_manager
     )
     fast_api_app.state.openai_serving_detokenize = OpenAIServingDetokenize(
-        _global_state.tokenizer_manager
+        global_state.tokenizer_manager
     )
 
     # Initialize Ollama-compatible serving handler
-    fast_api_app.state.ollama_serving = OllamaServing(_global_state.tokenizer_manager)
+    fast_api_app.state.ollama_serving = OllamaServing(global_state.tokenizer_manager)
 
     # Initialize Anthropic-compatible serving handler
     fast_api_app.state.anthropic_serving = AnthropicServing(
@@ -325,8 +342,8 @@ async def lifespan(fast_api_app: FastAPI):
         )
 
         fast_api_app.state.openai_serving_responses = OpenAIServingResponses(
-            _global_state.tokenizer_manager,
-            _global_state.template_manager,
+            global_state.tokenizer_manager,
+            global_state.template_manager,
             enable_prompt_tokens_details=True,
             enable_force_include_usage=True,
             tool_server=tool_server,
@@ -340,7 +357,7 @@ async def lifespan(fast_api_app: FastAPI):
         await execute_warmups(
             server_args.disaggregation_mode,
             server_args.warmups.split(","),
-            _global_state.tokenizer_manager,
+            global_state.tokenizer_manager,
         )
         logger.info("Warmup ended")
 
@@ -649,6 +666,10 @@ if os.environ.get("SGLANG_DUMPER_SERVER_PORT") == "reuse":
 @app.api_route("/generate", methods=["POST", "PUT"])
 async def generate_request(obj: GenerateReqInput, request: Request):
     """Handle a generate request."""
+    if not getattr(obj, "agent_id", None) and request is not None:
+        agent_id = request.headers.get("x-sglang-agent-id")
+        if agent_id:
+            obj.agent_id = agent_id
     if obj.stream:
 
         async def stream_results() -> AsyncIterator[bytes]:
@@ -681,6 +702,35 @@ async def generate_request(obj: GenerateReqInput, request: Request):
         except ValueError as e:
             logger.error(f"[http_server] Error: {e}")
             return _create_error_response(e)
+
+
+@app.api_route("/generate_from_file", methods=["POST"])
+async def generate_from_file_request(file: UploadFile, request: Request):
+    """Handle a generate request, this is purely to work with input_embeds."""
+    content = await file.read()
+    input_embeds = orjson.loads(content.decode("utf-8"))
+
+    obj = GenerateReqInput(
+        input_embeds=input_embeds,
+        sampling_params={
+            "temperature": 0.0,
+            "max_new_tokens": 512,
+        },
+    )
+    if not getattr(obj, "agent_id", None) and request is not None:
+        agent_id = request.headers.get("x-sglang-agent-id")
+        if agent_id:
+            obj.agent_id = agent_id
+
+    try:
+        ret = await _global_state.tokenizer_manager.generate_request(
+            obj, request
+        ).__anext__()
+        return ret
+    except ValueError as e:
+        logger.error(f"Error: {e}")
+        return _create_error_response(e)
+
 
 
 @app.api_route("/encode", methods=["POST", "PUT"])
@@ -717,6 +767,61 @@ async def flush_cache():
         "(When there are running or waiting requests, the operation will not be performed.)\n",
         status_code=200 if ret.success else HTTPStatus.BAD_REQUEST,
     )
+
+
+@app.get("/radixtree")
+async def radixtree(
+    include_prefix: bool = True,
+    include_segment: bool = True,
+    include_text: bool = True,
+    max_nodes: int = 2000,
+    max_depth: int = 64,
+    max_tokens_per_node: int = 4096,
+    strict_sync: bool = True,
+    sync_timeout_s: float = 5.0,
+):
+    obj = DumpRadixTreeReqInput(
+        include_prefix=include_prefix,
+        include_segment=include_segment,
+        max_nodes=max_nodes,
+        max_depth=max_depth,
+        max_tokens_per_node=max_tokens_per_node,
+        strict_sync=strict_sync,
+        sync_timeout_s=sync_timeout_s,
+    )
+    trees = await _global_state.tokenizer_manager.dump_radix_tree(obj)
+
+    if not include_text:
+        return trees
+
+    tokenizer = getattr(_global_state.tokenizer_manager, "tokenizer", None)
+    if tokenizer is None:
+        return trees
+
+    def _decode(token_ids: List[int]) -> str:
+        try:
+            return tokenizer.decode(token_ids, skip_special_tokens=False)
+        except Exception:
+            try:
+                return tokenizer.decode(token_ids)
+            except Exception:
+                return ""
+
+    for tree in trees:
+        if not isinstance(tree, dict):
+            continue
+        nodes = tree.get("nodes", [])
+        if not isinstance(nodes, list):
+            continue
+        for n in nodes:
+            if not isinstance(n, dict):
+                continue
+            if "segmentTokenIds" in n and isinstance(n["segmentTokenIds"], list):
+                n["segmentText"] = _decode(n["segmentTokenIds"])
+            if "prefixTokenIds" in n and isinstance(n["prefixTokenIds"], list):
+                n["prefixText"] = _decode(n["prefixTokenIds"])
+
+    return trees
 
 
 @app.api_route("/clear_hicache_storage_backend", methods=["GET", "POST"])
@@ -1755,17 +1860,64 @@ def _execute_server_warmup(server_args: ServerArgs):
         ).tolist()
         json_data["sampling_params"]["max_new_tokens"] = 0
 
+    def _get_default_timeout() -> int:
+        return warmup_timeout if warmup_timeout > 0 else 600
+
+    def _build_warmup_payloads(base_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+        peer_storage_backend = server_args.hicache_storage_backend in (
+            "peer",
+            "PeerCacheStorage",
+        )
+        use_sequential_dp_warmup = (
+            server_args.disaggregation_mode == "null"
+            and server_args.dp_size > 1
+            and peer_storage_backend
+            and request_name == "/generate"
+        )
+        if not use_sequential_dp_warmup:
+            return [base_payload]
+
+        logger.info(
+            "Using sequential per-DP warmup for peer-backed HiCache."
+        )
+
+        payloads: List[Dict[str, Any]] = []
+        for dp_rank in range(server_args.dp_size):
+            payload: Dict[str, Any] = {
+                "sampling_params": dict(base_payload["sampling_params"]),
+                "data_parallel_rank": dp_rank,
+                "rid": f"WARMUP_DP_{dp_rank}",
+            }
+            if "input_ids" in base_payload:
+                payload["input_ids"] = [10 + dp_rank, 11, 12]
+            elif "text" in base_payload:
+                payload["text"] = f"The capital city of France is warmup rank {dp_rank}."
+            else:
+                payload.update(base_payload)
+            payloads.append(payload)
+        return payloads
+
     # Send a warmup request
     warmup_timeout = envs.SGLANG_WARMUP_TIMEOUT.get()
     try:
         if server_args.disaggregation_mode == "null":
-            res = requests.post(
-                url + request_name,
-                json=json_data,
-                headers=headers,
-                timeout=warmup_timeout if warmup_timeout > 0 else 600,
-            )
-            assert res.status_code == 200, f"{res.text}"
+            session = requests.Session()
+            session.trust_env = False
+            res = None
+            for payload in _build_warmup_payloads(json_data):
+                if "data_parallel_rank" in payload:
+                    logger.info(
+                        "Warmup sending request_name=%s to data_parallel_rank=%s",
+                        request_name,
+                        payload["data_parallel_rank"],
+                    )
+                res = session.post(
+                    url + request_name,
+                    json=payload,
+                    headers=headers,
+                    timeout=_get_default_timeout(),
+                )
+                assert res.status_code == 200, f"{res.text}"
             _global_state.tokenizer_manager.server_status = ServerStatus.Up
 
         else:

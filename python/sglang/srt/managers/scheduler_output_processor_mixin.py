@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
@@ -126,6 +127,14 @@ class SchedulerOutputProcessorMixin:
         batch: ScheduleBatch,
         result: Union[GenerationBatchResult, EmbeddingBatchResult],
     ):
+        debug_request_flow = os.getenv("SGLANG_DEBUG_REQUEST_FLOW") == "1" or any(
+            str(getattr(req, "rid", "")).startswith("WARMUP_") for req in batch.reqs
+        )
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW scheduler.prefill_output.start rids=%s",
+                [req.rid for req in batch.reqs],
+            )
         skip_stream_req = None
 
         if self.is_generation:
@@ -176,11 +185,35 @@ class SchedulerOutputProcessorMixin:
 
                     if req.finished():
                         self.maybe_collect_routed_experts(req)
+                        if hasattr(self, "handled_resume_epochs"):
+                            self.handled_resume_epochs.pop(req.rid, None)
+                        if hasattr(self.tree_cache, "clear_request_checkpoint_state"):
+                            self.tree_cache.clear_request_checkpoint_state(req.rid)
                         release_kv_cache(req, self.tree_cache)
                         req.time_stats.completion_time = time.perf_counter()
-                    elif not batch.decoding_reqs or req not in batch.decoding_reqs:
-                        # This updates radix so others can match
-                        self.tree_cache.cache_unfinished_req(req)
+                    else:
+                        if not batch.decoding_reqs or req not in batch.decoding_reqs:
+                            # This updates radix so others can match
+                            if debug_request_flow:
+                                logger.info(
+                                    "REQ_FLOW scheduler.prefill_output.before_cache rid=%s",
+                                    req.rid,
+                                )
+                            self.tree_cache.cache_unfinished_req(req)
+                            if debug_request_flow:
+                                logger.info(
+                                    "REQ_FLOW scheduler.prefill_output.after_cache rid=%s",
+                                    req.rid,
+                                )
+
+                        _replicator = getattr(
+                            self.tree_cache, "decode_kv_replicator", None
+                        )
+                        if _replicator is not None:
+                            last_hash = self.tree_cache.get_last_hash_for_req(
+                                req.origin_input_ids
+                            )
+                            _replicator.set_prefill_parent_hash(req, last_hash)
 
                     self.maybe_collect_customized_info(i, req, logits_output)
 
@@ -324,7 +357,17 @@ class SchedulerOutputProcessorMixin:
                     thread_finish_flag=req.finished(),
                 )
 
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW scheduler.prefill_output.before_stream rids=%s",
+                [req.rid for req in batch.reqs],
+            )
         self.stream_output(batch.reqs, batch.return_logprob, skip_stream_req)
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW scheduler.prefill_output.after_stream rids=%s",
+                [req.rid for req in batch.reqs],
+            )
 
         if self.current_scheduler_metrics_enabled:
             can_run_cuda_graph = getattr(result, "can_run_cuda_graph", False)
@@ -471,6 +514,14 @@ class SchedulerOutputProcessorMixin:
 
             if req.finished():
                 self.maybe_collect_routed_experts(req)
+                if hasattr(self, "handled_resume_epochs"):
+                    self.handled_resume_epochs.pop(req.rid, None)
+
+                _replicator = getattr(self.tree_cache, "decode_kv_replicator", None)
+                if _replicator is not None:
+                    _replicator.on_request_finished(req)
+                elif hasattr(self.tree_cache, "clear_request_checkpoint_state"):
+                    self.tree_cache.clear_request_checkpoint_state(req.rid)
 
                 if self.server_args.disaggregation_decode_enable_offload_kvcache:
                     # Asynchronously offload KV cache; release_kv_cache will be called after Device->Host transfer completes
@@ -525,6 +576,10 @@ class SchedulerOutputProcessorMixin:
                     )
                     self.abort_request(AbortReq(rid=req.rid))
                 req.grammar.finished = req.finished()
+
+        _replicator = getattr(self.tree_cache, "decode_kv_replicator", None)
+        if _replicator is not None:
+            _replicator.on_decode_step(batch)
 
         self.stream_output(batch.reqs, batch.return_logprob)
         self.token_to_kv_pool_allocator.free_group_end()

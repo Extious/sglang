@@ -192,10 +192,15 @@ class SchedulePolicy:
         for r in waiting_queue:
             prefix_ids = r.origin_input_ids + r.output_ids
             extra_key = r.extra_key
+            agent_id = getattr(r, "agent_id", None)
+            agent_req_id = getattr(r, "rid", None)
+
             # NOTE: the prefix_indices must always be aligned with last_node
             match_result = self.tree_cache.match_prefix(
                 MatchPrefixParams(
-                    key=RadixKey(token_ids=prefix_ids, extra_key=extra_key)
+                    key=RadixKey(token_ids=prefix_ids, extra_key=extra_key),
+                    agent_id=agent_id,
+                    agent_req_id=agent_req_id,
                 )
             )
             (
@@ -220,7 +225,9 @@ class SchedulePolicy:
             if len(r.prefix_indices) <= IN_BATCH_PREFIX_CACHING_CHECK_THRESHOLD:
                 match_result = self.waiting_queue_radix_tree.match_prefix(
                     MatchPrefixParams(
-                        key=RadixKey(token_ids=prefix_ids, extra_key=extra_key)
+                        key=RadixKey(token_ids=prefix_ids, extra_key=extra_key),
+                        agent_id=agent_id,
+                        agent_req_id=agent_req_id,
                     )
                 )
                 in_batch_matching_prefixes = match_result.device_indices
@@ -235,6 +242,8 @@ class SchedulePolicy:
                         InsertParams(
                             key=RadixKey(token_ids=prefix_ids, extra_key=extra_key),
                             value=torch.empty(len(prefix_ids), dtype=torch.bool),
+                            agent_id=agent_id,
+                            agent_req_id=agent_req_id,
                         )
                     )
         return temporary_deprioritized
@@ -757,6 +766,7 @@ class PrefillAdder:
                     req.last_host_node, req.host_hit_length
                 )
                 req.prefix_indices = torch.cat([req.prefix_indices, new_indices])
+                req.host_hit_length = len(new_indices)
                 req.set_extend_input_len(len(req.fill_ids) - len(req.prefix_indices))
                 prefix_len = len(req.prefix_indices)
                 req.cache_protected_len = prefix_len

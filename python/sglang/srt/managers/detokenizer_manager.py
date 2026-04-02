@@ -358,6 +358,15 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
         return routed_experts
 
     def handle_batch_token_id_out(self, recv_obj: BatchTokenIDOutput):
+        debug_request_flow = os.getenv("SGLANG_DEBUG_REQUEST_FLOW") == "1" or any(
+            str(rid).startswith("WARMUP_") for rid in recv_obj.rids
+        )
+        if debug_request_flow:
+            logger.info(
+                "REQ_FLOW detokenizer.recv_token_ids rids=%s finished=%s",
+                recv_obj.rids,
+                recv_obj.finished_reasons,
+            )
         # If handling idle batch, set output_strs to [].
         output_strs = (
             self._decode_batch_token_id_output(recv_obj)

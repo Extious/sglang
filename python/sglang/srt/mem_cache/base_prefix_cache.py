@@ -42,6 +42,10 @@ class MatchPrefixParams:
     cow_mamba: bool = False
     req: Optional[Req] = None
 
+    # Agent tracking
+    agent_id: Optional[str] = None
+    agent_req_id: Optional[str] = None
+
 
 @dataclasses.dataclass
 class InsertParams:
@@ -60,6 +64,10 @@ class InsertParams:
     # General
     chunked: bool = False
     priority: int = 0
+
+    # Agent tracking
+    agent_id: Optional[str] = None
+    agent_req_id: Optional[str] = None
 
 
 @dataclasses.dataclass

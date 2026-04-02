@@ -53,6 +53,8 @@ class HiCacheStorageConfig:
     is_mla_model: bool
     is_page_first_layout: bool
     model_name: Optional[str]
+    dp_rank: int = 0
+    dp_size: int = 1
     extra_config: Optional[dict] = None
 
 
@@ -60,6 +62,8 @@ class HiCacheStorageConfig:
 class HiCacheStorageExtraInfo:
     prefix_keys: Optional[List[str]] = (None,)
     extra_info: Optional[dict] = None
+    full_token_ids: Optional[List[int]] = None
+    page_start: int = 0
 
 
 class HiCacheStorage(ABC):

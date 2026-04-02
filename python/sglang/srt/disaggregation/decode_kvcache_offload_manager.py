@@ -7,7 +7,10 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from sglang.srt.managers.cache_controller import HiCacheController
+from sglang.srt.managers.cache_controller import (
+    HiCacheController,
+    StorageOperationKind,
+)
 from sglang.srt.mem_cache.allocator import BaseTokenToKVPoolAllocator
 from sglang.srt.mem_cache.base_prefix_cache import BasePrefixCache
 from sglang.srt.mem_cache.memory_pool import (
@@ -222,6 +225,7 @@ class DecodeKVCacheOffloadManager:
             host_indices,
             incremental_tokens,
             hash_value=page_hashes,
+            operation_kind=StorageOperationKind.DISAGGREGATED_OFFLOAD_BACKUP,
         )
         self.ongoing_backup[ack_id] = (req.rid, host_indices, start_time)
 

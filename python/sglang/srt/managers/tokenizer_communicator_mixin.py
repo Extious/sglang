@@ -36,6 +36,8 @@ from sglang.srt.managers.io_struct import (
     DetachHiCacheStorageReqOutput,
     DumperControlReqInput,
     DumperControlReqOutput,
+    DumpRadixTreeReqInput,
+    DumpRadixTreeReqOutput,
     ExpertDistributionReq,
     ExpertDistributionReqOutput,
     ExpertDistributionReqType,
@@ -220,6 +222,9 @@ class TokenizerCommunicatorMixin:
         self.get_internal_state_communicator = _Communicator(
             self.send_to_scheduler, server_args.dp_size
         )
+        self.dump_radix_tree_communicator = _Communicator(
+            self.send_to_scheduler, server_args.dp_size
+        )
         self.set_internal_state_communicator = _Communicator(
             self.send_to_scheduler, server_args.dp_size
         )
@@ -315,6 +320,10 @@ class TokenizerCommunicatorMixin:
                 (
                     GetInternalStateReqOutput,
                     self.get_internal_state_communicator.handle_recv,
+                ),
+                (
+                    DumpRadixTreeReqOutput,
+                    self.dump_radix_tree_communicator.handle_recv,
                 ),
                 (
                     SetInternalStateReqOutput,
@@ -861,6 +870,14 @@ class TokenizerCommunicatorMixin:
         )
         # Many DP ranks
         return [res.internal_state for res in responses]
+
+    async def dump_radix_tree(
+        self: TokenizerManager, obj: DumpRadixTreeReqInput
+    ) -> List[Dict[Any, Any]]:
+        responses: List[DumpRadixTreeReqOutput] = (
+            await self.dump_radix_tree_communicator(obj)
+        )
+        return [res.tree for res in responses]
 
     async def set_internal_state(
         self: TokenizerManager, obj: SetInternalStateReq

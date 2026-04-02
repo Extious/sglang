@@ -17,6 +17,14 @@ class StorageBackendFactory:
     """Factory for creating storage backend instances with support for dynamic loading."""
 
     _registry: Dict[str, Dict[str, Any]] = {}
+    _aliases: Dict[str, str] = {
+        "PeerCacheStorage": "peer",
+    }
+
+    @classmethod
+    def normalize_backend_name(cls, backend_name: str) -> str:
+        """Map legacy backend aliases to the canonical backend name."""
+        return cls._aliases.get(backend_name, backend_name)
 
     @staticmethod
     def _load_backend_class(
@@ -83,6 +91,8 @@ class StorageBackendFactory:
             ImportError: If backend module cannot be imported
             Exception: If backend initialization fails
         """
+        backend_name = cls.normalize_backend_name(backend_name)
+
         # First check if backend is already registered
         if backend_name in cls._registry:
             registry_entry = cls._registry[backend_name]
@@ -183,6 +193,8 @@ class StorageBackendFactory:
             return backend_class.from_env_config(bytes_per_page, dtype, storage_config)
         elif backend_name == "eic":
             return backend_class(storage_config, mem_pool_host)
+        elif backend_name == "peer":
+            return backend_class(storage_config, mem_pool_host)
         else:
             raise ValueError(f"Unknown built-in backend: {backend_name}")
 
@@ -220,4 +232,10 @@ StorageBackendFactory.register_backend(
     "eic",
     "sglang.srt.mem_cache.storage.eic.eic_storage",
     "EICStorage",
+)
+
+StorageBackendFactory.register_backend(
+    "peer",
+    "sglang.srt.mem_cache.storage.peer.peer_cache_storage",
+    "PeerCacheStorage",
 )

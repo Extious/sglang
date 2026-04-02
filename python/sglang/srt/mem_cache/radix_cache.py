@@ -117,6 +117,12 @@ class TreeNode:
         self.hash_value: Optional[List[str]] = None
         # priority for priority-aware eviction
         self.priority = priority
+        # agent attribution: {agent_id: hit_count}
+        self.agent_hits: dict = {}
+        # Per-node de-duplication (bounded): {agent_id: [recent_req_id, ...]}
+        # This keeps hit counts stable across internal cache operations, even if
+        # multiple requests from the same agent interleave.
+        self.agent_recent_req_ids: dict = {}
 
         self.id = TreeNode.counter if id is None else id
         TreeNode.counter += 1
@@ -410,7 +416,11 @@ class RadixCache(BasePrefixCache):
         if len(key) == 0:
             return empty_match_result()
 
-        value, last_node = self._match_prefix_helper(self.root_node, key)
+        agent_id = kwargs.get("agent_id", None)
+        agent_req_id = kwargs.get("agent_req_id", None)
+        value, last_node = self._match_prefix_helper(
+            self.root_node, key, agent_id=agent_id, agent_req_id=agent_req_id
+        )
         if value:
             value = torch.cat(value)
         else:
@@ -428,13 +438,22 @@ class RadixCache(BasePrefixCache):
         key = params.key
         value = params.value
         priority = params.priority
+        agent_id = params.agent_id
+        agent_req_id = params.agent_req_id
 
         if value is None:
             value = torch.tensor(key.token_ids, dtype=torch.int64)
 
         key, value = self.maybe_bigram_convert(key, value)
 
-        prefix_len = self._insert_helper(self.root_node, key, value, priority)
+        prefix_len = self._insert_helper(
+            self.root_node,
+            key,
+            value,
+            priority,
+            agent_id=agent_id,
+            agent_req_id=agent_req_id,
+        )
         return InsertResult(prefix_len=prefix_len)
 
     def _page_align_keys(self, key: list) -> list:
@@ -463,7 +482,10 @@ class RadixCache(BasePrefixCache):
         ]
 
         # Maybe convert to bigram keys for EAGLE
-        keys = convert_to_bigram_key(token_ids) if self.is_eagle else token_ids
+        # Use committed token ids so decode-generated KV is preserved on finished
+        # insertion. req.fill_ids may lag behind output_ids in decode-only rounds.
+        base_keys = req.fill_ids if req.is_dllm() else token_ids
+        keys = convert_to_bigram_key(base_keys) if self.is_eagle else base_keys
         keys = self._page_align_keys(keys)
         values = kv_indices[: len(keys)].to(dtype=torch.int64, copy=True)
         radix_key = RadixKey(keys, req.extra_key, is_bigram=self.is_eagle)
@@ -471,8 +493,16 @@ class RadixCache(BasePrefixCache):
         # Radix Cache takes one ref in memory pool
         if is_insert:
             priority = getattr(req, "priority", 0) or 0
+            agent_id = getattr(req, "agent_id", None)
+            agent_req_id = getattr(req, "rid", None)
             result = self.insert(
-                InsertParams(key=radix_key, value=values, priority=priority)
+                InsertParams(
+                    key=radix_key,
+                    value=values,
+                    priority=priority,
+                    agent_id=agent_id,
+                    agent_req_id=agent_req_id,
+                )
             )
             new_prefix_len = result.prefix_len
             # Free the duplicates that were already in the tree
@@ -507,12 +537,16 @@ class RadixCache(BasePrefixCache):
         radix_key = RadixKey(keys, req.extra_key, is_bigram=self.is_eagle)
 
         # Radix Cache takes one ref in memory pool
+        agent_id = getattr(req, "agent_id", None)
+        agent_req_id = getattr(req, "rid", None)
         result = self.insert(
             InsertParams(
                 key=radix_key,
                 value=values,
                 chunked=chunked,
                 priority=getattr(req, "priority", 0) or 0,
+                agent_id=agent_id,
+                agent_req_id=agent_req_id,
             )
         )
         new_prefix_len = result.prefix_len
@@ -522,7 +556,13 @@ class RadixCache(BasePrefixCache):
         )
 
         # The prefix indices could be updated, reuse it
-        match_result = self.match_prefix(MatchPrefixParams(key=radix_key))
+        match_result = self.match_prefix(
+            MatchPrefixParams(
+                key=radix_key,
+                agent_id=agent_id,
+                agent_req_id=agent_req_id,
+            )
+        )
         new_indices, new_last_node = (
             match_result.device_indices,
             match_result.last_device_node,
@@ -645,9 +685,33 @@ class RadixCache(BasePrefixCache):
 
     ##### Internal Helper Functions #####
 
-    def _match_prefix_helper(self, node: TreeNode, key: RadixKey):
+    def _inc_agent_hit(
+        self, node: TreeNode, agent_id: Optional[str], agent_req_id: Optional[str]
+    ) -> None:
+        if not agent_id:
+            return
+        if agent_req_id is not None:
+            recent = node.agent_recent_req_ids.get(agent_id)
+            if recent is None:
+                recent = []
+                node.agent_recent_req_ids[agent_id] = recent
+            if agent_req_id in recent:
+                return
+            recent.append(agent_req_id)
+            if len(recent) > 50:
+                del recent[0 : len(recent) - 50]
+        node.agent_hits[agent_id] = node.agent_hits.get(agent_id, 0) + 1
+
+    def _match_prefix_helper(
+        self,
+        node: TreeNode,
+        key: RadixKey,
+        agent_id: Optional[str] = None,
+        agent_req_id: Optional[str] = None,
+    ):
         access_time = time.monotonic()
         node.last_access_time = access_time
+        self._inc_agent_hit(node, agent_id, agent_req_id)
 
         child_key = self.get_child_key_fn(key)
 
@@ -658,10 +722,14 @@ class RadixCache(BasePrefixCache):
             prefix_len = self.key_match_fn(child.key, key)
             if prefix_len < len(child.key):
                 new_node = self._split_node(child.key, child, prefix_len)
+                # Count hit on the matched prefix node after split, not on the
+                # pre-split child branch that was only partially matched.
+                self._inc_agent_hit(new_node, agent_id, agent_req_id)
                 value.append(new_node.value)
                 node = new_node
                 break
             else:
+                self._inc_agent_hit(child, agent_id, agent_req_id)
                 value.append(child.value)
                 node = child
                 key = key[prefix_len:]
@@ -675,6 +743,10 @@ class RadixCache(BasePrefixCache):
         # new_node -> child
         # New node inherits child's priority (represents shared prefix)
         new_node = TreeNode(priority=child.priority)
+        new_node.agent_hits = dict(child.agent_hits)
+        new_node.agent_recent_req_ids = {
+            k: list(v) for k, v in (child.agent_recent_req_ids or {}).items()
+        }
         new_node.children = {self.get_child_key_fn(key[split_len:]): child}
         new_node.parent = child.parent
         new_node.lock_ref = child.lock_ref
@@ -692,7 +764,15 @@ class RadixCache(BasePrefixCache):
 
         return new_node
 
-    def _insert_helper(self, node: TreeNode, key: RadixKey, value, priority: int = 0):
+    def _insert_helper(
+        self,
+        node: TreeNode,
+        key: RadixKey,
+        value,
+        priority: int = 0,
+        agent_id: Optional[str] = None,
+        agent_req_id: Optional[str] = None,
+    ):
         # Convert None priority to 0
         if priority is None:
             priority = 0
@@ -700,6 +780,7 @@ class RadixCache(BasePrefixCache):
         node.last_access_time = access_time
         # Update priority along the path (take max to propagate higher priority)
         node.priority = max(node.priority, priority)
+        self._inc_agent_hit(node, agent_id, agent_req_id)
         if len(key) == 0:
             return 0
 
@@ -707,25 +788,30 @@ class RadixCache(BasePrefixCache):
 
         total_prefix_length = 0
         while len(key) > 0 and child_key in node.children.keys():
-            node = node.children[child_key]
-            node.last_access_time = access_time
-            prefix_len = self.key_match_fn(node.key, key)
+            child = node.children[child_key]
+            child.last_access_time = access_time
+            prefix_len = self.key_match_fn(child.key, key)
             total_prefix_length += prefix_len
             key = key[prefix_len:]
             value = value[prefix_len:]
 
-            if prefix_len < len(node.key):
-                new_node = self._split_node(node.key, node, prefix_len)
+            if prefix_len < len(child.key):
+                new_node = self._split_node(child.key, child, prefix_len)
+                # Count hit on the new shared-prefix node produced by split.
+                self._inc_agent_hit(new_node, agent_id, agent_req_id)
                 new_node.priority = max(new_node.priority, priority)
                 node = new_node
             else:
-                node.priority = max(node.priority, priority)
+                self._inc_agent_hit(child, agent_id, agent_req_id)
+                child.priority = max(child.priority, priority)
+                node = child
 
             if len(key):
                 child_key = self.get_child_key_fn(key)
 
         if len(key):
             new_node = TreeNode(priority=priority)
+            self._inc_agent_hit(new_node, agent_id, agent_req_id)
             new_node.parent = node
             new_node.key = key
             new_node.value = value.clone()

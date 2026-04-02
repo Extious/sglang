@@ -1,34 +1,56 @@
-from sglang.srt.configs.afmoe import AfmoeConfig
-from sglang.srt.configs.bailing_hybrid import BailingHybridConfig
-from sglang.srt.configs.chatglm import ChatGLMConfig
-from sglang.srt.configs.dbrx import DbrxConfig
-from sglang.srt.configs.deepseekvl2 import DeepseekVL2Config
-from sglang.srt.configs.dots_ocr import DotsOCRConfig
-from sglang.srt.configs.dots_vlm import DotsVLMConfig
-from sglang.srt.configs.exaone import ExaoneConfig
-from sglang.srt.configs.falcon_h1 import FalconH1Config
-from sglang.srt.configs.granitemoehybrid import GraniteMoeHybridConfig
-from sglang.srt.configs.janus_pro import MultiModalityConfig
-from sglang.srt.configs.jet_nemotron import JetNemotronConfig
-from sglang.srt.configs.jet_vlm import JetVLMConfig
-from sglang.srt.configs.kimi_k25 import KimiK25Config
-from sglang.srt.configs.kimi_linear import KimiLinearConfig
-from sglang.srt.configs.kimi_vl import KimiVLConfig
-from sglang.srt.configs.kimi_vl_moonvit import MoonViTConfig
-from sglang.srt.configs.lfm2 import Lfm2Config
-from sglang.srt.configs.lfm2_moe import Lfm2MoeConfig
-from sglang.srt.configs.longcat_flash import LongcatFlashConfig
-from sglang.srt.configs.nano_nemotron_vl import NemotronH_Nano_VL_V2_Config
-from sglang.srt.configs.nemotron_h import NemotronHConfig
-from sglang.srt.configs.olmo3 import Olmo3Config
-from sglang.srt.configs.qwen3_5 import Qwen3_5Config, Qwen3_5MoeConfig
-from sglang.srt.configs.qwen3_next import Qwen3NextConfig
-from sglang.srt.configs.step3_vl import (
-    Step3TextConfig,
-    Step3VisionEncoderConfig,
-    Step3VLConfig,
-)
-from sglang.srt.configs.step3p5 import Step3p5Config
+from __future__ import annotations
+
+from importlib import import_module
+from typing import Any
+
+
+def _optional_import(module: str, name: str) -> Any:
+    try:
+        obj = getattr(import_module(module), name)
+    except Exception as e:
+        obj = type(
+            name,
+            (),
+            {
+                "__sglang_optional_import_failed__": True,
+                "__sglang_import_error__": repr(e),
+            },
+        )
+        obj.__module__ = __name__
+    globals()[name] = obj
+    return obj
+
+
+AfmoeConfig = _optional_import("sglang.srt.configs.afmoe", "AfmoeConfig")
+BailingHybridConfig = _optional_import("sglang.srt.configs.bailing_hybrid", "BailingHybridConfig")
+ChatGLMConfig = _optional_import("sglang.srt.configs.chatglm", "ChatGLMConfig")
+DbrxConfig = _optional_import("sglang.srt.configs.dbrx", "DbrxConfig")
+DeepseekVL2Config = _optional_import("sglang.srt.configs.deepseekvl2", "DeepseekVL2Config")
+DotsOCRConfig = _optional_import("sglang.srt.configs.dots_ocr", "DotsOCRConfig")
+DotsVLMConfig = _optional_import("sglang.srt.configs.dots_vlm", "DotsVLMConfig")
+ExaoneConfig = _optional_import("sglang.srt.configs.exaone", "ExaoneConfig")
+FalconH1Config = _optional_import("sglang.srt.configs.falcon_h1", "FalconH1Config")
+GraniteMoeHybridConfig = _optional_import("sglang.srt.configs.granitemoehybrid", "GraniteMoeHybridConfig")
+MultiModalityConfig = _optional_import("sglang.srt.configs.janus_pro", "MultiModalityConfig")
+JetNemotronConfig = _optional_import("sglang.srt.configs.jet_nemotron", "JetNemotronConfig")
+JetVLMConfig = _optional_import("sglang.srt.configs.jet_vlm", "JetVLMConfig")
+KimiK25Config = _optional_import("sglang.srt.configs.kimi_k25", "KimiK25Config")
+KimiLinearConfig = _optional_import("sglang.srt.configs.kimi_linear", "KimiLinearConfig")
+KimiVLConfig = _optional_import("sglang.srt.configs.kimi_vl", "KimiVLConfig")
+MoonViTConfig = _optional_import("sglang.srt.configs.kimi_vl_moonvit", "MoonViTConfig")
+Lfm2Config = _optional_import("sglang.srt.configs.lfm2", "Lfm2Config")
+Lfm2MoeConfig = _optional_import("sglang.srt.configs.lfm2_moe", "Lfm2MoeConfig")
+LongcatFlashConfig = _optional_import("sglang.srt.configs.longcat_flash", "LongcatFlashConfig")
+NemotronH_Nano_VL_V2_Config = _optional_import("sglang.srt.configs.nano_nemotron_vl", "NemotronH_Nano_VL_V2_Config")
+NemotronHConfig = _optional_import("sglang.srt.configs.nemotron_h", "NemotronHConfig")
+Olmo3Config = _optional_import("sglang.srt.configs.olmo3", "Olmo3Config")
+Qwen3_5Config = _optional_import("sglang.srt.configs.qwen3_5", "Qwen3_5Config")
+Qwen3_5MoeConfig = _optional_import("sglang.srt.configs.qwen3_5", "Qwen3_5MoeConfig")
+Qwen3NextConfig = _optional_import("sglang.srt.configs.qwen3_next", "Qwen3NextConfig")
+Step3TextConfig = _optional_import("sglang.srt.configs.step3_vl", "Step3TextConfig")
+Step3VisionEncoderConfig = _optional_import("sglang.srt.configs.step3_vl", "Step3VisionEncoderConfig")
+Step3VLConfig = _optional_import("sglang.srt.configs.step3_vl", "Step3VLConfig")
+Step3p5Config = _optional_import("sglang.srt.configs.step3p5", "Step3p5Config")
 
 __all__ = [
     "AfmoeConfig",

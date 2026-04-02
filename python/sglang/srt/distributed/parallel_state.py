@@ -340,6 +340,24 @@ class GroupCoordinator:
                 device=self.device,
                 use_current_stream=pynccl_use_current_stream,
             )
+            if group_name == "pp":
+                # Warm the PP ring's P2P routes up front so the first real micro-batch
+                # does not stall inside NCCL's lazy P2P preconnect path.
+                warmup_stream = self.device_module.Stream()
+                send_tensor = torch.zeros(1, device=self.device, dtype=torch.int64)
+                recv_tensor = torch.empty_like(send_tensor)
+                with self.device_module.stream(
+                    warmup_stream
+                ), self.pynccl_comm.change_state(enable=True, stream=warmup_stream):
+                    self.pynccl_comm.group_start()
+                    self.pynccl_comm.send(
+                        send_tensor, (self.rank_in_group + 1) % self.world_size
+                    )
+                    self.pynccl_comm.recv(
+                        recv_tensor, (self.rank_in_group - 1) % self.world_size
+                    )
+                    self.pynccl_comm.group_end()
+                warmup_stream.synchronize()
 
         self.pymscclpp_comm: Optional[PyMscclppCommunicator] = None
         if use_pymscclpp and self.world_size > 1:
@@ -1021,8 +1039,9 @@ class GroupCoordinator:
         )
         send_func = torch.distributed.isend if async_send else torch.distributed.send
 
-        # Serialize object to tensor and get the size as well
-        object_tensor = torch.frombuffer(pickle.dumps(obj), dtype=torch.uint8)
+        # Use a writable buffer to avoid noisy torch.frombuffer warnings in logs.
+        serialized_obj = bytearray(pickle.dumps(obj))
+        object_tensor = torch.frombuffer(serialized_obj, dtype=torch.uint8)
         size_tensor = torch.tensor(
             [object_tensor.numel()], dtype=torch.long, device="cpu"
         )
@@ -1215,9 +1234,33 @@ class GroupCoordinator:
                 tensor = tensor.reshape(all_gather_size, -1)[all_gather_rank]
 
             comm_group = metadata_group if tensor.is_cpu else group
-            work = send_func(tensor, self.ranks[dst], group=comm_group)
-            if async_send:
-                p2p_works.append(P2PWork(work, tensor))
+            if comm_group is group and not getattr(
+                self, "_logged_tensor_dict_send_transport", False
+            ):
+                logger.info(
+                    "PP_TENSOR_TRANSPORT send group=%s transport=%s async=%s pynccl_available=%s pynccl_disabled=%s shape=%s dtype=%s",
+                    self.unique_name,
+                    "pynccl" if self.pynccl_comm is not None else "torch_distributed",
+                    async_send,
+                    self.pynccl_comm is not None,
+                    None if self.pynccl_comm is None else self.pynccl_comm.disabled,
+                    tuple(tensor.shape),
+                    tensor.dtype,
+                )
+                self._logged_tensor_dict_send_transport = True
+            if (
+                comm_group is group
+                and self.pynccl_comm is not None
+            ):
+                with self.pynccl_comm.change_state(enable=True):
+                    self.pynccl_comm.send(tensor, dst)
+                if async_send:
+                    # Keep a tensor reference until the next commit point.
+                    p2p_works.append(P2PWork(None, tensor))
+            else:
+                work = send_func(tensor, self.ranks[dst], group=comm_group)
+                if async_send:
+                    p2p_works.append(P2PWork(work, tensor))
         return p2p_works
 
     def recv_tensor_dict(
@@ -1266,10 +1309,30 @@ class GroupCoordinator:
 
                 # We have to use irecv here to make it work for both isend and send.
                 comm_group = metadata_group if tensor.is_cpu else group
-                work = torch.distributed.irecv(
-                    tensor, src=self.ranks[src], group=comm_group
-                )
-                work.wait()
+                if comm_group is group and not getattr(
+                    self, "_logged_tensor_dict_recv_transport", False
+                ):
+                    logger.info(
+                        "PP_TENSOR_TRANSPORT recv group=%s transport=%s pynccl_available=%s pynccl_disabled=%s shape=%s dtype=%s",
+                        self.unique_name,
+                        "pynccl" if self.pynccl_comm is not None else "torch_distributed",
+                        self.pynccl_comm is not None,
+                        None if self.pynccl_comm is None else self.pynccl_comm.disabled,
+                        tuple(tensor.shape),
+                        tensor.dtype,
+                    )
+                    self._logged_tensor_dict_recv_transport = True
+                if (
+                    comm_group is group
+                    and self.pynccl_comm is not None
+                ):
+                    with self.pynccl_comm.change_state(enable=True):
+                        self.pynccl_comm.recv(tensor, src)
+                else:
+                    work = torch.distributed.irecv(
+                        tensor, src=self.ranks[src], group=comm_group
+                    )
+                    work.wait()
 
                 if use_all_gather:
                     tensor = all_gather_group.all_gather(tensor, dim=0)

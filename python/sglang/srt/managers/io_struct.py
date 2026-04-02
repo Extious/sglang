@@ -266,6 +266,9 @@ class GenerateReqInput(BaseReq, APIServingTimingMixin):
     # Whether to return entropy
     return_entropy: bool = False
 
+    # Agent identifier for attribution tracking (from OpenAI 'user' field)
+    agent_id: Optional[str] = None
+
     # Propagates trace context via Engine.generate/async_generate
     external_trace_header: Optional[Dict] = None
 
@@ -682,6 +685,7 @@ class GenerateReqInput(BaseReq, APIServingTimingMixin):
             custom_labels=self.custom_labels,
             return_bytes=self.return_bytes,
             return_entropy=self.return_entropy,
+            agent_id=self.agent_id,
             external_trace_header=self.external_trace_header,
             http_worker_ipc=self.http_worker_ipc,
             **{
@@ -768,6 +772,14 @@ class TokenizedGenerateReqInput(BaseReq):
     # Whether to return entropy
     return_entropy: bool = False
 
+    # Agent identifier for attribution tracking
+    agent_id: Optional[str] = None
+
+    # Internal failover metadata used to keep PP resume scheduling aligned.
+    is_failover_resume: bool = False
+    resume_visible_output_len: int = 0
+    resume_checkpointed_output_len: int = 0
+
     need_wait_for_image: bool = False
     num_items_assigned: Optional[List] = None
 
@@ -785,6 +797,33 @@ class BatchTokenizedGenerateReqInput(BaseBatchReq):
 
     def __iter__(self):
         return iter(self.batch)
+
+
+@dataclass
+class CheckpointUpdateReq(BaseReq):
+    owner_dp_rank: int
+    global_checkpointed_output_len: int
+
+
+@dataclass
+class VisibleStateUpdateReq(BaseReq):
+    output_ids_delta: List[int]
+    finished: bool = False
+
+
+@dataclass
+class ResetVisibleStateReq(BaseReq):
+    pass
+
+
+@dataclass
+class ResumeGenerateReq(BaseReq):
+    tokenized_req: TokenizedGenerateReqInput
+    visible_output_ids: List[int]
+    checkpointed_output_len: int
+    owner_dp_rank: int
+    backup_dp_rank: int
+    failover_epoch: int
 
 
 @dataclass
@@ -1549,6 +1588,26 @@ class GetInternalStateReq(BaseReq):
 @dataclass
 class GetInternalStateReqOutput(BaseReq):
     internal_state: Dict[Any, Any]
+
+
+@dataclass
+class DumpRadixTreeReqInput(BaseReq):
+    include_prefix: bool = True
+    include_segment: bool = True
+    max_nodes: int = 2000
+    max_depth: int = 64
+    max_tokens_per_node: int = 4096
+    # When enabled, best-effort synchronize async HiCache events before dump.
+    strict_sync: bool = True
+    # Max seconds to wait for strict synchronization.
+    sync_timeout_s: float = 5.0
+
+
+@dataclass
+class DumpRadixTreeReqOutput(BaseReq):
+    success: bool
+    message: str
+    tree: Dict[str, Any]
 
 
 @dataclass

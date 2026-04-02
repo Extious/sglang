@@ -5,7 +5,7 @@ import math
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -43,6 +43,8 @@ class PPBatchMetadata:
 
 
 class SchedulerPPMixin:
+    _PP_BATCH_SIGNATURE_KEY = "__pp_batch_signature__"
+
     @DynamicGradMode()
     def event_loop_pp(self: Scheduler):
         """
@@ -68,6 +70,12 @@ class SchedulerPPMixin:
 
         ====================================================================
         """
+        if self.pp_rank == 0 and self.attn_tp_rank == 0 and self.attn_cp_rank == 0:
+            logger.info(
+                "REQ_FLOW scheduler.event_loop_pp_started dp_rank=%s pp_rank=%s",
+                self.dp_rank,
+                self.pp_rank,
+            )
         self.init_pp_loop_state()
         while True:
             server_is_idle = True
@@ -79,20 +87,37 @@ class SchedulerPPMixin:
                 with torch.profiler.record_function("recv_requests"):
                     recv_reqs = self.recv_requests()
                     self.process_input_requests(recv_reqs)
+                if self.enable_hierarchical_cache:
+                    self.tree_cache.check_hicache_events()
                 if not self.pp_group.is_last_rank:
+                    reqs_to_send = self._pp_prepare_reqs_for_next_stage(recv_reqs)
                     self._pp_commit_comm_work(self.send_req_work)
                     with torch.profiler.record_function("send_reqs_to_next_stage"):
                         self.send_req_work = self._pp_send_pyobj_to_next_stage(
-                            recv_reqs,
+                            reqs_to_send,
                             async_send=True,
                         )
                 with torch.profiler.record_function("get_next_batch_to_run"):
-                    self.mbs[mb_id] = self.get_next_batch_to_run()
+                    self._pp_get_or_reuse_batch(mb_id, self.get_next_batch_to_run())
                 self.running_mbs[mb_id] = self.running_batch
                 self.cur_batch: Optional[ScheduleBatch] = self.mbs[mb_id]
+                pp_proxy_tensors = None
+                launched_current_batch = False
                 if self.cur_batch:
                     server_is_idle = False
-                    pp_proxy_tensors = self._pp_recv_proxy_tensors()
+                    if self._pp_batch_needs_proxy_tensors(self.cur_batch):
+                        pp_proxy_tensors = self._pp_recv_proxy_tensors()
+                        if pp_proxy_tensors is None:
+                            if logger.isEnabledFor(logging.INFO):
+                                logger.info(
+                                    "PP postponing batch launch until matching proxy arrives dp=%s pp=%s mb_id=%s rids=%s",
+                                    self.dp_rank,
+                                    self.pp_rank,
+                                    mb_id,
+                                    [req.rid for req in self.cur_batch.reqs],
+                                )
+                    else:
+                        launched_current_batch = True
                 next_pp_outputs = None
                 next_batch_result = None
                 d2h_event = None
@@ -104,13 +129,20 @@ class SchedulerPPMixin:
                         )
                     )
                 self._pp_commit_comm_work(self.send_proxy_work)
-                if self.cur_batch:
+                if self.cur_batch and (
+                    not self._pp_batch_needs_proxy_tensors(self.cur_batch)
+                    or pp_proxy_tensors is not None
+                ):
                     result, self.launch_event = self._pp_launch_batch(
                         mb_id,
                         pp_proxy_tensors,
                         self.mb_metadata,
                         self.last_rank_comm_queue,
                     )
+                    launched_current_batch = True
+                else:
+                    result = None
+                    self.launch_event = None
                 if self.server_args.pp_async_batch_depth == 0:
                     next_pp_outputs, next_batch_result, d2h_event = (
                         self._pp_commit_send_output_work_and_preprocess_output_tensors(
@@ -118,7 +150,10 @@ class SchedulerPPMixin:
                             next_mb_id,
                         )
                     )
-                if self.mbs[next_mb_id] is not None:
+                if (
+                    self.mbs[next_mb_id] is not None
+                    and self.mb_metadata[next_mb_id] is not None
+                ):
                     d2h_event.synchronize()
                     with torch.profiler.record_function("process_batch_result"):
                         self._pp_process_batch_result(
@@ -126,18 +161,28 @@ class SchedulerPPMixin:
                             next_batch_result,
                         )
                     self.last_mbs[next_mb_id] = self.mbs[next_mb_id]
+                    self.mbs[next_mb_id] = None
+                    self.mb_metadata[next_mb_id] = None
                 if not self.pp_group.is_last_rank:
-                    if self.cur_batch:
+                    if launched_current_batch:
                         torch.cuda.current_stream().wait_event(self.launch_event)
                         with torch.profiler.record_function(
                             "send_proxy_dict_to_next_stage"
                         ):
                             self.send_proxy_work = self._pp_send_dict_to_next_stage(
-                                result.pp_hidden_states_proxy_tensors.tensors,
+                                self._pp_prepare_proxy_tensor_dict(
+                                    result.pp_hidden_states_proxy_tensors, self.cur_batch
+                                ),
                                 async_send=True,
                             )
 
                 self.pp_outputs = next_pp_outputs
+
+            if self.enable_hierarchical_cache:
+                # PP stages are only guaranteed to realign after all micro-batches in
+                # the current outer-loop iteration complete. Run the checkpoint
+                # collective here to avoid cross-stage skew deadlocks.
+                self.maybe_send_checkpoint_updates()
 
             # When the server is idle, self-check and re-init some states
             if server_is_idle:
@@ -210,9 +255,14 @@ class SchedulerPPMixin:
 
                 recv_reqs = self.recv_requests()
                 self.process_input_requests(recv_reqs)
+                if self.enable_hierarchical_cache:
+                    self.tree_cache.check_hicache_events()
 
                 if not self.pp_group.is_last_rank:
                     self._pp_commit_comm_work(self.send_req_work)
+                    self.send_req_work = self._pp_send_pyobj_to_next_stage(
+                        recv_reqs, async_send=True
+                    )
 
                 bootstrapped_rids = self._pp_pd_get_bootstrapped_ids()
                 bmbs[mb_id] = bootstrapped_rids
@@ -292,9 +342,6 @@ class SchedulerPPMixin:
                 if tmbs[next_mb_id] is not None:
                     self.process_disagg_prefill_inflight_queue(next_release_rids)
                 if not self.pp_group.is_last_rank:
-                    self.send_req_work = self._pp_send_pyobj_to_next_stage(
-                        recv_reqs, async_send=True
-                    )
                     send_bootstrapped_work = self._pp_send_pyobj_to_next_stage(
                         bootstrapped_rids, async_send=True
                     )
@@ -304,7 +351,9 @@ class SchedulerPPMixin:
                     if self.cur_batch:
                         torch.cuda.current_stream().wait_event(self.launch_event)
                         self.send_proxy_work = self._pp_send_dict_to_next_stage(
-                            result.pp_hidden_states_proxy_tensors.tensors,
+                            self._pp_prepare_proxy_tensor_dict(
+                                result.pp_hidden_states_proxy_tensors, self.cur_batch
+                            ),
                             async_send=True,
                         )
 
@@ -313,6 +362,12 @@ class SchedulerPPMixin:
                 consensus_bootstrapped_rids = next_consensus_bootstrapped_rids
 
                 self.running_batch.batch_is_full = False
+
+            if self.enable_hierarchical_cache:
+                # Run checkpoint synchronization only after all PP stages finish the
+                # current micro-batch sweep, otherwise different stages can enter the
+                # collective from different mb_id positions and deadlock.
+                self.maybe_send_checkpoint_updates()
 
             # When the server is idle, self-check and re-init some states
             if server_is_idle and len(self.disagg_prefill_inflight_queue) == 0:
@@ -353,9 +408,14 @@ class SchedulerPPMixin:
 
                 recv_reqs = self.recv_requests()
                 self.process_input_requests(recv_reqs)
+                if self.enable_hierarchical_cache:
+                    self.tree_cache.check_hicache_events()
 
                 if not self.pp_group.is_last_rank:
                     self._pp_commit_comm_work(self.send_req_work)
+                    self.send_req_work = self._pp_send_pyobj_to_next_stage(
+                        recv_reqs, async_send=True
+                    )
 
                 # reaching consensus through PP ranks
                 retract_rids = self._pp_pd_get_retract_ids(mb_id)
@@ -469,9 +529,6 @@ class SchedulerPPMixin:
                     self.last_mbs[next_mb_id] = self.mbs[next_mb_id]
 
                 if not self.pp_group.is_last_rank:
-                    self.send_req_work = self._pp_send_pyobj_to_next_stage(
-                        recv_reqs, async_send=True
-                    )
                     send_retract_work = self._pp_send_pyobj_to_next_stage(
                         retract_rids, async_send=True
                     )
@@ -484,7 +541,9 @@ class SchedulerPPMixin:
                     if self.cur_batch and not self.cur_batch.forward_mode.is_prebuilt():
                         torch.cuda.current_stream().wait_event(self.launch_event)
                         self.send_proxy_work = self._pp_send_dict_to_next_stage(
-                            result.pp_hidden_states_proxy_tensors.tensors,
+                            self._pp_prepare_proxy_tensor_dict(
+                                result.pp_hidden_states_proxy_tensors, self.cur_batch
+                            ),
                             async_send=True,
                         )
 
@@ -494,6 +553,12 @@ class SchedulerPPMixin:
                 consensus_prealloc_rids = next_consensus_prealloc_rids
 
                 self.running_batch.batch_is_full = False
+
+            if self.enable_hierarchical_cache:
+                # Run checkpoint synchronization only after all PP stages finish the
+                # current micro-batch sweep, otherwise different stages can enter the
+                # collective from different mb_id positions and deadlock.
+                self.maybe_send_checkpoint_updates()
 
             # When the server is idle, self-check and re-init some states
             queue_size = (
@@ -529,6 +594,136 @@ class SchedulerPPMixin:
         self.send_proxy_work = []
         self.send_output_work = []
         self.launch_event = None
+        self.pp_forward_pending_reqs: deque = deque()
+        self.pp_forward_pending_rids: set[str] = set()
+        self.pp_pending_proxy_tensors: deque[PPProxyTensors] = deque()
+        self.pp_pending_output_tensors: deque[PPProxyTensors] = deque()
+
+    def _pp_is_req_ready_for_forward(self: Scheduler, recv_req) -> bool:
+        if (
+            not self.pp_group.is_first_rank
+            or self.pp_group.is_last_rank
+            or not self.enable_hicache_storage
+            or self.pp_size <= 1
+        ):
+            return True
+
+        rid = getattr(recv_req, "rid", None)
+        if rid is None:
+            return True
+
+        for req in self.waiting_queue:
+            if req.rid != rid:
+                continue
+            if not self._is_pp_storage_resume(req):
+                return True
+            prefetch_done = self.tree_cache.check_prefetch_progress(
+                rid,
+                wait_for_complete=self._should_wait_for_storage_prefetch(req),
+            )
+            if not prefetch_done:
+                return False
+            return rid not in self.tree_cache.ongoing_prefetch
+
+        return True
+
+    def _pp_get_waiting_req_by_rid(self: Scheduler, rid: Optional[str]):
+        if rid is None:
+            return None
+        for req in self.waiting_queue:
+            if req.rid == rid:
+                return req
+        return None
+
+    def _pp_refresh_forward_req_cache_metadata(
+        self: Scheduler, recv_req
+    ) -> None:
+        if (
+            not self.pp_group.is_first_rank
+            or self.pp_group.is_last_rank
+            or not self.enable_hicache_storage
+            or self.pp_size <= 1
+        ):
+            return
+
+        rid = getattr(recv_req, "rid", None)
+        req = self._pp_get_waiting_req_by_rid(rid)
+        if req is None:
+            return
+
+        # Recompute the prompt/cache boundary right before forwarding so that
+        # ALL downstream PP stages observe the same matched prefix as PP0.
+        #
+        # Previously this was restricted to failover-resume requests, but the
+        # same mismatch can happen for any request when HiCache is enabled:
+        # each PP stage independently walks its own host KV-cache tree and can
+        # arrive at a different cached prefix length.  When the lengths differ
+        # the batch signature (extend_input_len per request) seen by PP0
+        # diverges from the one seen by PP1, which puts the PP output-recv
+        # `while True` loop into a permanent deadlock because neither side can
+        # advance.
+        #
+        # Applying the cap unconditionally ensures downstream stages cap their
+        # prefix search at the same boundary PP0 chose.  Downstream stages may
+        # already have more tokens cached; they will simply recompute the delta
+        # (wasted work but correct).
+        req.init_next_round_input(self.tree_cache)
+        upstream_total_cached_len = len(req.prefix_indices) + req.host_hit_length
+        recv_req.pp_upstream_total_cached_len = upstream_total_cached_len
+
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "PP refreshed downstream cache metadata dp=%s pp=%s rid=%s cached_len=%d",
+                self.dp_rank,
+                self.pp_rank,
+                rid,
+                upstream_total_cached_len,
+            )
+
+    def _pp_prepare_reqs_for_next_stage(self: Scheduler, recv_reqs):
+        if self.pp_group.is_last_rank:
+            return recv_reqs
+
+        if not self.pp_group.is_first_rank:
+            return recv_reqs
+
+        for recv_req in recv_reqs:
+            rid = getattr(recv_req, "rid", None)
+            if rid is not None:
+                if rid in self.pp_forward_pending_rids:
+                    continue
+                self.pp_forward_pending_rids.add(rid)
+            self.pp_forward_pending_reqs.append(recv_req)
+        reqs_to_send = []
+        while self.pp_forward_pending_reqs:
+            next_req = self.pp_forward_pending_reqs[0]
+            if not self._pp_is_req_ready_for_forward(next_req):
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "PP delaying downstream request forward dp=%s pp=%s rid=%s until local prefetch completes",
+                        self.dp_rank,
+                        self.pp_rank,
+                        getattr(next_req, "rid", None),
+                    )
+                break
+            self._pp_refresh_forward_req_cache_metadata(next_req)
+            next_req = self.pp_forward_pending_reqs.popleft()
+            rid = getattr(next_req, "rid", None)
+            if rid is not None:
+                self.pp_forward_pending_rids.discard(rid)
+            reqs_to_send.append(next_req)
+
+        if logger.isEnabledFor(logging.INFO):
+            delayed_count = len(self.pp_forward_pending_reqs)
+            if delayed_count > 0 or reqs_to_send:
+                logger.info(
+                    "PP forward queue dp=%s pp=%s sent=%d delayed=%d",
+                    self.dp_rank,
+                    self.pp_rank,
+                    len(reqs_to_send),
+                    delayed_count,
+                )
+        return reqs_to_send
 
     def profile_and_init_predictor(self: Scheduler):
         """
@@ -833,7 +1028,10 @@ class SchedulerPPMixin:
 
     def _pp_commit_comm_work(self: Scheduler, work: List[P2PWork]) -> None:
         for p2p_work in work:
-            p2p_work.work.wait()
+            if p2p_work.work is not None:
+                p2p_work.work.wait()
+            elif p2p_work.payload is not None and not p2p_work.payload.is_cpu:
+                torch.cuda.current_stream(p2p_work.payload.device).synchronize()
         work.clear()
 
     def _pp_commit_send_output_work_and_preprocess_output_tensors(
@@ -894,9 +1092,57 @@ class SchedulerPPMixin:
 
         return data
 
+    def _pp_batch_signature(self: Scheduler, batch: Optional[ScheduleBatch]):
+        if batch is None:
+            return None
+
+        if batch.forward_mode.is_prebuilt():
+            mode = "prebuilt"
+        elif batch.forward_mode.is_extend(include_draft_extend_v2=True):
+            mode = "extend"
+        elif batch.forward_mode.is_decode_or_idle():
+            mode = "decode_or_idle"
+        else:
+            mode = str(batch.forward_mode)
+
+        return (
+            mode,
+            tuple(
+                (
+                    req.rid,
+                    int(req.extend_input_len or 0),
+                    len(req.output_ids),
+                )
+                for req in batch.reqs
+            ),
+        )
+
+    def _pp_attach_batch_signature(
+        self: Scheduler, tensor_dict: Dict[str, Any], batch: Optional[ScheduleBatch]
+    ) -> Dict[str, Any]:
+        signature = self._pp_batch_signature(batch)
+        if signature is None:
+            return dict(tensor_dict)
+        return {
+            **tensor_dict,
+            self._PP_BATCH_SIGNATURE_KEY: signature,
+        }
+
+    def _pp_extract_batch_signature(self: Scheduler, tensor_dict: Dict[str, Any]):
+        return tensor_dict.get(self._PP_BATCH_SIGNATURE_KEY)
+
+    def _pp_strip_transport_metadata(
+        self: Scheduler, tensor_dict: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        return {
+            key: value
+            for key, value in tensor_dict.items()
+            if key != self._PP_BATCH_SIGNATURE_KEY
+        }
+
     def _pp_prepare_tensor_dict(
         self: Scheduler, result: GenerationBatchResult, batch: ScheduleBatch
-    ) -> Dict[str, torch.Tensor]:
+    ) -> Dict[str, Any]:
         tensor_dict = {
             "next_token_ids": result.next_token_ids,
         }
@@ -907,11 +1153,16 @@ class SchedulerPPMixin:
                 **tensor_dict,
                 **logprob_dict,
             }
-        return tensor_dict
+        return self._pp_attach_batch_signature(tensor_dict, batch)
+
+    def _pp_prepare_proxy_tensor_dict(
+        self: Scheduler, pp_proxy_tensors: PPProxyTensors, batch: ScheduleBatch
+    ) -> Dict[str, Any]:
+        return self._pp_attach_batch_signature(pp_proxy_tensors.tensors, batch)
 
     def _pp_send_dict_to_next_stage(
         self: Scheduler,
-        tensor_dict: Dict[str, torch.Tensor],
+        tensor_dict: Dict[str, Any],
         async_send: bool = True,
     ):
         p2p_work = []
@@ -926,21 +1177,142 @@ class SchedulerPPMixin:
         )
         return p2p_work
 
+    def _pp_is_output_tensor_dict(self: Scheduler, tensor_dict: Dict[str, Any]) -> bool:
+        return "next_token_ids" in tensor_dict
+
+    def _pp_expected_proxy_first_dim(self: Scheduler) -> Optional[int]:
+        batch = self.cur_batch
+        if batch is None:
+            return None
+        if batch.forward_mode.is_extend(include_draft_extend_v2=True):
+            return int(batch.extend_num_tokens or 0)
+        if batch.forward_mode.is_decode_or_idle():
+            return len(batch.reqs)
+        return None
+
+    def _pp_pop_matching_pending_proxy_tensors(
+        self: Scheduler, expected_signature, expected_dim: Optional[int]
+    ) -> Optional[PPProxyTensors]:
+        if not self.pp_pending_proxy_tensors:
+            return None
+
+        for idx, proxy in enumerate(self.pp_pending_proxy_tensors):
+            actual_signature = self._pp_extract_batch_signature(proxy.tensors)
+            signatures_both_present = (
+                expected_signature is not None and actual_signature is not None
+            )
+            if signatures_both_present and actual_signature != expected_signature:
+                continue
+            if not signatures_both_present:
+                hidden_states = proxy.tensors.get("hidden_states")
+                if expected_dim is not None and (
+                    hidden_states is None
+                    or hidden_states.shape[0] != expected_dim
+                ):
+                    continue
+            del self.pp_pending_proxy_tensors[idx]
+            return PPProxyTensors(self._pp_strip_transport_metadata(proxy.tensors))
+
+        return None
+
+    def _pp_pop_matching_pending_output_tensors(
+        self: Scheduler, expected_signature
+    ) -> Optional[PPProxyTensors]:
+        if not self.pp_pending_output_tensors:
+            return None
+
+        for idx, output in enumerate(self.pp_pending_output_tensors):
+            actual_signature = self._pp_extract_batch_signature(output.tensors)
+            if (
+                expected_signature is not None
+                and actual_signature is not None
+                and actual_signature != expected_signature
+            ):
+                continue
+            del self.pp_pending_output_tensors[idx]
+            return output
+
+        return None
+
     def _pp_recv_proxy_tensors(self: Scheduler) -> Optional[PPProxyTensors]:
         pp_proxy_tensors = None
         if not self.pp_group.is_first_rank:
-            pp_proxy_tensors = PPProxyTensors(
-                self.pp_group.recv_tensor_dict(
-                    all_gather_group=(
-                        self.attn_tp_group if self.require_attn_tp_allgather else None
-                    )
+            expected_dim = self._pp_expected_proxy_first_dim()
+            expected_signature = self._pp_batch_signature(self.cur_batch)
+            matched_proxy = self._pp_pop_matching_pending_proxy_tensors(
+                expected_signature, expected_dim
+            )
+            if matched_proxy is not None:
+                return matched_proxy
+
+            tensor_dict = self.pp_group.recv_tensor_dict(
+                all_gather_group=(
+                    self.attn_tp_group if self.require_attn_tp_allgather else None
                 )
             )
+            if self._pp_is_output_tensor_dict(tensor_dict):
+                self.pp_pending_output_tensors.append(PPProxyTensors(tensor_dict))
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "PP stashed output tensors during proxy recv dp=%s pp=%s keys=%s",
+                        self.dp_rank,
+                        self.pp_rank,
+                        sorted(tensor_dict.keys()),
+                    )
+                return None
+
+            actual_signature = self._pp_extract_batch_signature(tensor_dict)
+            pp_proxy_tensors = PPProxyTensors(tensor_dict)
+            signatures_both_present = (
+                expected_signature is not None and actual_signature is not None
+            )
+            should_defer = False
+            if signatures_both_present:
+                should_defer = actual_signature != expected_signature
+            else:
+                hidden_states = pp_proxy_tensors.tensors.get("hidden_states")
+                should_defer = (
+                    expected_dim is not None
+                    and hidden_states is not None
+                    and hidden_states.shape[0] != expected_dim
+                )
+            if should_defer:
+                self.pp_pending_proxy_tensors.append(pp_proxy_tensors)
+                if logger.isEnabledFor(logging.INFO):
+                    hidden_states = pp_proxy_tensors.tensors.get("hidden_states")
+                    logger.info(
+                        "PP deferred mismatched proxy tensors during proxy recv dp=%s pp=%s expected_dim=%s actual_dim=%s expected_signature=%s actual_signature=%s",
+                        self.dp_rank,
+                        self.pp_rank,
+                        expected_dim,
+                        None if hidden_states is None else hidden_states.shape[0],
+                        expected_signature,
+                        actual_signature,
+                    )
+                return None
+
+            pp_proxy_tensors = PPProxyTensors(
+                self._pp_strip_transport_metadata(pp_proxy_tensors.tensors)
+            )
+
         return pp_proxy_tensors
+
+    def _pp_batch_needs_proxy_tensors(self: Scheduler, batch: Optional[ScheduleBatch]) -> bool:
+        return (
+            batch is not None
+            and not self.pp_group.is_first_rank
+            and not batch.forward_mode.is_prebuilt()
+        )
+
+    def _pp_get_or_reuse_batch(self: Scheduler, mb_id: int, new_batch: Optional[ScheduleBatch]):
+        if self.mbs[mb_id] is not None and self.mb_metadata[mb_id] is None:
+            return self.mbs[mb_id]
+        self.mbs[mb_id] = new_batch
+        return self.mbs[mb_id]
 
     def _pp_recv_dict_from_prev_stage(
         self: Scheduler,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> Dict[str, Any]:
         res = self.pp_group.recv_tensor_dict(
             all_gather_group=(
                 self.attn_tp_group if self.require_attn_tp_allgather else None
@@ -995,7 +1367,7 @@ class SchedulerPPMixin:
         send_output_work = []
         if self.pp_group.is_last_rank:
             # send ready PP output to rank 0
-            if mbs[next_first_rank_mb_id] is not None:
+            if mbs[next_first_rank_mb_id] is not None and last_rank_comm_queue:
                 q_event, pp_outputs_to_send = last_rank_comm_queue.popleft()
                 if not mbs[next_first_rank_mb_id].forward_mode.is_prebuilt():
                     torch.cuda.current_stream().wait_event(q_event)
@@ -1004,6 +1376,13 @@ class SchedulerPPMixin:
                             pp_outputs_to_send.tensors,
                             async_send=True,
                         )
+            elif mbs[next_first_rank_mb_id] is not None and logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "PP postponing output send because launch queue is empty dp=%s pp=%s next_first_rank_mb_id=%s",
+                    self.dp_rank,
+                    self.pp_rank,
+                    next_first_rank_mb_id,
+                )
         # send the outputs from the last round to let the next stage worker run post processing
         if not self.pp_group.is_last_rank:
             if pp_outputs:
@@ -1034,12 +1413,50 @@ class SchedulerPPMixin:
         )
 
         if mbs[next_mb_id] is not None:
+            expected_output_signature = self._pp_batch_signature(mbs[next_mb_id])
             with torch.profiler.record_function("recv_res_dict_from_prev_stage"):
                 next_pp_outputs = None
                 if not mbs[next_mb_id].forward_mode.is_prebuilt():
-                    next_pp_outputs = PPProxyTensors(
-                        self._pp_recv_dict_from_prev_stage()
+                    next_pp_outputs = self._pp_pop_matching_pending_output_tensors(
+                        expected_output_signature
                     )
+                    if next_pp_outputs is None:
+                        while True:
+                            tensor_dict = self._pp_recv_dict_from_prev_stage()
+                            if self._pp_is_output_tensor_dict(tensor_dict):
+                                actual_signature = self._pp_extract_batch_signature(
+                                    tensor_dict
+                                )
+                                if (
+                                    expected_output_signature is not None
+                                    and actual_signature is not None
+                                    and actual_signature != expected_output_signature
+                                ):
+                                    self.pp_pending_output_tensors.append(
+                                        PPProxyTensors(tensor_dict)
+                                    )
+                                    if logger.isEnabledFor(logging.INFO):
+                                        logger.info(
+                                            "PP deferred mismatched output tensors during output recv dp=%s pp=%s expected_signature=%s actual_signature=%s",
+                                            self.dp_rank,
+                                            self.pp_rank,
+                                            expected_output_signature,
+                                            actual_signature,
+                                        )
+                                    continue
+                                next_pp_outputs = PPProxyTensors(tensor_dict)
+                                break
+
+                            self.pp_pending_proxy_tensors.append(
+                                PPProxyTensors(tensor_dict)
+                            )
+                            if logger.isEnabledFor(logging.INFO):
+                                logger.info(
+                                    "PP stashed proxy tensors during output recv dp=%s pp=%s keys=%s",
+                                    self.dp_rank,
+                                    self.pp_rank,
+                                    sorted(tensor_dict.keys()),
+                                )
             if not mbs[next_mb_id].forward_mode.is_prebuilt():
                 with self.copy_stream_ctx:
                     self.copy_stream.wait_stream(self.default_stream)

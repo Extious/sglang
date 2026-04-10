@@ -232,7 +232,8 @@ compile_commands.json
 # VSCode
 .vscode
 
-1
+# Cursor
+.cursor/
 
 # Autoenv
 .env.leave

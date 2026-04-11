@@ -30,6 +30,7 @@ from sglang.srt.managers.utils import (
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch, PPProxyTensors
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.utils import DynamicGradMode, broadcast_pyobj, point_to_point_pyobj
+from sglang.srt.distributed.stage_kv_replica import maybe_sync_stage_kv_replica
 
 logger = logging.getLogger(__name__)
 
@@ -984,6 +985,7 @@ class SchedulerPPMixin:
             self.process_batch_result_disagg_prefill(batch, output_result)
         else:
             self.process_batch_result(batch, output_result)
+        maybe_sync_stage_kv_replica(self, batch)
 
     def _pp_send_output_to_next_stage(
         self: Scheduler,

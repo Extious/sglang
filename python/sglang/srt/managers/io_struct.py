@@ -1542,6 +1542,14 @@ class ActiveRanksOutput(BaseReq):
 
 
 @dataclass
+class SimulateGpuFailureReq(BaseReq):
+    """Mark a batch DP worker healthy or unhealthy in DataParallelController (tests / fault injection)."""
+
+    dp_rank: int = 0
+    recover: bool = False
+
+
+@dataclass
 class GetInternalStateReq(BaseReq):
     pass
 

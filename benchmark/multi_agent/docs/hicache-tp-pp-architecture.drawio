@@ -1,0 +1,819 @@
+<mxfile host="65bd71144e">
+    <diagram name="Page 1: HiCache — Tensor Parallelism (TP)" id="tp_page">
+        <mxGraphModel dx="1860" dy="908" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="3000" pageHeight="2800" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="t1" value="SGLang HiCache: KVCache Management under Tensor Parallelism (TP)" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fontColor=#1a237e;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="10" width="1900" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov" value="" style="rounded=1;fillColor=#fafafa;strokeColor=#bdbdbd;dashed=1;container=1;pointerEvents=0;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="58" width="2400" height="188" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov_label" value="Three-Level Cache Hierarchy (Inspired by CPU L1/L2/L3)" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontStyle=5;fontColor=#37474f;" parent="ov" vertex="1">
+                    <mxGeometry x="10" y="5" width="500" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov_l1" value="L1: GPU Memory&#10;(Fast, Small, Private)&#10;TokenToKVPool" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#ff9800;fontSize=11;fontStyle=1;align=center;" parent="ov" vertex="1">
+                    <mxGeometry x="80" y="35" width="230" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov_l2" value="L2: Host CPU Memory&#10;(Large, Medium, Private)&#10;HostKVCache (Pinned)" style="rounded=1;whiteSpace=wrap;fillColor=#e3f2fd;strokeColor=#2196f3;fontSize=11;fontStyle=1;align=center;" parent="ov" vertex="1">
+                    <mxGeometry x="480" y="35" width="260" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov_l3" value="L3: Distributed Storage&#10;(Huge, Slow, Shared)&#10;Mooncake / NIXL / HF3FS / AIBrix" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=11;fontStyle=1;align=center;" parent="ov" vertex="1">
+                    <mxGeometry x="910" y="35" width="310" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov_e1" value="cudaMemcpy / JIT" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;endArrow=classicThin;endFill=1;fontSize=9;labelBackgroundColor=#fafafa;" parent="ov" source="ov_l1" target="ov_l2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov_e2" value="Zero-copy / RDMA" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=classicThin;endFill=1;fontSize=9;labelBackgroundColor=#fafafa;" parent="ov" source="ov_l2" target="ov_l3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov_note" value="L1 &amp; L2: Private per instance&#10;L3: Shared across cluster" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=center;dashed=1;" parent="ov" vertex="1">
+                    <mxGeometry x="1350" y="40" width="220" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov_tp_note" value="Under TP: each rank has&#10;its own L1 + L2 instance&#10;Sync via all_reduce" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;align=center;dashed=1;" parent="ov" vertex="1">
+                    <mxGeometry x="1620" y="40" width="210" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov_flow1" value="End-to-end KV path (one prefill): ① match_prefix (local tree) → ② prefetch L3→L2 [all_reduce MIN: hit count, completed tokens] → ③ load L2→L1 ‖ LayerDoneCounter overlap" style="text;html=1;align=left;verticalAlign=top;spacingTop=2;spacingLeft=10;fontSize=9;fontColor=#263238;" vertex="1" parent="ov">
+                    <mxGeometry x="12" y="98" width="2360" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov_flow2" value="④ Prefill + TP (attn / MLP on shard) → ⑤ write-back [all_reduce MIN on ACK]; MHA: all ranks → L3 · MLA: tp_rank=0 only → ⑥ storage drain [all_reduce MIN on queues]" style="text;html=1;align=left;verticalAlign=top;spacingTop=2;spacingLeft=10;fontSize=9;fontColor=#263238;" vertex="1" parent="ov">
+                    <mxGeometry x="12" y="136" width="2360" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0" value="TP Rank 0 (GPU 0)" style="swimlane;startSize=30;fillColor=#f5f5f5;strokeColor=#424242;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="268" width="1080" height="920" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_hrc" value="HiRadixCache (Scheduler Thread)" style="swimlane;startSize=26;fillColor=#e8eaf6;strokeColor=#3f51b5;fontStyle=1;fontSize=12;rounded=1;" parent="r0" vertex="1">
+                    <mxGeometry x="15" y="42" width="1050" height="220" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_tree" value="HiRadixTree&#10;&#10;TreeNode:&#10;  value       → L1 GPU indices&#10;  host_value  → L2 Host indices&#10;  hash_value  → L3 storage keys&#10;Prefix sharing across requests" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;fontSize=10;" parent="r0_hrc" vertex="1">
+                    <mxGeometry x="10" y="32" width="260" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_match" value="match_prefix()&#10;L1 → L2 lookup" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#388e3c;fontSize=10;align=center;" parent="r0_hrc" vertex="1">
+                    <mxGeometry x="290" y="32" width="170" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_pf" value="prefetch_from_storage()&#10;Query L3 → fetch to L2" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1976d2;fontSize=10;align=center;" parent="r0_hrc" vertex="1">
+                    <mxGeometry x="290" y="82" width="170" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_wb" value="write_backup()&#10;L1 → L2 → L3" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#d32f2f;fontSize=10;align=center;" parent="r0_hrc" vertex="1">
+                    <mxGeometry x="290" y="132" width="170" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_ie" value="insert() / evict()" style="rounded=1;whiteSpace=wrap;fillColor=#e1bee7;strokeColor=#8e24aa;fontSize=10;align=center;" parent="r0_hrc" vertex="1">
+                    <mxGeometry x="290" y="178" width="170" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_pol" value="Prefetch Policy:&#10;• best_effort&#10;• wait_complete&#10;• timeout&#10;&#10;Write Policy:&#10;• write_through&#10;• write_through_selective&#10;• write_back" style="rounded=1;whiteSpace=wrap;fillColor=#fff;strokeColor=#bdbdbd;fontSize=9;align=left;spacingLeft=6;dashed=1;" parent="r0_hrc" vertex="1">
+                    <mxGeometry x="490" y="32" width="180" height="170" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_pg" value="Page Granularity&#10;(page_size tokens)" style="rounded=1;whiteSpace=wrap;fillColor=#e0e0e0;strokeColor=#9e9e9e;fontSize=9;align=center;" parent="r0_hrc" vertex="1">
+                    <mxGeometry x="700" y="32" width="130" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_ctrl" value="HiCacheController" style="swimlane;startSize=26;fillColor=#f3e5f5;strokeColor=#9c27b0;fontStyle=1;fontSize=12;rounded=1;" parent="r0" vertex="1">
+                    <mxGeometry x="15" y="282" width="1050" height="190" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_ws" value="write_stream&#10;GPU→CPU&#10;(CUDA)" style="rounded=1;whiteSpace=wrap;fillColor=#ffccbc;strokeColor=#e64a19;fontSize=10;align=center;" parent="r0_ctrl" vertex="1">
+                    <mxGeometry x="10" y="34" width="130" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_ls" value="load_stream&#10;CPU→GPU&#10;(CUDA)" style="rounded=1;whiteSpace=wrap;fillColor=#b3e5fc;strokeColor=#0288d1;fontSize=10;align=center;" parent="r0_ctrl" vertex="1">
+                    <mxGeometry x="160" y="34" width="130" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_pt" value="prefetch_thread&#10;L3→L2&#10;(Bg Thread)" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=center;" parent="r0_ctrl" vertex="1">
+                    <mxGeometry x="310" y="34" width="140" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_bt" value="backup_thread&#10;L2→L3&#10;(Bg Thread)" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=center;" parent="r0_ctrl" vertex="1">
+                    <mxGeometry x="470" y="34" width="140" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_ldc" value="LayerDoneCounter&#10;Compute-Transfer Overlap" style="rounded=1;whiteSpace=wrap;fillColor=#e8eaf6;strokeColor=#5c6bc0;fontSize=10;align=center;" parent="r0_ctrl" vertex="1">
+                    <mxGeometry x="10" y="100" width="240" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_tb" value="TransferBuffer&#10;Double-buffered" style="rounded=1;whiteSpace=wrap;fillColor=#e8eaf6;strokeColor=#5c6bc0;fontSize=10;align=center;" parent="r0_ctrl" vertex="1">
+                    <mxGeometry x="270" y="100" width="180" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_iob" value="I/O:  direct (cudaMemcpy)&#10;      kernel (JIT, 3x faster)" style="rounded=1;whiteSpace=wrap;fillColor=#fff;strokeColor=#bdbdbd;fontSize=9;align=left;spacingLeft=6;dashed=1;" parent="r0_ctrl" vertex="1">
+                    <mxGeometry x="470" y="100" width="230" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_q" value="Queues: prefetch | backup | ack_write | ack_load | host_mem_release" style="text;html=1;align=center;fontSize=8;fontColor=#9e9e9e;" parent="r0_ctrl" vertex="1">
+                    <mxGeometry x="10" y="150" width="600" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_l1" value="L1: GPU KVCache" style="swimlane;startSize=24;fillColor=#fff3e0;strokeColor=#ff9800;fontStyle=1;fontSize=11;rounded=1;" parent="r0" vertex="1">
+                    <mxGeometry x="15" y="492" width="1050" height="180" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_mha" value="MHA (Llama/Qwen):&#10;K: [layers, pool, num_kv_heads/tp, head_dim]&#10;V: [layers, pool, num_kv_heads/tp, head_dim]&#10;Rank 0 holds heads [0 .. H/tp - 1]" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;align=left;spacingLeft=8;" parent="r0_l1" vertex="1">
+                    <mxGeometry x="10" y="30" width="470" height="75" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_mla" value="MLA (DeepSeek):&#10;kv: [layers, pool, 1, kv_lora_rank+rope_dim]&#10;All TP ranks hold IDENTICAL full latent KV" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;align=left;spacingLeft=8;" parent="r0_l1" vertex="1">
+                    <mxGeometry x="510" y="30" width="520" height="75" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_alloc" value="TokenToKVPoolAllocator (free_slots) + ReqToTokenPool (req → tokens)" style="rounded=1;whiteSpace=wrap;fillColor=#fff8e1;strokeColor=#ff8f00;fontSize=9;align=center;" parent="r0_l1" vertex="1">
+                    <mxGeometry x="10" y="120" width="510" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_l2" value="L2: Host KVCache (Pinned CPU Memory)" style="swimlane;startSize=24;fillColor=#e3f2fd;strokeColor=#2196f3;fontStyle=1;fontSize=11;rounded=1;" parent="r0" vertex="1">
+                    <mxGeometry x="15" y="692" width="1050" height="250" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_host" value="HostKVCache&#10;&#10;Size: hicache_ratio × GPU pool&#10;  or hicache_size GB per rank&#10;Page-aligned allocation&#10;Pinned memory for DMA" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=left;spacingLeft=8;" parent="r0_l2" vertex="1">
+                    <mxGeometry x="10" y="32" width="270" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_lay" value="Memory Layouts:&#10;&#10;layer_first: [layer][token][head][dim] → GPU compatible&#10;page_first: [page][layer][token] → L3 I/O optimized&#10;page_first_direct: [page][layer][tokens_in_page] → balanced" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=left;spacingLeft=8;" parent="r0_l2" vertex="1">
+                    <mxGeometry x="300" y="32" width="400" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_xfer" value="Transfer Functions:&#10;• backup_from_device_all_layer(): GPU → Host (all layers)&#10;• load_to_device_per_layer(): Host → GPU (layer-by-layer overlap)&#10;• Uses JIT CUDA kernels (load_nc/store_nc bypass L1) or sgl-kernel" style="rounded=1;whiteSpace=wrap;fillColor=#e1f5fe;strokeColor=#0277bd;fontSize=10;align=left;spacingLeft=8;" parent="r0_l2" vertex="1">
+                    <mxGeometry x="10" y="148" width="500" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0_zc" value="Zero-Copy to L3:&#10;Pass pinned host addrs&#10;directly to L3 backend" style="rounded=1;whiteSpace=wrap;fillColor=#e1f5fe;strokeColor=#0277bd;fontSize=10;align=center;" parent="r0_l2" vertex="1">
+                    <mxGeometry x="540" y="155" width="210" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0e1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#3f51b5;strokeWidth=2;endArrow=block;endFill=1;" parent="r0" source="r0_hrc" target="r0_ctrl" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0e2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#9c27b0;strokeWidth=1;endArrow=block;endFill=1;dashed=1;" parent="r0" source="r0_ctrl" target="r0_l1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0e3" value="write (backup)" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;endArrow=block;endFill=1;fontSize=9;labelBackgroundColor=#f5f5f5;exitX=0.2;exitY=1;entryX=0.2;entryY=0;" parent="r0" source="r0_l1" target="r0_l2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0e4" value="load (per-layer)" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1565c0;strokeWidth=2;endArrow=block;endFill=1;fontSize=9;labelBackgroundColor=#f5f5f5;exitX=0.8;exitY=0;entryX=0.8;entryY=1;" parent="r0" source="r0_l2" target="r0_l1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1" value="TP Rank 1 (GPU 1)" style="swimlane;startSize=30;fillColor=#f5f5f5;strokeColor=#424242;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="1370" y="268" width="1070" height="920" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_hrc" value="HiRadixCache (Scheduler Thread)" style="swimlane;startSize=26;fillColor=#e8eaf6;strokeColor=#3f51b5;fontStyle=1;fontSize=12;rounded=1;" parent="r1" vertex="1">
+                    <mxGeometry x="15" y="42" width="1040" height="130" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_tree" value="HiRadixTree&#10;(Independent instance,&#10; consistent state via sync)" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=center;" parent="r1_hrc" vertex="1">
+                    <mxGeometry x="10" y="32" width="240" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_ops" value="Same operations as Rank 0:&#10;match | prefetch | write_backup | insert | evict&#10;All decisions synced with Rank 0 via all_reduce" style="rounded=1;whiteSpace=wrap;fillColor=#e8eaf6;strokeColor=#5c6bc0;fontSize=10;align=center;" parent="r1_hrc" vertex="1">
+                    <mxGeometry x="280" y="32" width="420" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_ctrl" value="HiCacheController" style="swimlane;startSize=26;fillColor=#f3e5f5;strokeColor=#9c27b0;fontStyle=1;fontSize=12;rounded=1;" parent="r1" vertex="1">
+                    <mxGeometry x="15" y="192" width="1040" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_str" value="write_stream | load_stream | prefetch_thread | backup_thread | LayerDoneCounter | TransferBuffer" style="rounded=1;whiteSpace=wrap;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=10;align=center;" parent="r1_ctrl" vertex="1">
+                    <mxGeometry x="10" y="32" width="700" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_l1" value="L1: GPU KVCache" style="swimlane;startSize=24;fillColor=#fff3e0;strokeColor=#ff9800;fontStyle=1;fontSize=11;rounded=1;" parent="r1" vertex="1">
+                    <mxGeometry x="15" y="302" width="1040" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_mha_d" value="MHA: heads [H/tp .. 2H/tp-1]&#10;DIFFERENT data from Rank 0" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;align=center;fontStyle=1;" parent="r1_l1" vertex="1">
+                    <mxGeometry x="10" y="30" width="460" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_mla_d" value="MLA: full latent KV&#10;IDENTICAL to Rank 0" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;align=center;fontStyle=1;" parent="r1_l1" vertex="1">
+                    <mxGeometry x="500" y="30" width="520" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_l2" value="L2: Host KVCache (Pinned CPU Memory)" style="swimlane;startSize=24;fillColor=#e3f2fd;strokeColor=#2196f3;fontStyle=1;fontSize=11;rounded=1;" parent="r1" vertex="1">
+                    <mxGeometry x="15" y="432" width="1040" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_host_d" value="Independent pinned region, same layout/transfer as Rank 0" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" parent="r1_l2" vertex="1">
+                    <mxGeometry x="10" y="32" width="500" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_diff_title" value="⭐ KEY: TP Write-back Behavior Difference" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontStyle=5;fontColor=#b71c1c;" parent="r1" vertex="1">
+                    <mxGeometry x="15" y="545" width="500" height="28" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_mha_wb" value="MHA under TP" style="swimlane;startSize=22;fillColor=#fff3e0;strokeColor=#e65100;fontStyle=1;fontSize=11;rounded=1;" parent="r1" vertex="1">
+                    <mxGeometry x="15" y="580" width="490" height="190" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_mha_detail" value="• KV heads are SHARDED across TP ranks&#10;  Rank 0: heads [0 .. H/tp-1]&#10;  Rank 1: heads [H/tp .. 2H/tp-1]&#10;&#10;• ALL ranks must write to L3&#10;  (each has unique data)&#10;&#10;• L3 key includes tp_rank and tp_size:&#10;  hash_{model}_tp0_tp2  vs  hash_{model}_tp1_tp2&#10;&#10;• On prefetch: each rank reads its own shard" style="rounded=0;whiteSpace=wrap;fillColor=none;strokeColor=none;fontSize=10;align=left;spacingLeft=8;" parent="r1_mha_wb" vertex="1">
+                    <mxGeometry x="5" y="25" width="480" height="160" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_mla_wb" value="MLA under TP" style="swimlane;startSize=22;fillColor=#e3f2fd;strokeColor=#1565c0;fontStyle=1;fontSize=11;rounded=1;" parent="r1" vertex="1">
+                    <mxGeometry x="530" y="580" width="490" height="190" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1_mla_detail" value="• All ranks hold IDENTICAL full latent KV&#10;  (no sharding, redundant storage)&#10;&#10;• Only Rank 0 writes to L3&#10;  Other ranks: backup_skip = True&#10;  (avoid redundant storage)&#10;&#10;• L3 key does NOT include tp_rank:&#10;  hash_{model}  (same for all ranks)&#10;&#10;• On prefetch: all ranks read same data" style="rounded=0;whiteSpace=wrap;fillColor=none;strokeColor=none;fontSize=10;align=left;spacingLeft=8;" parent="r1_mla_wb" vertex="1">
+                    <mxGeometry x="5" y="25" width="480" height="160" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1e1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#3f51b5;strokeWidth=1;endArrow=block;endFill=1;" parent="r1" source="r1_hrc" target="r1_ctrl" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1e2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#9c27b0;strokeWidth=1;endArrow=block;endFill=1;dashed=1;" parent="r1" source="r1_ctrl" target="r1_l1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1e3" value="write / load" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;endArrow=classicThin;endFill=1;fontSize=9;labelBackgroundColor=#f5f5f5;" parent="r1" source="r1_l1" target="r1_l2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="sync_hdr" value="TP sync (prefetch hit: gloo group · other: NCCL / TP group)" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontStyle=1;fontColor=#b71c1c;" parent="1" vertex="1">
+                    <mxGeometry x="1100" y="278" width="280" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="s1" value="① MIN&#10;L3 hit" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=9;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="1145" y="330" width="190" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="s2" value="② MIN&#10;prefetch done" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=9;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="1145" y="388" width="190" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3" value="③ MIN&#10;write ACK" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=9;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="1145" y="500" width="190" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="s4" value="④ MIN&#10;queue drain" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=9;align=center;" parent="1" vertex="1">
+                    <mxGeometry x="1145" y="558" width="190" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="sync_why" value="Why MIN?&#10;Take the smallest value across ranks so no rank advances past collective agreement — keeps HiRadixTree consistent." style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#e65100;fontSize=9;align=left;spacingLeft=8;spacingTop=4;dashed=1;" parent="1" vertex="1">
+                    <mxGeometry x="1125" y="620" width="240" height="72" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3" value="L3: Distributed Storage (Shared Across All TP Ranks &amp; Instances)" style="swimlane;startSize=28;fillColor=#e8f5e9;strokeColor=#4caf50;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="1210" width="2400" height="175" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3_mc" value="Mooncake&#10;(RDMA)" style="rounded=1;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="l3" vertex="1">
+                    <mxGeometry x="30" y="42" width="120" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3_nx" value="NIXL&#10;(3FS/GDS/S3)" style="rounded=1;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="l3" vertex="1">
+                    <mxGeometry x="170" y="42" width="130" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3_3f" value="HF3FS&#10;(DeepSeek)" style="rounded=1;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="l3" vertex="1">
+                    <mxGeometry x="320" y="42" width="120" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3_ab" value="AIBrix&#10;KVCache" style="rounded=1;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="l3" vertex="1">
+                    <mxGeometry x="460" y="42" width="110" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3_fi" value="File&#10;(Demo)" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#66bb6a;fontSize=10;align=center;" parent="l3" vertex="1">
+                    <mxGeometry x="590" y="47" width="80" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3_api" value="HiCacheStorage ABC:&#10;• batch_get_v1(keys, addrs)   → Read&#10;• batch_set_v1(keys, addrs)   → Write&#10;• batch_exists(keys)           → Query&#10;• Zero-copy via pinned host addrs" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#1b5e20;fontSize=10;align=left;spacingLeft=8;" parent="l3" vertex="1">
+                    <mxGeometry x="720" y="38" width="370" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3_key" value="TP-aware L3 Key Encoding:&#10;&#10;MHA: hash(tokens)_{model}_tp{rank}_tp{size}&#10;  → Different keys per TP rank (different data)&#10;MLA: hash(tokens)_{model}&#10;  → Same key for all TP ranks (identical data)" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=10;align=left;spacingLeft=8;" parent="l3" vertex="1">
+                    <mxGeometry x="1140" y="38" width="380" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3_share" value="Cross-Instance Sharing:&#10;Instance A writes → Instance B reads&#10;Avoids redundant prefill" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#1b5e20;fontSize=10;align=center;" parent="l3" vertex="1">
+                    <mxGeometry x="1570" y="45" width="250" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_r0_l3" value="L3↔L2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=classicThin;endFill=1;fontSize=9;labelBackgroundColor=#e8f5e9;exitX=0.35;exitY=1;entryX=0.18;entryY=0;" parent="1" source="r0" target="l3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_r1_l3" value="L3↔L2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=classicThin;endFill=1;fontSize=9;labelBackgroundColor=#e8f5e9;exitX=0.35;exitY=1;entryX=0.82;entryY=0;" parent="1" source="r1" target="l3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="df" value="Request Data Flow (within each TP rank)" style="swimlane;startSize=26;fillColor=#ede7f6;strokeColor=#673ab7;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="1420" width="2400" height="380" as="geometry"/>
+                </mxCell>
+                <mxCell id="df_req" value="Request" style="ellipse;whiteSpace=wrap;fillColor=#c5cae9;strokeColor=#283593;fontSize=10;fontStyle=1;" parent="df" vertex="1">
+                    <mxGeometry x="15" y="45" width="75" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="df_1" value="1. match_prefix&#10;Tree L1/L2 lookup" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=center;" parent="df" vertex="1">
+                    <mxGeometry x="120" y="40" width="155" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="df_d" value="L3&#10;hit?" style="rhombus;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=10;" parent="df" vertex="1">
+                    <mxGeometry x="310" y="38" width="80" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="df_2" value="2. prefetch&#10;L3→L2 async" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" parent="df" vertex="1">
+                    <mxGeometry x="425" y="40" width="130" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="df_3" value="3. load_back&#10;L2→L1 per-layer" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;align=center;" parent="df" vertex="1">
+                    <mxGeometry x="590" y="40" width="140" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="df_4" value="4. Prefill&#10;Compute" style="rounded=1;whiteSpace=wrap;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=10;fontStyle=1;align=center;" parent="df" vertex="1">
+                    <mxGeometry x="770" y="40" width="110" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="df_5" value="5. write_backup&#10;L1→L2" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;align=center;" parent="df" vertex="1">
+                    <mxGeometry x="920" y="40" width="130" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="df_6" value="6. write_storage&#10;L2→L3" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#1b5e20;fontSize=10;align=center;" parent="df" vertex="1">
+                    <mxGeometry x="1085" y="40" width="130" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="df_done" value="Decode" style="ellipse;whiteSpace=wrap;fillColor=#c5cae9;strokeColor=#283593;fontSize=10;fontStyle=1;" parent="df" vertex="1">
+                    <mxGeometry x="1250" y="45" width="75" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="dfe1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#333;strokeWidth=2;endArrow=block;endFill=1;" parent="df" source="df_req" target="df_1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dfe2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#333;strokeWidth=2;endArrow=block;endFill=1;" parent="df" source="df_1" target="df_d" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dfe3" value="Y" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;fontSize=9;fontStyle=1;" parent="df" source="df_d" target="df_2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dfe3b" value="N" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#b71c1c;strokeWidth=2;endArrow=classicThin;endFill=1;fontSize=9;fontStyle=1;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" parent="df" source="df_d" target="df_3" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="350" y="128"/>
+                            <mxPoint x="660" y="128"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="dfe4" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#333;strokeWidth=2;endArrow=block;endFill=1;" parent="df" source="df_2" target="df_3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dfe5" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#333;strokeWidth=2;endArrow=block;endFill=1;" parent="df" source="df_3" target="df_4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dfe6" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#333;strokeWidth=2;endArrow=block;endFill=1;" parent="df" source="df_4" target="df_5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dfe7" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#333;strokeWidth=2;endArrow=block;endFill=1;" parent="df" source="df_5" target="df_6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dfe8" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#333;strokeWidth=2;endArrow=block;endFill=1;" parent="df" source="df_6" target="df_done" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="co_title" value="Compute–transfer overlap (LayerDoneCounter)" style="text;html=1;align=left;fontSize=10;fontStyle=1;fontColor=#4a148c;" parent="df" vertex="1">
+                    <mxGeometry x="15" y="168" width="360" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="co_l0" value="Layer 0 Load" style="rounded=1;whiteSpace=wrap;fillColor=#b3e5fc;strokeColor=#0277bd;fontSize=9;" parent="df" vertex="1">
+                    <mxGeometry x="15" y="195" width="160" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="co_c0" value="Layer 0 Compute" style="rounded=1;whiteSpace=wrap;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=9;" parent="df" vertex="1">
+                    <mxGeometry x="190" y="195" width="150" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="co_l1" value="Layer 1 Load" style="rounded=1;whiteSpace=wrap;fillColor=#b3e5fc;strokeColor=#0277bd;fontSize=9;" parent="df" vertex="1">
+                    <mxGeometry x="190" y="229" width="160" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="co_c1" value="Layer 1 Compute" style="rounded=1;whiteSpace=wrap;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=9;" parent="df" vertex="1">
+                    <mxGeometry x="365" y="229" width="150" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="co_l2" value="Layer 2 Load" style="rounded=1;whiteSpace=wrap;fillColor=#b3e5fc;strokeColor=#0277bd;fontSize=9;" parent="df" vertex="1">
+                    <mxGeometry x="365" y="263" width="160" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="co_c2" value="Layer 2 Compute …" style="rounded=1;whiteSpace=wrap;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=9;" parent="df" vertex="1">
+                    <mxGeometry x="540" y="263" width="150" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="co_time" value="──────────── time →" style="text;html=1;align=center;fontSize=9;fontColor=#999;" parent="df" vertex="1">
+                    <mxGeometry x="15" y="298" width="500" height="16" as="geometry"/>
+                </mxCell>
+                <mxCell id="co_note" value="load_stream ‖ compute_stream · LayerLoadingEvent.wait(N) before layer N" style="rounded=1;whiteSpace=wrap;fillColor=#ede7f6;strokeColor=#4527a0;fontSize=8;align=center;dashed=1;" parent="df" vertex="1">
+                    <mxGeometry x="15" y="322" width="560" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="tp_in_flow" value="TP sync vs steps&#10;• match: local tree&#10;• prefetch: MIN hit + MIN tokens&#10;• load: local L2→L1&#10;• compute: TP collectives&#10;• write: MIN ACK; MHA all→L3 / MLA tp0&#10;• drain: MIN queues" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#e65100;fontSize=9;align=left;spacingLeft=8;spacingTop=4;" parent="df" vertex="1">
+                    <mxGeometry x="1520" y="38" width="280" height="118" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg" value="Legend" style="text;html=1;align=left;fontSize=10;fontStyle=1;fontColor=#555;" parent="df" vertex="1">
+                    <mxGeometry x="1840" y="38" width="60" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg1" value="" style="rounded=1;fillColor=#fff3e0;strokeColor=#ff9800;" parent="df" vertex="1">
+                    <mxGeometry x="1840" y="62" width="16" height="12" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg1t" value="L1 GPU" style="text;html=1;align=left;fontSize=9;" parent="df" vertex="1">
+                    <mxGeometry x="1862" y="58" width="70" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg2" value="" style="rounded=1;fillColor=#e3f2fd;strokeColor=#2196f3;" parent="df" vertex="1">
+                    <mxGeometry x="1840" y="82" width="16" height="12" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg2t" value="L2 Host" style="text;html=1;align=left;fontSize=9;" parent="df" vertex="1">
+                    <mxGeometry x="1862" y="78" width="70" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg3" value="" style="rounded=1;fillColor=#e8f5e9;strokeColor=#4caf50;" parent="df" vertex="1">
+                    <mxGeometry x="1840" y="102" width="16" height="12" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg3t" value="L3 Storage" style="text;html=1;align=left;fontSize=9;" parent="df" vertex="1">
+                    <mxGeometry x="1862" y="98" width="80" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg4" value="" style="rounded=1;fillColor=#ffcdd2;strokeColor=#c62828;" parent="df" vertex="1">
+                    <mxGeometry x="1840" y="122" width="16" height="12" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg4t" value="TP Sync" style="text;html=1;align=left;fontSize=9;" parent="df" vertex="1">
+                    <mxGeometry x="1862" y="118" width="70" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg5" value="" style="rounded=1;fillColor=#f3e5f5;strokeColor=#9c27b0;" parent="df" vertex="1">
+                    <mxGeometry x="1840" y="142" width="16" height="12" as="geometry"/>
+                </mxCell>
+                <mxCell id="lg5t" value="Controller" style="text;html=1;align=left;fontSize=9;" parent="df" vertex="1">
+                    <mxGeometry x="1862" y="138" width="70" height="18" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram name="Page 2: HiCache — Pipeline Parallelism (PP)" id="pp_page">
+        <mxGraphModel dx="1674" dy="817" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="3000" pageHeight="2500" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="t2" value="SGLang HiCache: KVCache Management under Pipeline Parallelism (PP)" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fontColor=#1a237e;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="10" width="1900" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="pov" value="PP Overview: Model Layers Partitioned Across GPU Groups" style="swimlane;startSize=26;fillColor=#fce4ec;strokeColor=#e91e63;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="62" width="2400" height="198" as="geometry"/>
+                </mxCell>
+                <mxCell id="pov_s0" value="PP Stage 0&#10;GPU Group A&#10;Layers [0 .. L/K-1]" style="rounded=1;whiteSpace=wrap;fillColor=#f48fb1;strokeColor=#c2185b;fontSize=11;fontStyle=1;align=center;" parent="pov" vertex="1">
+                    <mxGeometry x="40" y="40" width="250" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="pov_s1" value="PP Stage 1&#10;GPU Group B&#10;Layers [L/K .. 2L/K-1]" style="rounded=1;whiteSpace=wrap;fillColor=#f48fb1;strokeColor=#c2185b;fontSize=11;fontStyle=1;align=center;" parent="pov" vertex="1">
+                    <mxGeometry x="400" y="40" width="250" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="pov_dots" value="..." style="text;html=1;align=center;fontSize=20;fontStyle=1;fontColor=#c2185b;" parent="pov" vertex="1">
+                    <mxGeometry x="730" y="55" width="60" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="pov_sk" value="PP Stage K-1&#10;GPU Group K&#10;Layers [(K-1)L/K .. L-1]" style="rounded=1;whiteSpace=wrap;fillColor=#f48fb1;strokeColor=#c2185b;fontSize=11;fontStyle=1;align=center;" parent="pov" vertex="1">
+                    <mxGeometry x="860" y="40" width="260" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="pov_e1" value="Activations" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#c2185b;strokeWidth=2;endArrow=block;endFill=1;fontSize=9;fontStyle=1;" parent="pov" source="pov_s0" target="pov_s1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pov_e2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#c2185b;strokeWidth=2;endArrow=block;endFill=1;" parent="pov" source="pov_s1" target="pov_dots" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pov_e3" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#c2185b;strokeWidth=2;endArrow=block;endFill=1;" parent="pov" source="pov_dots" target="pov_sk" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pov_key" value="Key Principle:&#10;Each PP stage has an INDEPENDENT HiCache instance.&#10;They do NOT share L1/L2 pools or HiRadixTree.&#10;L3 storage keys include pp_rank for data isolation." style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=10;align=left;spacingLeft=8;" parent="pov" vertex="1">
+                    <mxGeometry x="1200" y="35" width="420" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="pov_params" value="Config:&#10;pp_rank, pp_size&#10;passed to CacheInitParams" style="rounded=1;whiteSpace=wrap;fillColor=#e0e0e0;strokeColor=#9e9e9e;fontSize=10;align=center;dashed=1;" parent="pov" vertex="1">
+                    <mxGeometry x="1680" y="40" width="220" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="pov_flow" value="Per PP stage: separate HiRadixCache, HiCacheController, L1/L2. TP all_reduce(MIN) only within the stage.&#10;Activations flow stage k → k+1 (no shared HiCache tree). L3 keys include pp_rank (+ tp_rank for MHA)." style="text;html=1;align=left;verticalAlign=top;spacingTop=4;spacingLeft=10;fontSize=9;fontColor=#880e4f;fontStyle=2;" vertex="1" parent="pov">
+                    <mxGeometry x="15" y="118" width="2350" height="68" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0" value="PP Stage 0 (pp_rank=0, Layers 0 .. N/pp_size - 1)" style="swimlane;startSize=28;fillColor=#fce4ec;strokeColor=#c2185b;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="288" width="1150" height="720" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_hrc" value="HiRadixCache Instance 0" style="swimlane;startSize=24;fillColor=#e8eaf6;strokeColor=#3f51b5;fontStyle=1;fontSize=11;rounded=1;" parent="ps0" vertex="1">
+                    <mxGeometry x="15" y="42" width="1120" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_tree" value="HiRadixTree&#10;(Independent prefix tree&#10; for Stage 0's requests)" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=center;" parent="ps0_hrc" vertex="1">
+                    <mxGeometry x="10" y="30" width="240" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_ops" value="match_prefix() | prefetch_from_storage()&#10;write_backup() | insert() | evict()&#10;Manages only layers 0..N/pp_size-1" style="rounded=1;whiteSpace=wrap;fillColor=#e8eaf6;strokeColor=#5c6bc0;fontSize=10;align=center;" parent="ps0_hrc" vertex="1">
+                    <mxGeometry x="280" y="30" width="380" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_ctrl_note" value="Own HiCacheController&#10;write/load streams&#10;prefetch/backup threads" style="rounded=1;whiteSpace=wrap;fillColor=#f3e5f5;strokeColor=#9c27b0;fontSize=10;align=center;" parent="ps0_hrc" vertex="1">
+                    <mxGeometry x="690" y="30" width="230" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_l1" value="L1: GPU KVCache (Layers 0 .. N/pp_size - 1 only)" style="swimlane;startSize=24;fillColor=#fff3e0;strokeColor=#ff9800;fontStyle=1;fontSize=11;rounded=1;" parent="ps0" vertex="1">
+                    <mxGeometry x="15" y="200" width="1120" height="130" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_l1_mha" value="MHA: K,V tensors for first half of layers&#10;  Shape: [N/pp_size, pool, heads/tp, dim]" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;align=left;spacingLeft=8;" parent="ps0_l1" vertex="1">
+                    <mxGeometry x="10" y="30" width="420" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_l1_mla" value="MLA: kv_cache for first half of layers&#10;  Shape: [N/pp_size, pool, 1, latent_dim]" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;align=left;spacingLeft=8;" parent="ps0_l1" vertex="1">
+                    <mxGeometry x="460" y="30" width="420" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_l1_note" value="Only allocates GPU memory for layers in this stage" style="text;html=1;align=center;fontSize=9;fontColor=#e65100;fontStyle=2;" parent="ps0_l1" vertex="1">
+                    <mxGeometry x="10" y="90" width="400" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_l2" value="L2: Host KVCache (Pinned CPU, Layers 0 .. N/pp_size - 1)" style="swimlane;startSize=24;fillColor=#e3f2fd;strokeColor=#2196f3;fontStyle=1;fontSize=11;rounded=1;" parent="ps0" vertex="1">
+                    <mxGeometry x="15" y="350" width="1120" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_l2_info" value="HostKVCache for first-half layers&#10;hicache_ratio × GPU or hicache_size GB per rank&#10;Independent pinned memory region" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" parent="ps0_l2" vertex="1">
+                    <mxGeometry x="10" y="30" width="400" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_l2_layout" value="Layouts: layer_first | page_first | page_first_direct&#10;Transfer: backup_all_layer / load_per_layer" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" parent="ps0_l2" vertex="1">
+                    <mxGeometry x="440" y="30" width="400" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_l3k" value="L3 Storage Keys (pp_rank=0)" style="swimlane;startSize=22;fillColor=#e8f5e9;strokeColor=#4caf50;fontStyle=1;fontSize=11;rounded=1;" parent="ps0" vertex="1">
+                    <mxGeometry x="15" y="480" width="1120" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_k_mha" value="MHA key: hash(tokens)_{model}_tp{rank}_tp{size}_pp0&#10;  → Each TP rank within Stage 0 has unique key with pp0 suffix" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=left;spacingLeft=8;" parent="ps0_l3k" vertex="1">
+                    <mxGeometry x="10" y="28" width="510" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_k_mla" value="MLA key: hash(tokens)_{model}_pp0&#10;  → All TP ranks share same key (identical data), pp0 suffix" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=left;spacingLeft=8;" parent="ps0_l3k" vertex="1">
+                    <mxGeometry x="550" y="28" width="510" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_tp" value="TP Ranks within PP Stage 0" style="swimlane;startSize=22;fillColor=#ffebee;strokeColor=#c62828;fontStyle=1;fontSize=11;rounded=1;" parent="ps0" vertex="1">
+                    <mxGeometry x="15" y="600" width="1120" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_tp0" value="TP Rank 0&#10;[L1: layers 0..N/2 shard 0]&#10;[L2: layers 0..N/2 shard 0]" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;align=center;" parent="ps0_tp" vertex="1">
+                    <mxGeometry x="20" y="28" width="280" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_sync" value="all_reduce&#10;(MIN)" style="shape=doubleArrow;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#b71c1c;fontSize=9;align=center;arrowWidth=0.35;arrowSize=0.12;" parent="ps0_tp" vertex="1">
+                    <mxGeometry x="340" y="38" width="130" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_tp1" value="TP Rank 1&#10;[L1: layers 0..N/2 shard 1]&#10;[L2: layers 0..N/2 shard 1]" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;align=center;" parent="ps0_tp" vertex="1">
+                    <mxGeometry x="510" y="28" width="280" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0_tp_note" value="TP sync is&#10;per-stage" style="rounded=1;whiteSpace=wrap;fillColor=#fff;strokeColor=#bdbdbd;fontSize=9;align=center;dashed=1;" parent="ps0_tp" vertex="1">
+                    <mxGeometry x="840" y="35" width="100" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0e1" value="write / load" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;endArrow=block;endFill=1;startArrow=block;startFill=1;fontSize=9;labelBackgroundColor=#fce4ec;" parent="ps0" source="ps0_l1" target="ps0_l2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1" value="PP Stage 1 (pp_rank=1, Layers N/pp_size .. N - 1)" style="swimlane;startSize=28;fillColor=#fce4ec;strokeColor=#c2185b;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="1290" y="288" width="1150" height="720" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_hrc" value="HiRadixCache Instance 1" style="swimlane;startSize=24;fillColor=#e8eaf6;strokeColor=#3f51b5;fontStyle=1;fontSize=11;rounded=1;" parent="ps1" vertex="1">
+                    <mxGeometry x="15" y="42" width="1120" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_tree" value="HiRadixTree&#10;(Independent prefix tree&#10; for Stage 1's requests)" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=center;" parent="ps1_hrc" vertex="1">
+                    <mxGeometry x="10" y="30" width="240" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_ops" value="match_prefix() | prefetch_from_storage()&#10;write_backup() | insert() | evict()&#10;Manages only layers N/pp_size..N-1" style="rounded=1;whiteSpace=wrap;fillColor=#e8eaf6;strokeColor=#5c6bc0;fontSize=10;align=center;" parent="ps1_hrc" vertex="1">
+                    <mxGeometry x="280" y="30" width="380" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_ctrl_note" value="Own HiCacheController&#10;write/load streams&#10;prefetch/backup threads" style="rounded=1;whiteSpace=wrap;fillColor=#f3e5f5;strokeColor=#9c27b0;fontSize=10;align=center;" parent="ps1_hrc" vertex="1">
+                    <mxGeometry x="690" y="30" width="230" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_l1" value="L1: GPU KVCache (Layers N/pp_size .. N - 1 only)" style="swimlane;startSize=24;fillColor=#fff3e0;strokeColor=#ff9800;fontStyle=1;fontSize=11;rounded=1;" parent="ps1" vertex="1">
+                    <mxGeometry x="15" y="200" width="1120" height="130" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_l1_mha" value="MHA: K,V tensors for second half of layers&#10;  Shape: [N/pp_size, pool, heads/tp, dim]" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;align=left;spacingLeft=8;" parent="ps1_l1" vertex="1">
+                    <mxGeometry x="10" y="30" width="420" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_l1_mla" value="MLA: kv_cache for second half of layers&#10;  Shape: [N/pp_size, pool, 1, latent_dim]" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;align=left;spacingLeft=8;" parent="ps1_l1" vertex="1">
+                    <mxGeometry x="460" y="30" width="420" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_l1_note" value="Only allocates GPU memory for layers in this stage" style="text;html=1;align=center;fontSize=9;fontColor=#e65100;fontStyle=2;" parent="ps1_l1" vertex="1">
+                    <mxGeometry x="10" y="90" width="400" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_l2" value="L2: Host KVCache (Pinned CPU, Layers N/pp_size .. N-1)" style="swimlane;startSize=24;fillColor=#e3f2fd;strokeColor=#2196f3;fontStyle=1;fontSize=11;rounded=1;" parent="ps1" vertex="1">
+                    <mxGeometry x="15" y="350" width="1120" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_l2_info" value="HostKVCache for second-half layers&#10;hicache_ratio × GPU or hicache_size GB per rank&#10;Independent pinned memory region" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" parent="ps1_l2" vertex="1">
+                    <mxGeometry x="10" y="30" width="400" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_l2_layout" value="Layouts: layer_first | page_first | page_first_direct&#10;Transfer: backup_all_layer / load_per_layer" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;align=center;" parent="ps1_l2" vertex="1">
+                    <mxGeometry x="440" y="30" width="400" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_l3k" value="L3 Storage Keys (pp_rank=1)" style="swimlane;startSize=22;fillColor=#e8f5e9;strokeColor=#4caf50;fontStyle=1;fontSize=11;rounded=1;" parent="ps1" vertex="1">
+                    <mxGeometry x="15" y="480" width="1120" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_k_mha" value="MHA key: hash(tokens)_{model}_tp{rank}_tp{size}_pp1&#10;  → Each TP rank within Stage 1 has unique key with pp1 suffix" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=left;spacingLeft=8;" parent="ps1_l3k" vertex="1">
+                    <mxGeometry x="10" y="28" width="510" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_k_mla" value="MLA key: hash(tokens)_{model}_pp1&#10;  → All TP ranks share same key (identical data), pp1 suffix" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=left;spacingLeft=8;" parent="ps1_l3k" vertex="1">
+                    <mxGeometry x="550" y="28" width="510" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_tp" value="TP Ranks within PP Stage 1" style="swimlane;startSize=22;fillColor=#ffebee;strokeColor=#c62828;fontStyle=1;fontSize=11;rounded=1;" parent="ps1" vertex="1">
+                    <mxGeometry x="15" y="600" width="1120" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_tp0" value="TP Rank 0&#10;[L1: layers N/2..N shard 0]&#10;[L2: layers N/2..N shard 0]" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;align=center;" parent="ps1_tp" vertex="1">
+                    <mxGeometry x="20" y="28" width="280" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_sync" value="all_reduce&#10;(MIN)" style="shape=doubleArrow;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#b71c1c;fontSize=9;align=center;arrowWidth=0.35;arrowSize=0.12;" parent="ps1_tp" vertex="1">
+                    <mxGeometry x="340" y="38" width="130" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_tp1" value="TP Rank 1&#10;[L1: layers N/2..N shard 1]&#10;[L2: layers N/2..N shard 1]" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;align=center;" parent="ps1_tp" vertex="1">
+                    <mxGeometry x="510" y="28" width="280" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1_tp_note" value="TP sync is&#10;per-stage" style="rounded=1;whiteSpace=wrap;fillColor=#fff;strokeColor=#bdbdbd;fontSize=9;align=center;dashed=1;" parent="ps1_tp" vertex="1">
+                    <mxGeometry x="840" y="35" width="100" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1e1" value="write / load" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;endArrow=block;endFill=1;startArrow=block;startFill=1;fontSize=9;labelBackgroundColor=#fce4ec;" parent="ps1" source="ps1_l1" target="ps1_l2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pp_act_arrow" value="Activations (PP)" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#ad1457;strokeWidth=2;endArrow=classicThin;endFill=1;fontSize=10;fontStyle=1;labelBackgroundColor=#fff;" parent="1" source="ps0" target="ps1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp" value="L3: Distributed Storage (Shared, but PP-aware Key Encoding)" style="swimlane;startSize=28;fillColor=#e8f5e9;strokeColor=#4caf50;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="1030" width="2400" height="200" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp_mc" value="Mooncake" style="rounded=1;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="l3pp" vertex="1">
+                    <mxGeometry x="30" y="40" width="100" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp_nx" value="NIXL" style="rounded=1;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="l3pp" vertex="1">
+                    <mxGeometry x="150" y="40" width="90" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp_3f" value="HF3FS" style="rounded=1;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="l3pp" vertex="1">
+                    <mxGeometry x="260" y="40" width="90" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp_ab" value="AIBrix" style="rounded=1;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="l3pp" vertex="1">
+                    <mxGeometry x="370" y="40" width="90" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp_fi" value="File" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#66bb6a;fontSize=10;align=center;" parent="l3pp" vertex="1">
+                    <mxGeometry x="480" y="40" width="60" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp_isolation" value="PP Key Isolation Mechanism" style="swimlane;startSize=22;fillColor=#fff9c4;strokeColor=#f57f17;fontStyle=1;fontSize=11;rounded=1;" parent="l3pp" vertex="1">
+                    <mxGeometry x="600" y="35" width="800" height="160" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp_stage0" value="PP Stage 0 Keys" style="swimlane;startSize=20;fillColor=#fff3e0;strokeColor=#e65100;fontStyle=1;fontSize=10;rounded=1;" parent="l3pp_isolation" vertex="1">
+                    <mxGeometry x="15" y="30" width="370" height="115" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp_s0_mha" value="MHA: hash_model_tp0_tp2_pp0&#10;      hash_model_tp1_tp2_pp0" style="rounded=0;whiteSpace=wrap;fillColor=none;strokeColor=none;fontSize=9;align=left;spacingLeft=8;fontFamily=Courier New;" parent="l3pp_stage0" vertex="1">
+                    <mxGeometry x="5" y="25" width="360" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp_s0_mla" value="MLA: hash_model_pp0&#10;      (shared by all TP ranks)" style="rounded=0;whiteSpace=wrap;fillColor=none;strokeColor=none;fontSize=9;align=left;spacingLeft=8;fontFamily=Courier New;" parent="l3pp_stage0" vertex="1">
+                    <mxGeometry x="5" y="65" width="360" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp_stage1" value="PP Stage 1 Keys" style="swimlane;startSize=20;fillColor=#e3f2fd;strokeColor=#1565c0;fontStyle=1;fontSize=10;rounded=1;" parent="l3pp_isolation" vertex="1">
+                    <mxGeometry x="410" y="30" width="370" height="115" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp_s1_mha" value="MHA: hash_model_tp0_tp2_pp1&#10;      hash_model_tp1_tp2_pp1" style="rounded=0;whiteSpace=wrap;fillColor=none;strokeColor=none;fontSize=9;align=left;spacingLeft=8;fontFamily=Courier New;" parent="l3pp_stage1" vertex="1">
+                    <mxGeometry x="5" y="25" width="360" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp_s1_mla" value="MLA: hash_model_pp1&#10;      (shared by all TP ranks)" style="rounded=0;whiteSpace=wrap;fillColor=none;strokeColor=none;fontSize=9;align=left;spacingLeft=8;fontFamily=Courier New;" parent="l3pp_stage1" vertex="1">
+                    <mxGeometry x="5" y="65" width="360" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp_note" value="pp_rank in key suffix&#10;prevents cross-stage&#10;data collision.&#10;&#10;Stage 0 and Stage 1&#10;KV cache data covers&#10;different model layers." style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#1b5e20;fontSize=10;align=left;spacingLeft=8;dashed=1;" parent="l3pp" vertex="1">
+                    <mxGeometry x="1460" y="38" width="220" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3pp_share_note" value="Cross-instance sharing&#10;still works within same&#10;pp_rank + tp_rank scope" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#1b5e20;fontSize=10;align=center;dashed=1;" parent="l3pp" vertex="1">
+                    <mxGeometry x="1730" y="50" width="230" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_ps0_l3" value="prefetch / backup" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;startArrow=block;startFill=1;fontSize=9;labelBackgroundColor=#fff;exitX=0.25;exitY=1;entryX=0.2;entryY=0;" parent="1" source="ps0" target="l3pp" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_ps1_l3" value="prefetch / backup" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;startArrow=block;startFill=1;fontSize=9;labelBackgroundColor=#fff;exitX=0.75;exitY=1;entryX=0.8;entryY=0;" parent="1" source="ps1" target="l3pp" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="txp" value="TP × PP Combined View: 4-GPU Example (TP=2, PP=2)" style="swimlane;startSize=28;fillColor=#ede7f6;strokeColor=#673ab7;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="1260" width="2400" height="300" as="geometry"/>
+                </mxCell>
+                <mxCell id="txp_g0" value="GPU 0&#10;PP Stage 0, TP Rank 0&#10;&#10;HiCache pp_rank=0&#10;Layers 0..N/2&#10;KV heads shard 0" style="rounded=1;whiteSpace=wrap;fillColor=#f8bbd0;strokeColor=#c2185b;fontSize=10;align=center;fontStyle=0;" parent="txp" vertex="1">
+                    <mxGeometry x="50" y="55" width="230" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="txp_g1" value="GPU 1&#10;PP Stage 0, TP Rank 1&#10;&#10;HiCache pp_rank=0&#10;Layers 0..N/2&#10;KV heads shard 1" style="rounded=1;whiteSpace=wrap;fillColor=#f8bbd0;strokeColor=#c2185b;fontSize=10;align=center;fontStyle=0;" parent="txp" vertex="1">
+                    <mxGeometry x="330" y="55" width="230" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="txp_g2" value="GPU 2&#10;PP Stage 1, TP Rank 0&#10;&#10;HiCache pp_rank=1&#10;Layers N/2..N&#10;KV heads shard 0" style="rounded=1;whiteSpace=wrap;fillColor=#ce93d8;strokeColor=#7b1fa2;fontSize=10;align=center;fontStyle=0;" parent="txp" vertex="1">
+                    <mxGeometry x="700" y="55" width="230" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="txp_g3" value="GPU 3&#10;PP Stage 1, TP Rank 1&#10;&#10;HiCache pp_rank=1&#10;Layers N/2..N&#10;KV heads shard 1" style="rounded=1;whiteSpace=wrap;fillColor=#ce93d8;strokeColor=#7b1fa2;fontSize=10;align=center;fontStyle=0;" parent="txp" vertex="1">
+                    <mxGeometry x="980" y="55" width="230" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="txp_ts0" value="TP sync" style="shape=doubleArrow;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=9;align=center;arrowWidth=0.3;arrowSize=0.1;" parent="txp" vertex="1">
+                    <mxGeometry x="290" y="90" width="30" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="txp_ts1" value="TP sync" style="shape=doubleArrow;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=9;align=center;arrowWidth=0.3;arrowSize=0.1;" parent="txp" vertex="1">
+                    <mxGeometry x="940" y="90" width="30" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="txp_pp" value="PP: Activations" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#ad1457;strokeWidth=3;endArrow=block;endFill=1;fontSize=10;fontStyle=1;labelBackgroundColor=#ede7f6;" parent="txp" source="txp_g1" target="txp_g2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="txp_l3" value="L3 Distributed Storage" style="rounded=1;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#2e7d32;fontSize=12;fontStyle=1;align=center;" parent="txp" vertex="1">
+                    <mxGeometry x="300" y="210" width="600" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="txp_e0" value="pp0" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=1;endArrow=block;endFill=1;startArrow=block;startFill=1;fontSize=8;exitX=0.5;exitY=1;entryX=0.2;entryY=0;" parent="txp" source="txp_g0" target="txp_l3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="txp_e1" value="pp0" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=1;endArrow=block;endFill=1;startArrow=block;startFill=1;fontSize=8;exitX=0.5;exitY=1;entryX=0.35;entryY=0;" parent="txp" source="txp_g1" target="txp_l3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="txp_e2" value="pp1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#7b1fa2;strokeWidth=1;endArrow=block;endFill=1;startArrow=block;startFill=1;fontSize=8;exitX=0.5;exitY=1;entryX=0.65;entryY=0;" parent="txp" source="txp_g2" target="txp_l3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="txp_e3" value="pp1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#7b1fa2;strokeWidth=1;endArrow=block;endFill=1;startArrow=block;startFill=1;fontSize=8;exitX=0.5;exitY=1;entryX=0.8;entryY=0;" parent="txp" source="txp_g3" target="txp_l3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="txp_summary" value="Summary:&#10;&#10;• PP partitions model layers across stages&#10;• Each PP stage has independent HiCache (tree, controller, L1, L2)&#10;• TP shards KV heads within each PP stage&#10;• all_reduce(MIN) syncs TP ranks within the same PP stage&#10;• L3 keys encode both tp_rank and pp_rank for full isolation&#10;• Cross-instance sharing happens only for same tp/pp topology" style="rounded=1;whiteSpace=wrap;fillColor=#ede7f6;strokeColor=#4527a0;fontSize=10;align=left;spacingLeft=10;spacingTop=3;" parent="txp" vertex="1">
+                    <mxGeometry x="1300" y="45" width="480" height="160" as="geometry"/>
+                </mxCell>
+                <mxCell id="pd" value="PD Disaggregation with HiCache" style="swimlane;startSize=26;fillColor=#e0f2f1;strokeColor=#00897b;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="1590" width="2400" height="200" as="geometry"/>
+                </mxCell>
+                <mxCell id="pd_prefill" value="Prefill Node(s)&#10;&#10;HiCache enabled&#10;• Prefill computation&#10;• Write KV to L2 → L3&#10;• Transfer KV to decode" style="rounded=1;whiteSpace=wrap;fillColor=#b2dfdb;strokeColor=#00695c;fontSize=10;align=center;" parent="pd" vertex="1">
+                    <mxGeometry x="80" y="40" width="280" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="pd_decode" value="Decode Node(s)&#10;&#10;HiCache enabled&#10;• Decode computation&#10;• Can write output KV to L3&#10;• Future reuse by prefill" style="rounded=1;whiteSpace=wrap;fillColor=#b2dfdb;strokeColor=#00695c;fontSize=10;align=center;" parent="pd" vertex="1">
+                    <mxGeometry x="580" y="40" width="280" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="pd_arrow" value="MooncakeTransferEngine (RDMA)&#10;KV cache transfer" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#00695c;strokeWidth=2;endArrow=block;endFill=1;fontSize=10;fontStyle=1;labelBackgroundColor=#e0f2f1;" parent="pd" source="pd_prefill" target="pd_decode" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pd_l3" value="L3 Shared Storage&#10;&#10;Prefill writes → Decode reads&#10;Decode writes → Prefill reuses&#10;DecodeKVCacheOffloadManager" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=center;" parent="pd" vertex="1">
+                    <mxGeometry x="1000" y="40" width="300" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="pd_e1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;startArrow=block;startFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="pd" source="pd_decode" target="pd_l3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pd_e2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=1;endArrow=block;endFill=1;startArrow=block;startFill=1;dashed=1;exitX=0.5;exitY=1;entryX=0.3;entryY=1;" parent="pd" source="pd_prefill" target="pd_l3" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="220" y="170"/>
+                            <mxPoint x="1090" y="170"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="pd_note" value="HiCache works on both Prefill and Decode nodes in PD mode.&#10;Each node can have its own TP/PP configuration.&#10;L3 enables cross-node KV cache reuse." style="rounded=1;whiteSpace=wrap;fillColor=#e0f2f1;strokeColor=#004d40;fontSize=10;align=left;spacingLeft=8;dashed=1;" parent="pd" vertex="1">
+                    <mxGeometry x="1400" y="50" width="430" height="65" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram name="Page 3: DP Attention &amp; Expert Parallel (EP)" id="dp_ep_page">
+        <mxGraphModel dx="3044" dy="1485" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="3000" pageHeight="2900" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="d3_t1" value="SGLang: Data Parallel (DP) Attention &amp; Expert Parallel (EP)" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fontColor=#1a237e;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="12" width="2200" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_sub" value="Refs: srt/layers/dp_attention.py · srt/layers/moe/ · srt/distributed/parallel_state.py" style="text;html=1;align=center;fontSize=10;fontColor=#546e7a;fontStyle=2;" parent="1" vertex="1">
+                    <mxGeometry x="400" y="50" width="1800" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dims" value="Parallelism axes (orthogonal roles)" style="swimlane;startSize=24;fillColor=#eceff1;strokeColor=#455a64;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="78" width="2400" height="142" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_d" value="DP (data parallel)&#10;&#10;Replicate weights; split&#10;requests/tokens across ranks.&#10;Optional: enable_dp_attention&#10;splits attention compute." style="rounded=1;whiteSpace=wrap;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=10;align=center;" parent="d3_dims" vertex="1">
+                    <mxGeometry x="20" y="38" width="220" height="82" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_t" value="TP (tensor parallel)&#10;&#10;Shard large matrices /&#10;KV heads per layer.&#10;Collectives inside layers." style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#ef6c00;fontSize=10;align=center;" parent="d3_dims" vertex="1">
+                    <mxGeometry x="260" y="38" width="220" height="82" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_p" value="PP (pipeline parallel)&#10;&#10;Shard layers across&#10;stages; activations flow&#10;stage → stage." style="rounded=1;whiteSpace=wrap;fillColor=#fce4ec;strokeColor=#c2185b;fontSize=10;align=center;" parent="d3_dims" vertex="1">
+                    <mxGeometry x="500" y="38" width="220" height="82" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_e" value="EP (expert parallel)&#10;&#10;MoE only: shard experts&#10;across ranks (moe_ep_size).&#10;Tokens routed to owners." style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#2e7d32;fontSize=10;align=center;" parent="d3_dims" vertex="1">
+                    <mxGeometry x="740" y="38" width="220" height="82" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_note" value="DP attention ON: attn_tp_size = tp_size / (attn_dp_size × attn_cp_size).&#10;Rank layout: tp_rank = ((cp_rank × dp_size) + dp_rank) × attn_tp_size + attn_tp_rank" style="rounded=1;whiteSpace=wrap;fillColor=#fffde7;strokeColor=#f9a825;fontSize=9;align=left;spacingLeft=10;spacingTop=4;" parent="d3_dims" vertex="1">
+                    <mxGeometry x="1000" y="30" width="1380" height="98" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dp_lane" value="A) DP Attention (enable_dp_attention)" style="swimlane;startSize=26;fillColor=#e8eaf6;strokeColor=#3949ab;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="232" width="2400" height="548" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dp_goal" value="Goal: attention on a smaller TP group; DP ranks hold different tokens. initialize_dp_attention() + get_attention_tp_group()." style="rounded=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#9e9e9e;fontSize=9;align=left;spacingLeft=10;spacingTop=4;dashed=1;" parent="d3_dp_lane" vertex="1">
+                    <mxGeometry x="20" y="36" width="2360" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dp_pad" value="DpPaddingMode&#10;• MAX_LEN: all_gather_into_tensor&#10;• SUM_LEN: all_reduce path&#10;(get_dp_padding_mode)" style="rounded=1;whiteSpace=wrap;fillColor=#c5cae9;strokeColor=#303f9f;fontSize=9;align=left;spacingLeft=8;verticalAlign=top;" parent="d3_dp_lane" vertex="1">
+                    <mxGeometry x="20" y="92" width="300" height="118" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dp_buf" value="_DpGatheredBufferWrapper&#10;global/local lengths,&#10;symmetric memory opt." style="rounded=1;whiteSpace=wrap;fillColor=#d1c4e9;strokeColor=#512da8;fontSize=9;align=left;spacingLeft=8;verticalAlign=top;" parent="d3_dp_lane" vertex="1">
+                    <mxGeometry x="340" y="92" width="260" height="118" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dp_flow" value="Forward (conceptual)&#10;1. Tokens on DP ranks&#10;2. Gather/pad before attn&#10;3. Attn via get_attention_tp_group()&#10;4. Scatter / reduce after&#10;5. Graph/Eagle: draft_tp_context" style="rounded=1;whiteSpace=wrap;fillColor=#e8eaf6;strokeColor=#5c6bc0;fontSize=9;align=left;spacingLeft=8;verticalAlign=top;" parent="d3_dp_lane" vertex="1">
+                    <mxGeometry x="620" y="92" width="400" height="118" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dp_sched" value="server_args&#10;dp_size, enable_dp_attention,&#10;moe_dense_tp_size, attn_cp_size" style="rounded=1;whiteSpace=wrap;fillColor=#fff;strokeColor=#7986cb;fontSize=9;align=left;spacingLeft=8;verticalAlign=top;dashed=1;" parent="d3_dp_lane" vertex="1">
+                    <mxGeometry x="1040" y="92" width="280" height="118" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dp_strip" value="Token path (schematic)" style="text;html=1;align=left;fontSize=10;fontStyle=1;fontColor=#283593;" vertex="1" parent="d3_dp_lane">
+                    <mxGeometry x="20" y="228" width="280" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dp_r0" value="DP rank 0&#10;tokens A" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=9;align=center;" parent="d3_dp_lane" vertex="1">
+                    <mxGeometry x="40" y="258" width="110" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dp_r1" value="DP rank 1&#10;tokens B" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=9;align=center;" parent="d3_dp_lane" vertex="1">
+                    <mxGeometry x="175" y="258" width="110" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dp_gather" value="Pad + gather&#10;(all_gather /&#10;all_reduce)" style="rounded=1;whiteSpace=wrap;fillColor=#c5cae9;strokeColor=#3949ab;fontSize=9;align=center;" parent="d3_dp_lane" vertex="1">
+                    <mxGeometry x="310" y="252" width="150" height="64" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dp_attn" value="Attention TP&#10;subgroup&#10;(QKV / FI)" style="rounded=1;whiteSpace=wrap;fillColor=#9fa8da;strokeColor=#283593;fontSize=9;align=center;fontStyle=1;" parent="d3_dp_lane" vertex="1">
+                    <mxGeometry x="490" y="246" width="150" height="76" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dp_out" value="Scatter /&#10;unpad" style="rounded=1;whiteSpace=wrap;fillColor=#c5cae9;strokeColor=#3949ab;fontSize=9;align=center;" parent="d3_dp_lane" vertex="1">
+                    <mxGeometry x="670" y="252" width="120" height="64" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dp_mlp" value="MLP / MoE&#10;(full TP+EP)" style="rounded=1;whiteSpace=wrap;fillColor=#e8eaf6;strokeColor=#5c6bc0;fontSize=9;align=center;dashed=1;" parent="d3_dp_lane" vertex="1">
+                    <mxGeometry x="820" y="252" width="130" height="64" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dpe1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1565c0;strokeWidth=2;endArrow=classicThin;endFill=1;" parent="d3_dp_lane" source="d3_dp_r0" target="d3_dp_gather" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dpe2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1565c0;strokeWidth=2;endArrow=classicThin;endFill=1;" parent="d3_dp_lane" source="d3_dp_r1" target="d3_dp_gather" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dpe3" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#283593;strokeWidth=2;endArrow=classicThin;endFill=1;" parent="d3_dp_lane" source="d3_dp_gather" target="d3_dp_attn" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dpe4" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#283593;strokeWidth=2;endArrow=classicThin;endFill=1;" parent="d3_dp_lane" source="d3_dp_attn" target="d3_dp_out" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dpe5" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#5c6bc0;strokeWidth=1;endArrow=classicThin;endFill=1;dashed=1;" parent="d3_dp_lane" source="d3_dp_out" target="d3_dp_mlp" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_dp_leg" value="CP may split sequence further (combine in compute_dp_attention_world_info)." style="text;html=1;align=left;fontSize=9;fontColor=#616161;fontStyle=2;" parent="d3_dp_lane" vertex="1">
+                    <mxGeometry x="1000" y="248" width="1340" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_ep_lane" value="B) Expert Parallel (EP) — MoE layers" style="swimlane;startSize=26;fillColor=#e8f5e9;strokeColor=#2e7d32;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="800" width="2400" height="460" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_ep_core" value="EP API&#10;get_moe_expert_parallel_*&#10;local experts = routed/ep_size&#10;weights: [rank×local …]" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#1b5e20;fontSize=9;align=left;spacingLeft=8;verticalAlign=top;" parent="d3_ep_lane" vertex="1">
+                    <mxGeometry x="20" y="34" width="360" height="92" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_ep_layer" value="Fused MoE&#10;moe_ep_rank/size, dispatcher&#10;(std / FlashInfer / DeepEP)&#10;combine + all_reduce if needed" style="rounded=1;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#33691e;fontSize=9;align=left;spacingLeft=8;verticalAlign=top;" parent="d3_ep_lane" vertex="1">
+                    <mxGeometry x="400" y="34" width="420" height="92" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_ep_dp" value="DP/TP interplay&#10;moe_dense_tp_size,&#10;DeepEP + EP group (moe/utils.py)" style="rounded=1;whiteSpace=wrap;fillColor=#dcedc8;strokeColor=#558b2f;fontSize=9;align=left;spacingLeft=8;verticalAlign=top;dashed=1;" parent="d3_ep_lane" vertex="1">
+                    <mxGeometry x="840" y="34" width="320" height="92" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_ep_strip" value="MoE routing (schematic)" style="text;html=1;align=left;fontSize=10;fontStyle=1;fontColor=#33691e;" vertex="1" parent="d3_ep_lane">
+                    <mxGeometry x="20" y="140" width="240" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_ep_tok" value="Tokens" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=9;align=center;" parent="d3_ep_lane" vertex="1">
+                    <mxGeometry x="50" y="175" width="100" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_ep_router" value="Router&#10;top-k" style="rounded=1;whiteSpace=wrap;fillColor=#ffe082;strokeColor=#ff8f00;fontSize=9;align=center;" parent="d3_ep_lane" vertex="1">
+                    <mxGeometry x="180" y="175" width="100" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_ep_disp" value="Dispatch&#10;a2a / DeepEP" style="rounded=1;whiteSpace=wrap;fillColor=#aed581;strokeColor=#558b2f;fontSize=9;align=center;fontStyle=1;" parent="d3_ep_lane" vertex="1">
+                    <mxGeometry x="310" y="168" width="120" height="58" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_ep_e0" value="EP 0&#10;experts" style="rounded=1;whiteSpace=wrap;fillColor=#81c784;strokeColor=#2e7d32;fontSize=9;align=center;" parent="d3_ep_lane" vertex="1">
+                    <mxGeometry x="470" y="162" width="120" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_ep_e1" value="EP 1&#10;experts" style="rounded=1;whiteSpace=wrap;fillColor=#81c784;strokeColor=#2e7d32;fontSize=9;align=center;" parent="d3_ep_lane" vertex="1">
+                    <mxGeometry x="620" y="162" width="120" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_ep_ek" value="…" style="text;html=1;align=center;fontSize=14;fontColor=#33691e;" parent="d3_ep_lane" vertex="1">
+                    <mxGeometry x="770" y="182" width="30" height="28" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_ep_comb" value="Combine&#10;+ AR?" style="rounded=1;whiteSpace=wrap;fillColor=#aed581;strokeColor=#558b2f;fontSize=9;align=center;fontStyle=1;" parent="d3_ep_lane" vertex="1">
+                    <mxGeometry x="840" y="168" width="100" height="58" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_ep_out" value="Hidden&#10;out" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#1b5e20;fontSize=9;align=center;" parent="d3_ep_lane" vertex="1">
+                    <mxGeometry x="970" y="175" width="100" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_eee1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#f57f17;strokeWidth=2;endArrow=classicThin;endFill=1;" parent="d3_ep_lane" source="d3_ep_tok" target="d3_ep_router" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_eee2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#558b2f;strokeWidth=2;endArrow=classicThin;endFill=1;" parent="d3_ep_lane" source="d3_ep_router" target="d3_ep_disp" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_eee3" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=classicThin;endFill=1;" parent="d3_ep_lane" source="d3_ep_disp" target="d3_ep_e0" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_eee4" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=classicThin;endFill=1;" parent="d3_ep_lane" source="d3_ep_disp" target="d3_ep_e1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_eee5" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#558b2f;strokeWidth=2;endArrow=classicThin;endFill=1;" parent="d3_ep_lane" source="d3_ep_e0" target="d3_ep_comb" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_eee6" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#558b2f;strokeWidth=2;endArrow=classicThin;endFill=1;" parent="d3_ep_lane" source="d3_ep_e1" target="d3_ep_comb" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_eee7" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1b5e20;strokeWidth=2;endArrow=classicThin;endFill=1;" parent="d3_ep_lane" source="d3_ep_comb" target="d3_ep_out" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="d3_sum" value="Summary: DP attention — token split + DpPaddingMode + attn TP subgroup. EP — expert shards, dispatch/combine. HiCache (p.1–2) mostly orthogonal; DP affects scheduling." style="rounded=1;whiteSpace=wrap;fillColor=#eceff1;strokeColor=#455a64;fontSize=9;align=left;spacingLeft=10;spacingTop=4;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="1288" width="2400" height="52" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

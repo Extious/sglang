@@ -418,6 +418,10 @@ class ServerArgs:
     # Data parallelism
     dp_size: int = 1
     load_balance_method: str = "auto"
+    # Merge batch DP into one torch.distributed world and replicate KV across same PP stage (KevlarFlow-style).
+    enable_stage_kv_replica: bool = False
+    stage_kv_sync_every_n_steps: int = 1
+    stage_kv_sync_prefill_only: bool = False
 
     attn_cp_size: int = 1
     moe_dp_size: int = 1
@@ -3726,6 +3730,22 @@ class ServerArgs:
             action=DeprecatedAction,
             help="Note: --prefill-round-robin-balance is deprecated now.",
         )
+        parser.add_argument(
+            "--enable-stage-kv-replica",
+            action="store_true",
+            help="Use one NCCL world for all DP replicas (same-node) and build stage-replica groups for KV backup.",
+        )
+        parser.add_argument(
+            "--stage-kv-sync-every-n-steps",
+            type=int,
+            default=ServerArgs.stage_kv_sync_every_n_steps,
+            help="Decode: sync KV to stage peer every N forward steps (1 = every step).",
+        )
+        parser.add_argument(
+            "--stage-kv-sync-prefill-only",
+            action="store_true",
+            help="Only sync KV after prefill/extend, not on decode steps.",
+        )
 
         # Multi-node distributed serving
         parser.add_argument(
@@ -5143,6 +5163,19 @@ class ServerArgs:
         assert not (
             self.dp_size > 1 and self.nnodes != 1 and not self.enable_dp_attention
         ), "multi-node data parallel is not supported unless dp attention!"
+
+        if self.enable_stage_kv_replica:
+            assert (
+                self.dp_size > 1
+                and self.pp_size > 1
+                and self.tp_size == 1
+                and self.nnodes == 1
+                and not self.enable_dp_attention
+            ), (
+                "--enable-stage-kv-replica requires dp_size>1, pp_size>1, tp_size==1, "
+                "nnodes==1, and --enable-dp-attention must be off."
+            )
+            assert self.stage_kv_sync_every_n_steps >= 1
 
         assert self.base_gpu_id >= 0, "base_gpu_id must be non-negative"
         assert self.gpu_id_step >= 1, "gpu_id_step must be positive"

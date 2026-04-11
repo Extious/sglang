@@ -121,6 +121,7 @@ from sglang.srt.managers.io_struct import (
     SendWeightsToRemoteInstanceReqInput,
     SeparateReasoningReqInput,
     SetInternalStateReq,
+    SimulateGpuFailureReq,
     SlowDownReqInput,
     UnloadLoRAAdapterReqInput,
     UpdateWeightFromDiskReqInput,
@@ -827,6 +828,36 @@ async def hicache_storage_backend_status():
         "hicache_storage_prefetch_policy": _global_state.tokenizer_manager.server_args.hicache_storage_prefetch_policy,
         "hicache_write_policy": _global_state.tokenizer_manager.server_args.hicache_write_policy,
     }
+
+
+@app.post("/simulate_gpu_failure")
+@auth_level(AuthLevel.ADMIN_OPTIONAL)
+async def simulate_gpu_failure(dp_rank: int = 0):
+    """Mark a batch-DP worker as unhealthy (fault injection experiments)."""
+    if _global_state.tokenizer_manager.server_args.dp_size <= 1:
+        return Response(
+            content="simulate_gpu_failure requires data_parallel_size > 1\n",
+            status_code=400,
+        )
+    _global_state.tokenizer_manager.send_to_scheduler.send_pyobj(
+        SimulateGpuFailureReq(dp_rank=dp_rank, recover=False)
+    )
+    return {"status": "ok", "dp_rank": dp_rank, "recover": False}
+
+
+@app.post("/simulate_gpu_recovery")
+@auth_level(AuthLevel.ADMIN_OPTIONAL)
+async def simulate_gpu_recovery(dp_rank: int = 0):
+    """Mark a batch-DP worker as healthy again after simulated failure."""
+    if _global_state.tokenizer_manager.server_args.dp_size <= 1:
+        return Response(
+            content="simulate_gpu_recovery requires data_parallel_size > 1\n",
+            status_code=400,
+        )
+    _global_state.tokenizer_manager.send_to_scheduler.send_pyobj(
+        SimulateGpuFailureReq(dp_rank=dp_rank, recover=True)
+    )
+    return {"status": "ok", "dp_rank": dp_rank, "recover": True}
 
 
 @app.api_route("/start_profile", methods=["GET", "POST"])

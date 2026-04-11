@@ -1461,6 +1461,13 @@ get_tensor_model_parallel_group = get_tp_group
 
 _PP: Optional[GroupCoordinator] = None
 
+# Same pipeline stage, different batch-DP rank (KevlarFlow-style KV replica peers).
+_STAGE_REPLICA: Optional[GroupCoordinator] = None
+
+# Rank mapping for stage replica group: keyed by (pp_rank, tp_rank),
+# value is a list where index=batch_dp_rank, value=rank_in_stage_replica_group.
+_STAGE_REPLICA_RANK_MAPPING: Dict[Tuple[int, int], List[int]] = {}
+
 
 def get_pp_group() -> GroupCoordinator:
     assert _PP is not None, "pipeline model parallel group is not initialized"
@@ -1469,6 +1476,21 @@ def get_pp_group() -> GroupCoordinator:
 
 # kept for backward compatibility
 get_pipeline_model_parallel_group = get_pp_group
+
+
+def get_stage_replica_group() -> Optional[GroupCoordinator]:
+    """Return the stage-replica group when batch DP is merged into the global world."""
+    return _STAGE_REPLICA
+
+
+def get_stage_replica_rank_mapping() -> Dict[Tuple[int, int], List[int]]:
+    """
+    Return the mapping from (pp_rank, tp_rank) -> list of stage_replica ranks.
+    The returned list is indexed by batch_dp_rank, where
+    mapping[(pp, tp)][dp_rank] == rank_in_stage_replica_group.
+    Used by rerouting logic to find which peer holds the KV backup.
+    """
+    return _STAGE_REPLICA_RANK_MAPPING
 
 
 def get_mooncake_transfer_engine():
@@ -1601,6 +1623,7 @@ def initialize_model_parallel(
     moe_data_model_parallel_size: int = 1,
     backend: Optional[str] = None,
     duplicate_tp_group: bool = False,
+    batch_data_parallel_size: int = 1,
 ) -> None:
     """
     Initialize model parallel groups.
@@ -1651,12 +1674,25 @@ def initialize_model_parallel(
     world_size: int = torch.distributed.get_world_size()
     backend = backend or torch.distributed.get_backend(get_world_group().device_group)
 
-    if world_size != tensor_model_parallel_size * pipeline_model_parallel_size:
-        raise RuntimeError(
-            f"world_size ({world_size}) is not equal to "
-            f"tensor_model_parallel_size ({tensor_model_parallel_size}) x "
-            f"pipeline_model_parallel_size ({pipeline_model_parallel_size})"
+    if batch_data_parallel_size == 1:
+        if world_size != tensor_model_parallel_size * pipeline_model_parallel_size:
+            raise RuntimeError(
+                f"world_size ({world_size}) is not equal to "
+                f"tensor_model_parallel_size ({tensor_model_parallel_size}) x "
+                f"pipeline_model_parallel_size ({pipeline_model_parallel_size})"
+            )
+    else:
+        expect = (
+            tensor_model_parallel_size
+            * pipeline_model_parallel_size
+            * batch_data_parallel_size
         )
+        if world_size != expect:
+            raise RuntimeError(
+                f"world_size ({world_size}) is not equal to tp*pp*batch_dp = {expect} "
+                f"({tensor_model_parallel_size=} {pipeline_model_parallel_size=} "
+                f"{batch_data_parallel_size=})"
+            )
 
     # Build the tensor model-parallel groups.
     num_tensor_model_parallel_groups: int = world_size // tensor_model_parallel_size
@@ -1865,6 +1901,37 @@ def initialize_model_parallel(
         use_custom_allreduce=False,
         group_name="pp",
     )
+
+    global _STAGE_REPLICA
+    assert _STAGE_REPLICA is None, "stage replica parallel group is already initialized"
+    if batch_data_parallel_size > 1:
+        stage_group_ranks: List[List[int]] = []
+        for pp_rank in range(pipeline_model_parallel_size):
+            for tp_rank in range(tensor_model_parallel_size):
+                ranks = [
+                    pp_rank * (batch_data_parallel_size * tensor_model_parallel_size)
+                    + dp_idx * tensor_model_parallel_size
+                    + tp_rank
+                    for dp_idx in range(batch_data_parallel_size)
+                ]
+                stage_group_ranks.append(ranks)
+        _STAGE_REPLICA = init_model_parallel_group(
+            stage_group_ranks,
+            get_world_group().local_rank,
+            backend,
+            use_custom_allreduce=False,
+            group_name="stage_replica",
+        )
+        # Build rank mapping for rerouting: (pp_rank, tp_rank) -> [rank_for_dp0, rank_for_dp1, ...]
+        global _STAGE_REPLICA_RANK_MAPPING
+        _STAGE_REPLICA_RANK_MAPPING = {}
+        for pp_rank in range(pipeline_model_parallel_size):
+            for tp_rank in range(tensor_model_parallel_size):
+                idx = pp_rank * tensor_model_parallel_size + tp_rank
+                _STAGE_REPLICA_RANK_MAPPING[(pp_rank, tp_rank)] = stage_group_ranks[idx]
+    else:
+        _STAGE_REPLICA = None
+        _STAGE_REPLICA_RANK_MAPPING = {}
 
 
 def create_custom_parallel_group(
@@ -2078,6 +2145,14 @@ def destroy_model_parallel():
     if _PP:
         _PP.destroy()
     _PP = None
+
+    global _STAGE_REPLICA
+    if _STAGE_REPLICA:
+        _STAGE_REPLICA.destroy()
+    _STAGE_REPLICA = None
+
+    global _STAGE_REPLICA_RANK_MAPPING
+    _STAGE_REPLICA_RANK_MAPPING = {}
 
     global _MOE_EP
     if _MOE_EP:

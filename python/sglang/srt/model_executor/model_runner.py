@@ -314,6 +314,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         self.attn_cp_size = server_args.attn_cp_size
         self.moe_dp_rank = moe_dp_rank
         self.moe_dp_size = server_args.moe_dp_size
+        self.batch_dp_rank = dp_rank
         self.model_config = model_config
         self.dist_port = nccl_port
         self.server_args = server_args
@@ -801,13 +802,30 @@ class ModelRunner(ModelRunnerKVCacheMixin):
                     )
 
             # Only initialize the distributed environment on the target model worker.
+            if self.server_args.enable_stage_kv_replica:
+                batch_dp = self.server_args.dp_size
+                world_sz = batch_dp * self.tp_size * self.pp_size
+                br = self.batch_dp_rank if self.batch_dp_rank is not None else 0
+                global_rank = (
+                    self.pp_rank * (batch_dp * self.tp_size)
+                    + br * self.tp_size
+                    + self.tp_rank
+                )
+            else:
+                world_sz = self.tp_size * self.pp_size
+                global_rank = self.tp_size * self.pp_rank + self.tp_rank
             init_distributed_environment(
                 backend=backend,
-                world_size=self.tp_size * self.pp_size,
-                rank=self.tp_size * self.pp_rank + self.tp_rank,
+                world_size=world_sz,
+                rank=global_rank,
                 local_rank=self.gpu_id,
                 distributed_init_method=dist_init_method,
                 timeout=self.server_args.dist_timeout,
+            )
+            batch_dp = (
+                self.server_args.dp_size
+                if self.server_args.enable_stage_kv_replica
+                else 1
             )
             initialize_model_parallel(
                 tensor_model_parallel_size=self.tp_size,
@@ -817,6 +835,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
                 attention_context_model_parallel_size=self.attn_cp_size,
                 moe_data_model_parallel_size=self.moe_dp_size,
                 duplicate_tp_group=self.server_args.enable_pdmux,
+                batch_data_parallel_size=batch_dp,
             )
             initialize_dp_attention(
                 server_args=self.server_args,

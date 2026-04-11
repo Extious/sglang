@@ -19,8 +19,9 @@ import multiprocessing as mp
 import signal
 import threading
 import time
+from collections import deque
 from enum import Enum, auto
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import psutil
 import setproctitle
@@ -31,6 +32,7 @@ from sglang.srt.layers.dp_attention import compute_dp_attention_world_info
 from sglang.srt.managers.io_struct import (
     ActiveRanksOutput,
     BlockReqInput,
+    SimulateGpuFailureReq,
     TokenizedEmbeddingReqInput,
     TokenizedGenerateReqInput,
     WatchLoadUpdateReq,
@@ -56,6 +58,7 @@ from sglang.srt.utils.common import (
     bind_port,
     configure_ipv6,
     configure_logger,
+    get_free_port,
     get_zmq_socket,
     kill_itself_when_parent_died,
     maybe_reindex_device_id,
@@ -160,6 +163,7 @@ class DataParallelController:
         self.scheduler_procs = []
         self.workers: List[zmq.Socket] = [None] * server_args.dp_size
         self.status: List[bool] = [True] * server_args.dp_size
+        self.pending_req_queue: deque = deque()
 
         if server_args.enable_dp_attention:
             self.launch_dp_attention_schedulers(server_args, port_args)
@@ -215,11 +219,126 @@ class DataParallelController:
                 (BlockReqInput, self.send_to_all_workers),
                 (WatchLoadUpdateReq, self.handle_load_update_req),
                 (ActiveRanksOutput, self.update_active_ranks),
+                (SimulateGpuFailureReq, self.handle_simulate_gpu_failure),
             ]
         )
         self._request_dispatcher.add_fallback_fn(self.send_control_message)
 
+    def handle_simulate_gpu_failure(self, obj: SimulateGpuFailureReq):
+        if 0 <= obj.dp_rank < len(self.status):
+            self.status[obj.dp_rank] = obj.recover
+            logger.warning(
+                "SimulateGpuFailureReq dp_rank=%s recover=%s -> status[%s]=%s",
+                obj.dp_rank,
+                obj.recover,
+                obj.dp_rank,
+                self.status[obj.dp_rank],
+            )
+            if not obj.recover:
+                # Try to migrate pending requests from the failed worker
+                backup = self._find_kv_backup_peer(obj.dp_rank)
+                if backup is not None:
+                    self._migrate_pending_requests(obj.dp_rank, backup)
+
+    def _find_kv_backup_peer(self, failed_dp_rank: int) -> Optional[int]:
+        """
+        Given a failed dp_rank, find the healthy peer that holds its KV backup.
+
+        Strategy:
+        - batch_dp_rank == 0: KV is NOT backed up anywhere in current implementation
+        - batch_dp_rank > 0: KV is backed up at rank 0
+        - If backup peer is also unhealthy, try next healthy peer
+        """
+        if failed_dp_rank == 0:
+            # rank 0's KV is not backed up in current single-source implementation
+            return None
+
+        # Primary backup: rank 0 (broadcast source in stage_kv_replica)
+        if self.status[0]:
+            return 0
+
+        # Fallback: find any other healthy peer
+        for peer in range(1, len(self.status)):
+            if peer != failed_dp_rank and self.status[peer]:
+                return peer
+        return None
+
+    def _get_reroute_target(self, target_dp_rank: int) -> int:
+        """
+        Returns the dp_rank to route to, accounting for failures.
+        If target_dp_rank is healthy, return it directly.
+        If unhealthy, find its KV backup peer.
+        Returns -1 if no healthy target is available.
+        """
+        if self.status[target_dp_rank]:
+            return target_dp_rank
+        backup = self._find_kv_backup_peer(target_dp_rank)
+        if backup is not None:
+            logger.info(
+                f"Rerouting from unhealthy dp_rank={target_dp_rank} "
+                f"to backup peer dp_rank={backup}"
+            )
+            return backup
+        logger.warning(f"No healthy backup found for dp_rank={target_dp_rank}")
+        return -1
+
+    def _migrate_pending_requests(
+        self, from_dp_rank: int, to_dp_rank: int
+    ) -> None:
+        """
+        Re-queue pending requests from a failed worker to its backup peer.
+        Note: In-flight requests inside the scheduler process need IPC-based migration.
+        Here we handle requests still in the controller's pending queue.
+        """
+        migrated = 0
+        original = self.pending_req_queue
+        self.pending_req_queue = []
+        for req in original:
+            if getattr(req, "data_parallel_rank", None) == from_dp_rank:
+                req.data_parallel_rank = to_dp_rank
+                self.workers[to_dp_rank].send_pyobj(req)
+                migrated += 1
+            else:
+                self.pending_req_queue.append(req)
+        logger.info(
+            f"Migrated {migrated} pending requests from dp_rank={from_dp_rank} "
+            f"to dp_rank={to_dp_rank}"
+        )
+
     def launch_dp_schedulers(self, server_args, port_args):
+        if server_args.enable_stage_kv_replica:
+            shared_nccl_port = (
+                server_args.nccl_port
+                if server_args.nccl_port is not None
+                else get_free_port()
+            )
+            if server_args.nccl_port is None:
+                sock = bind_port(shared_nccl_port)
+                sock.close()
+            port_args_list: List[PortArgs] = []
+            for _dr in range(server_args.dp_size):
+                pa = PortArgs.init_new(server_args)
+                pa.tokenizer_ipc_name = port_args.tokenizer_ipc_name
+                pa.detokenizer_ipc_name = port_args.detokenizer_ipc_name
+                pa.nccl_port = shared_nccl_port
+                port_args_list.append(pa)
+            ready_event = threading.Event()
+            thread = threading.Thread(
+                target=self.launch_tensor_parallel_group_thread,
+                args=(server_args, port_args_list[0], 0, None, ready_event, port_args_list),
+            )
+            thread.start()
+            ready_event.wait()
+            if server_args.node_rank == 0:
+                for dr in range(server_args.dp_size):
+                    self.workers[dr] = get_zmq_socket(
+                        self.context,
+                        zmq.PUSH,
+                        port_args_list[dr].scheduler_input_ipc_name,
+                        True,
+                    )
+            return
+
         base_gpu_id = 0
 
         threads = []
@@ -240,7 +359,7 @@ class DataParallelController:
             # Create a thread for each worker
             thread = threading.Thread(
                 target=self.launch_tensor_parallel_group_thread,
-                args=(server_args, tmp_port_args, base_gpu_id, dp_rank, ready_event),
+                args=(server_args, tmp_port_args, base_gpu_id, dp_rank, ready_event, None),
             )
             threads.append(thread)
             base_gpu_id += (
@@ -270,10 +389,18 @@ class DataParallelController:
         server_args: ServerArgs,
         port_args: PortArgs,
         base_gpu_id: int,
-        dp_rank: int,
+        dp_rank: Optional[int],
         ready_event: threading.Event,
+        merged_port_args_list: Optional[List[PortArgs]] = None,
     ):
-        self.launch_tensor_parallel_group(server_args, port_args, base_gpu_id, dp_rank)
+        self.launch_tensor_parallel_group(
+            server_args,
+            port_args,
+            base_gpu_id,
+            dp_rank,
+            None,
+            merged_port_args_list,
+        )
         ready_event.set()
 
         # This thread cannot be closed because otherwise the `kill_itself_when_parent_died`
@@ -384,7 +511,7 @@ class DataParallelController:
             server_args, worker_ports if worker_ports else None
         )
         self.launch_tensor_parallel_group(
-            server_args, port_args, 0, None, broadcasted_ports
+            server_args, port_args, 0, None, broadcasted_ports, None
         )
 
     def launch_tensor_parallel_group(
@@ -394,9 +521,16 @@ class DataParallelController:
         base_gpu_id: int,
         dp_rank: Optional[int],
         worker_ports: Optional[List[int]] = None,
+        merged_port_args_list: Optional[List[PortArgs]] = None,
     ):
+        merged = merged_port_args_list is not None
         if not server_args.enable_dp_attention:
-            logger.info(f"Launch DP{dp_rank} starting at GPU #{base_gpu_id}.")
+            if merged:
+                logger.info(
+                    "Launch merged DP world (stage KV replica) for all DP ranks."
+                )
+            else:
+                logger.info(f"Launch DP{dp_rank} starting at GPU #{base_gpu_id}.")
 
         memory_saver_adapter = TorchMemorySaverAdapter.create(
             enable=server_args.enable_memory_saver
@@ -418,82 +552,101 @@ class DataParallelController:
             tp_size_per_node * (server_args.node_rank % nnodes_per_tp_group + 1),
         )
 
+        dp_iter: List[int]
+        if merged:
+            dp_iter = list(range(server_args.dp_size))
+        else:
+            dp_iter = [dp_rank if dp_rank is not None else 0]
+
         attn_cp_rank = 0
         moe_dp_rank = 0
-        for pp_rank in pp_rank_range:
-            for tp_rank in tp_rank_range:
-                rank_port_args = port_args
+        for dr in dp_iter:
+            for pp_rank in pp_rank_range:
+                for tp_rank in tp_rank_range:
+                    if merged:
+                        assert merged_port_args_list is not None
+                        rank_port_args = merged_port_args_list[dr]
+                        cur_dp_rank = dr
+                        dp_base = dr * (
+                            server_args.tp_size
+                            * server_args.pp_size
+                            * server_args.gpu_id_step
+                        )
+                    else:
+                        rank_port_args = port_args
+                        cur_dp_rank = dr
+                        dp_base = base_gpu_id
 
-                if server_args.enable_dp_attention:
-                    # dp attention has different sharding logic
-                    _, _, dp_rank = compute_dp_attention_world_info(
-                        server_args.enable_dp_attention,
-                        tp_rank,
-                        server_args.tp_size,
-                        server_args.dp_size,
-                        server_args.attn_cp_size,
-                    )
-                    # compute zmq ports for this dp rank
-                    rank_port_args = PortArgs.init_new(
-                        server_args, dp_rank, worker_ports
-                    )
-                    # Data parallelism reuses the tensor parallelism group,
-                    # so all dp ranks should use the same nccl port.
-                    rank_port_args.nccl_port = port_args.nccl_port
+                        if server_args.enable_dp_attention:
+                            # dp attention has different sharding logic
+                            _, _, cur_dp_rank = compute_dp_attention_world_info(
+                                server_args.enable_dp_attention,
+                                tp_rank,
+                                server_args.tp_size,
+                                server_args.dp_size,
+                                server_args.attn_cp_size,
+                            )
+                            # compute zmq ports for this dp rank
+                            rank_port_args = PortArgs.init_new(
+                                server_args, cur_dp_rank, worker_ports
+                            )
+                            # Data parallelism reuses the tensor parallelism group,
+                            # so all dp ranks should use the same nccl port.
+                            rank_port_args.nccl_port = port_args.nccl_port
 
-                reader, writer = mp.Pipe(duplex=False)
-                gpu_id = (
-                    server_args.base_gpu_id
-                    + base_gpu_id
-                    + ((pp_rank % pp_size_per_node) * tp_size_per_node)
-                    + (tp_rank % tp_size_per_node) * server_args.gpu_id_step
-                )
-                attn_dp_size = (
-                    server_args.dp_size if server_args.enable_dp_attention else 1
-                )
-
-                # Parallelism hierarchy (outermost to innermost):
-                # - Attention: Global(TP) -> DP -> ATTN_CP -> ATTN_TP (innermost)
-                # - MoE: Global(TP) -> MOE_DP -> EP -> MOE_TP (innermost)
-                attn_tp_size = (
-                    server_args.tp_size // attn_dp_size // server_args.attn_cp_size
-                )
-                attn_cp_rank = (tp_rank // attn_tp_size) % server_args.attn_cp_size
-                moe_dp_rank = tp_rank // (
-                    server_args.tp_size // server_args.moe_dp_size
-                )
-                moe_ep_rank = (
-                    tp_rank
-                    % (server_args.tp_size // server_args.moe_dp_size)
-                    // (
-                        server_args.tp_size
-                        // server_args.moe_dp_size
-                        // server_args.ep_size
+                    reader, writer = mp.Pipe(duplex=False)
+                    gpu_id = (
+                        server_args.base_gpu_id
+                        + dp_base
+                        + ((pp_rank % pp_size_per_node) * tp_size_per_node)
+                        + (tp_rank % tp_size_per_node) * server_args.gpu_id_step
                     )
-                )
-
-                with self.env_lock, maybe_reindex_device_id(gpu_id) as gpu_id:
-                    proc = mp.Process(
-                        target=self.run_scheduler_process_func,
-                        args=(
-                            server_args,
-                            rank_port_args,
-                            gpu_id,
-                            tp_rank,
-                            attn_cp_rank,
-                            moe_dp_rank,
-                            moe_ep_rank,
-                            pp_rank,
-                            dp_rank,
-                            writer,
-                        ),
+                    attn_dp_size = (
+                        server_args.dp_size if server_args.enable_dp_attention else 1
                     )
-                    with memory_saver_adapter.configure_subprocess(), numa_utils.configure_subprocess(
-                        server_args, gpu_id
-                    ):
-                        proc.start()
-                self.scheduler_procs.append(proc)
-                scheduler_pipe_readers.append(reader)
+
+                    # Parallelism hierarchy (outermost to innermost):
+                    # - Attention: Global(TP) -> DP -> ATTN_CP -> ATTN_TP (innermost)
+                    # - MoE: Global(TP) -> MOE_DP -> EP -> MOE_TP (innermost)
+                    attn_tp_size = (
+                        server_args.tp_size // attn_dp_size // server_args.attn_cp_size
+                    )
+                    attn_cp_rank = (tp_rank // attn_tp_size) % server_args.attn_cp_size
+                    moe_dp_rank = tp_rank // (
+                        server_args.tp_size // server_args.moe_dp_size
+                    )
+                    moe_ep_rank = (
+                        tp_rank
+                        % (server_args.tp_size // server_args.moe_dp_size)
+                        // (
+                            server_args.tp_size
+                            // server_args.moe_dp_size
+                            // server_args.ep_size
+                        )
+                    )
+
+                    with self.env_lock, maybe_reindex_device_id(gpu_id) as gpu_id:
+                        proc = mp.Process(
+                            target=self.run_scheduler_process_func,
+                            args=(
+                                server_args,
+                                rank_port_args,
+                                gpu_id,
+                                tp_rank,
+                                attn_cp_rank,
+                                moe_dp_rank,
+                                moe_ep_rank,
+                                pp_rank,
+                                cur_dp_rank,
+                                writer,
+                            ),
+                        )
+                        with memory_saver_adapter.configure_subprocess(), numa_utils.configure_subprocess(
+                            server_args, gpu_id
+                        ):
+                            proc.start()
+                    self.scheduler_procs.append(proc)
+                    scheduler_pipe_readers.append(reader)
 
         # Wait for model to finish loading
         scheduler_info = []
@@ -514,17 +667,26 @@ class DataParallelController:
         if self.maybe_external_dp_rank_routing(req):
             return
 
-        while True:
-            if self.status[self.round_robin_counter]:
-                logger.debug(f"Choose worker {self.round_robin_counter}")
-                self.workers[self.round_robin_counter].send_pyobj(req)
-                self.round_robin_counter = (self.round_robin_counter + 1) % len(
-                    self.workers
-                )
-                break
+        original_target = self.round_robin_counter
+        attempts = 0
+        while attempts < len(self.workers):
+            target = self._get_reroute_target(self.round_robin_counter)
+            if target >= 0:
+                logger.debug(f"Choose worker {target}")
+                self.workers[target].send_pyobj(req)
+                self.round_robin_counter = (target + 1) % len(self.workers)
+                return
+            # No healthy backup for this worker: advance counter and retry
             self.round_robin_counter = (self.round_robin_counter + 1) % len(
                 self.workers
             )
+            attempts += 1
+
+        logger.error(
+            f"All dp workers unavailable for request, original_target={original_target}"
+        )
+        # Fallback: put back in queue for retry
+        self.pending_req_queue.appendleft(req)
 
     def follow_bootstrap_room_scheduler(self, req: Req):
         if self.maybe_external_dp_rank_routing(req):
@@ -545,19 +707,52 @@ class DataParallelController:
             "prefill or decode instances; send to the router instead."
         )
         target_rank = req.bootstrap_room % len(self.workers)
-        self.workers[target_rank].send_pyobj(req)
+        reroute = self._get_reroute_target(target_rank)
+        if reroute < 0:
+            logger.warning(
+                f"follow_bootstrap_room: all workers unavailable for bootstrap_room={req.bootstrap_room}"
+            )
+            self.pending_req_queue.appendleft(req)
+            return
+        if reroute != target_rank:
+            logger.info(
+                f"follow_bootstrap_room reroute: bootstrap_room={req.bootstrap_room} -> dp_rank={reroute}"
+            )
+        self.workers[reroute].send_pyobj(req)
 
     def total_requests_scheduler(self, req: Req):
         if self.maybe_external_dp_rank_routing(req):
             return
         target_worker = self.dp_budget.dispatch(LoadBalanceMethod.TOTAL_REQUESTS)
-        self.workers[target_worker].send_pyobj(req)
+        reroute = self._get_reroute_target(target_worker)
+        if reroute < 0:
+            logger.warning(
+                f"total_requests: all workers unavailable, queuing request"
+            )
+            self.pending_req_queue.appendleft(req)
+            return
+        if reroute != target_worker:
+            logger.info(
+                f"total_requests reroute: target={target_worker} -> dp_rank={reroute}"
+            )
+        self.workers[reroute].send_pyobj(req)
 
     def total_tokens_scheduler(self, req: Req):
         if self.maybe_external_dp_rank_routing(req):
             return
         target_worker = self.dp_budget.dispatch(LoadBalanceMethod.TOTAL_TOKENS)
-        self.workers[target_worker].send_pyobj(req)
+        reroute = self._get_reroute_target(target_worker)
+        if reroute < 0:
+            logger.warning(
+                f"total_tokens: all workers unavailable, queuing request"
+            )
+            self.pending_req_queue.appendleft(req)
+            return
+        if reroute != target_worker:
+            logger.info(
+                f"total_tokens reroute: target={target_worker} -> dp_rank={reroute}"
+            )
+        self.workers[reroute].send_pyobj(req)
 
     def event_loop(self):
         while True:
@@ -568,6 +763,11 @@ class DataParallelController:
                 except zmq.ZMQError:
                     break
                 self._request_dispatcher(recv_req)
+
+            # Retry pending requests that were queued when all workers were unavailable
+            if self.pending_req_queue:
+                req = self.pending_req_queue.popleft()
+                self._request_dispatcher(req)
 
 
 def run_data_parallel_controller_process(

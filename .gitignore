@@ -272,3 +272,6 @@ sgl-kernel/csrc/**/*_musa/
 
 # MUSA core dump files
 *.mudmp
+
+# multi-agent
+benchmark/multi_agent

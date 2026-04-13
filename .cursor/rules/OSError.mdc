@@ -1,0 +1,6 @@
+---
+description: 
+alwaysApply: true
+---
+
+当遇见 OSError 相关问题，一般可以通过 touch 相关路径解决

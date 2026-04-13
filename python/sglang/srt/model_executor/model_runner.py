@@ -148,6 +148,7 @@ from sglang.srt.server_args import (
     set_global_server_args_for_scheduler,
 )
 from sglang.srt.speculative.spec_info import SpeculativeAlgorithm
+from sglang.srt.utils.common import configure_ipv6, format_tcp_address
 from sglang.srt.utils import (
     MultiprocessingSerializer,
     cpu_has_amx_support,
@@ -775,7 +776,23 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         if dist_init_method_override:
             dist_init_method = dist_init_method_override
         elif self.server_args.dist_init_addr:
-            dist_init_method = f"tcp://{self.server_args.dist_init_addr}"
+            # Single-node multi-DP launches one torch process group per DP shard; each
+            # group's rank 0 starts a TCPStore. Reusing the same host:port as
+            # --dist-init-addr for every shard causes EADDRINUSE on the rendezvous port.
+            if (
+                self.server_args.nnodes == 1
+                and self.server_args.dp_size > 1
+                and not self.server_args.enable_stage_kv_replica
+            ):
+                if self.server_args.dist_init_addr.startswith("["):
+                    _, host_bracketed = configure_ipv6(self.server_args.dist_init_addr)
+                    inner = host_bracketed[1:-1]
+                    dist_init_method = format_tcp_address(inner, self.dist_port)
+                else:
+                    host, _ = self.server_args.dist_init_addr.rsplit(":", 1)
+                    dist_init_method = f"tcp://{host}:{self.dist_port}"
+            else:
+                dist_init_method = f"tcp://{self.server_args.dist_init_addr}"
         else:
             dist_init_method = f"tcp://127.0.0.1:{self.dist_port}"
         set_custom_all_reduce(not self.server_args.disable_custom_all_reduce)

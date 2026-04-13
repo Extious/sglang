@@ -531,6 +531,75 @@ class SchedulerPPMixin:
         self.send_output_work = []
         self.launch_event = None
 
+        # Warm up Gloo P2P connections before the main event loop.
+        # Gloo's TCP transport lazily creates listeners on first send/recv, which
+        # can cause "Pair is not connected" errors under cluster network jitter
+        # or when residual processes hold the port. Doing a synchronous dummy
+        # exchange here guarantees all listeners are bound before any async
+        # isend/irecv fires in event_loop_pp.
+        self._pp_warmup_p2p()
+
+    def _pp_warmup_p2p(self: Scheduler):
+        """
+        Perform a blocking dummy P2P exchange on each PP neighbor to force
+        Gloo to bind its TCP listeners before the main scheduler loop.
+        """
+        if self.pp_size <= 1:
+            return
+        if self.attn_tp_rank != 0:
+            return
+
+        logger.info(
+            f"[PP{self.pp_rank}] P2P warmup: warming Gloo P2P connections "
+            f"(world_size={self.world_group.world_size})..."
+        )
+
+        # Use the PP subgroup's CPU process group and group-local ranks. Passing
+        # global ranks with world_group.cpu_group can disagree with PyTorch's
+        # group-local rank checks for P2P; match GroupCoordinator P2P semantics.
+        pg = self.pp_group
+        group = pg.cpu_group
+        pp_group_ranks = pg.ranks
+        rank_in_pp_group = pg.rank_in_group
+        ws = pg.world_size
+        dst_local = (rank_in_pp_group + 1) % ws
+        src_local = (rank_in_pp_group - 1) % ws
+        next_pp_rank = pp_group_ranks[dst_local]
+        prev_pp_rank = pp_group_ranks[src_local]
+
+        dummy_tensor = torch.zeros(1, dtype=torch.float32)
+        # Always post recv first to avoid deadlock. If we post send first and the
+        # peer also posts send first, both will block waiting for the other's recv.
+        if not pg.is_first_rank:
+            torch.distributed.recv(
+                dummy_tensor, group_src=src_local, group=group
+            )
+        if not pg.is_last_rank:
+            torch.distributed.send(
+                dummy_tensor, group_dst=dst_local, group=group
+            )
+
+        logger.info(
+            f"[PP{self.pp_rank}] P2P warmup done: "
+            f"connected to next={next_pp_rank}"
+        )
+
+        # Warm up world_group.cpu_group: point_to_point_pyobj / isend use this
+        # group, not pp_group.cpu_group; Gloo TCP pairs are per ProcessGroup.
+        # Use pp_group_ranks neighbors (next_pp_rank/prev_pp_rank), not
+        # pp_rank*tp+attn_dp*attn_tp: that "logical" id can collide across DP
+        # replicas and is not always the torch global rank.
+        wg = self.world_group.cpu_group
+        dummy_w = torch.zeros(1, dtype=torch.float32)
+        if not pg.is_first_rank:
+            torch.distributed.recv(dummy_w, src=prev_pp_rank, group=wg)
+        if not pg.is_last_rank:
+            torch.distributed.send(dummy_w, dst=next_pp_rank, group=wg)
+        logger.info(
+            f"[PP{self.pp_rank}] World CPU Gloo P2P warmup done "
+            f"(next_global={next_pp_rank})"
+        )
+
     def profile_and_init_predictor(self: Scheduler):
         """
         Profile prefill latency for dynamic chunk sizing.
@@ -842,7 +911,7 @@ class SchedulerPPMixin:
         next_first_rank_mb_id: int,
         next_mb_id: int,
     ) -> Tuple[PPProxyTensors, GenerationBatchResult, torch.cuda.Event]:
-        self._pp_commit_comm_work(work=self.send_output_work)
+        self._pp_commit_comm_work(self.send_output_work)
         (
             next_pp_outputs,
             next_batch_result,
@@ -861,26 +930,34 @@ class SchedulerPPMixin:
     def _pp_send_pyobj_to_next_stage(self: Scheduler, data, async_send: bool = False):
         p2p_work = []
         if self.attn_tp_rank == 0:
-            dp_offset = self.attn_dp_rank * self.attn_tp_size
+            pg = self.pp_group
+            _ws = pg.world_size
+            _ri = pg.rank_in_group
+            _next_g = pg.ranks[(_ri + 1) % _ws]
+            gr = torch.distributed.get_rank()
             p2p_work = point_to_point_pyobj(
                 data,
-                self.pp_rank * self.tp_size + dp_offset,
+                gr,
                 self.world_group.cpu_group,
-                self.pp_rank * self.tp_size + dp_offset,
-                ((self.pp_rank + 1) % self.pp_size) * self.tp_size + dp_offset,
+                gr,
+                _next_g,
                 async_send=async_send,
             )
         return p2p_work
 
     def _pp_recv_pyobj_from_prev_stage(self: Scheduler):
         if self.attn_tp_rank == 0:
-            dp_offset = self.attn_dp_rank * self.attn_tp_size
+            pg = self.pp_group
+            _ws = pg.world_size
+            _ri = pg.rank_in_group
+            _prev_g = pg.ranks[(_ri - 1) % _ws]
+            gr = torch.distributed.get_rank()
             data = point_to_point_pyobj(
                 [],
-                self.pp_rank * self.tp_size + dp_offset,
+                gr,
                 self.world_group.cpu_group,
-                ((self.pp_rank - 1) % self.pp_size) * self.tp_size + dp_offset,
-                self.pp_rank * self.tp_size + dp_offset,
+                _prev_g,
+                gr,
             )
         else:
             data = None

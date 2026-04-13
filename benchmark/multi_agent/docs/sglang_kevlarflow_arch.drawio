@@ -1,0 +1,710 @@
+<mxfile host="65bd71144e">
+    <diagram name="Page 1: Baseline vs GPU Backup Failure 处理流程" id="page1">
+        <mxGraphModel dx="872" dy="540" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="3000" pageHeight="2800" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="t1" value="SGLang KevlarFlow: Baseline vs GPU Backup Failure 处理流程对比" style="text;html=1;align=center;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#1a237e;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="10" width="2400" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="sub1" value="基于 sglang/srt/fault_tolerance/ 模块" style="text;html=1;align=center;fontSize=11;fontColor=#546e7a;fontStyle=2;" parent="1" vertex="1">
+                    <mxGeometry x="400" y="55" width="1200" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov1" value="" style="rounded=1;fillColor=#fafafa;strokeColor=#bdbdbd;dashed=1;container=1;pointerEvents=0;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="85" width="2920" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov1_label" value="核心设计理念 (来自 KevlarFlow 论文)" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontStyle=5;fontColor=#37474f;" parent="ov1" vertex="1">
+                    <mxGeometry x="10" y="5" width="400" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov1_i1" value="Decoupled Initialization&#10;模型权重加载与通信器创建解耦，失败后可动态重建" style="rounded=1;whiteSpace=wrap;fillColor=#e3f2fd;strokeColor=#2196f3;fontSize=10;align=center;" parent="ov1" vertex="1">
+                    <mxGeometry x="50" y="40" width="280" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov1_i2" value="Dynamic Traffic Rerouting&#10;动态流量重路由，健康节点绕过故障节点继续服务" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=10;align=center;" parent="ov1" vertex="1">
+                    <mxGeometry x="360" y="40" width="280" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov1_i3" value="Background KV Cache Replication&#10;后台 KV 缓存复制，失败时可从副本恢复请求" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#ff9800;fontSize=10;align=center;" parent="ov1" vertex="1">
+                    <mxGeometry x="670" y="40" width="280" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="ov1_sum" value="MTTR: 10 分钟 to 30 秒 (20x 提升) | TTFT Avg: 378.9x 提升 | TTFT p99: 574.6x 提升 | 运行时开销 less than 4%" style="rounded=1;whiteSpace=wrap;fillColor=#fce4ec;strokeColor=#e91e63;fontSize=10;align=center;fontStyle=1;" parent="ov1" vertex="1">
+                    <mxGeometry x="980" y="40" width="580" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="base" value="Baseline (传统 LLM Serving)" style="swimlane;startSize=28;fillColor=#ffcdd2;strokeColor=#c62828;fontStyle=1;fontSize=13;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="205" width="960" height="1050" as="geometry"/>
+                </mxCell>
+                <mxCell id="b1" value="1. GPU/NCCL 正常工作&#10;请求正常处理" style="rounded=1;whiteSpace=wrap;fillColor=#ffebee;strokeColor=#e57373;fontSize=11;align=center;" parent="base" vertex="1">
+                    <mxGeometry x="20" y="40" width="250" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="b2" value="2. Failure 发生&#10;(GPU Crash / NCCL Timeout / Process Crash)" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#e53935;fontSize=11;align=center;" parent="base" vertex="1">
+                    <mxGeometry x="20" y="115" width="250" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="b3" value="3. 整个 Pipeline 停止服务&#10;(所有 GPU 被阻塞，等待失败节点)" style="rounded=1;whiteSpace=wrap;fillColor=#ef9a9a;strokeColor=#c62828;fontSize=11;align=center;fontStyle=1;" parent="base" vertex="1">
+                    <mxGeometry x="20" y="195" width="250" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="b4" value="4. 请求堆积队列&#10;TTFT / Latency 急剧上升" style="rounded=1;whiteSpace=wrap;fillColor=#ef9a9a;strokeColor=#c62828;fontSize=11;align=center;fontStyle=1;" parent="base" vertex="1">
+                    <mxGeometry x="20" y="275" width="250" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="b5" value="5. 手动/云平台重启实例&#10;(重新加载权重，约 10 分钟)" style="rounded=1;whiteSpace=wrap;fillColor=#e57373;strokeColor=#b71c1c;fontSize=11;align=center;fontStyle=1;" parent="base" vertex="1">
+                    <mxGeometry x="20" y="355" width="250" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="b6" value="6. 恢复服务" style="rounded=1;whiteSpace=wrap;fillColor=#ffebee;strokeColor=#e57373;fontSize=11;align=center;" parent="base" vertex="1">
+                    <mxGeometry x="20" y="435" width="250" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="b_arch" value="关键特征" style="text;html=1;align=left;fontSize=11;fontStyle=5;fontColor=#c62828;" parent="base" vertex="1">
+                    <mxGeometry x="20" y="500" width="200" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="b_arch1" value="MPI_COMM_WORLD 启动时固定，运行时不可变" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;align=left;spacingLeft=8;" parent="base" vertex="1">
+                    <mxGeometry x="20" y="530" width="400" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="b_arch2" value="NCCL/TP 通信器：单节点失败导致整组不可用" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;align=left;spacingLeft=8;" parent="base" vertex="1">
+                    <mxGeometry x="20" y="575" width="400" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="b_arch3" value="KV Cache 存储在 GPU Memory，节点失败后丢失" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;align=left;spacingLeft=8;" parent="base" vertex="1">
+                    <mxGeometry x="20" y="620" width="400" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="b_arch4" value="请求需要从头重试，session context 完全丢失" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;align=left;spacingLeft=8;" parent="base" vertex="1">
+                    <mxGeometry x="20" y="665" width="400" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="b_arch5" value="MTTR: ~10 分钟 | 所有请求受影响" style="rounded=1;whiteSpace=wrap;fillColor=#ef9a9a;strokeColor=#b71c1c;fontSize=11;align=center;fontStyle=1;" parent="base" vertex="1">
+                    <mxGeometry x="20" y="725" width="400" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="b_e1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#c62828;strokeWidth=2;endArrow=block;endFill=1;" parent="base" source="b1" target="b2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="b_e2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#c62828;strokeWidth=2;endArrow=block;endFill=1;" parent="base" source="b2" target="b3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="b_e3" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#c62828;strokeWidth=2;endArrow=block;endFill=1;" parent="base" source="b3" target="b4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="b_e4" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#c62828;strokeWidth=2;endArrow=block;endFill=1;" parent="base" source="b4" target="b5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="b_e5" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#9e9e9e;strokeWidth=2;dashed=1;endArrow=block;endFill=1;" parent="base" source="b5" target="b6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="b_e5t" value="约 10 分钟" style="text;html=1;align=center;fontSize=10;fontColor=#b71c1c;fontStyle=2;" parent="base" vertex="1">
+                    <mxGeometry x="40" y="465" width="80" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="sgl" value="GPU Backup (SGLang KevlarFlow)" style="swimlane;startSize=28;fillColor=#e8f5e9;strokeColor=#2e7d32;fontStyle=1;fontSize=13;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="1020" y="205" width="940" height="1050" as="geometry"/>
+                </mxCell>
+                <mxCell id="s1" value="1. GPU 正常 + 后台 KV 复制&#10;(AsyncKVReplicator，异步非阻塞)" style="rounded=1;whiteSpace=wrap;fillColor=#f1f8e9;strokeColor=#81c784;fontSize=11;align=center;" parent="sgl" vertex="1">
+                    <mxGeometry x="20" y="40" width="260" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="s2" value="2. Failure 发生&#10;GPUHealthChecker 检测 (Heartbeat/NCCL/Xid)" style="rounded=1;whiteSpace=wrap;fillColor=#dcedc8;strokeColor=#aed581;fontSize=11;align=center;" parent="sgl" vertex="1">
+                    <mxGeometry x="20" y="115" width="260" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3" value="3. Publish FaultEvent&#10;DataParallelController 标记失败节点" style="rounded=1;whiteSpace=wrap;fillColor=#c5e1a5;strokeColor=#9ccc65;fontSize=11;align=center;" parent="sgl" vertex="1">
+                    <mxGeometry x="20" y="195" width="260" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="s4" value="4. 动态流量重路由&#10;(健康节点继续服务，故障节点被绕过)" style="rounded=1;whiteSpace=wrap;fillColor=#aed581;strokeColor=#7cb342;fontSize=11;align=center;" parent="sgl" vertex="1">
+                    <mxGeometry x="20" y="275" width="260" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="s5" value="5. RequestRecoveryManager 恢复请求&#10;(从 backup 节点 replicated KV 恢复)" style="rounded=1;whiteSpace=wrap;fillColor=#9ccc65;strokeColor=#689f38;fontSize=11;align=center;" parent="sgl" vertex="1">
+                    <mxGeometry x="20" y="355" width="260" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="s6" value="6. CommunicatorRebuilder 重建 NCCL 通信器&#10;(约 30 秒)" style="rounded=1;whiteSpace=wrap;fillColor=#8bc34a;strokeColor=#558b2f;fontSize=11;align=center;" parent="sgl" vertex="1">
+                    <mxGeometry x="20" y="435" width="260" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="s7" value="7. 完全恢复" style="rounded=1;whiteSpace=wrap;fillColor=#f1f8e9;strokeColor=#81c784;fontSize=11;align=center;" parent="sgl" vertex="1">
+                    <mxGeometry x="20" y="515" width="260" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="s_arch" value="关键设计" style="text;html=1;align=left;fontSize=11;fontStyle=5;fontColor=#2e7d32;" parent="sgl" vertex="1">
+                    <mxGeometry x="20" y="580" width="200" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="s_arch1" value="NCCL 通信器动态重建，无需完整重启" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=10;align=left;spacingLeft=8;" parent="sgl" vertex="1">
+                    <mxGeometry x="20" y="610" width="420" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="s_arch2" value="AsyncKVReplicator: Dedicated CUDA Stream，优先级队列，分块复制" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=10;align=left;spacingLeft=8;" parent="sgl" vertex="1">
+                    <mxGeometry x="20" y="655" width="420" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="s_arch3" value="GPUHealthChecker: 四种检测手段 (NCCL Probe / Heartbeat / Xid / PID)" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=10;align=left;spacingLeft=8;" parent="sgl" vertex="1">
+                    <mxGeometry x="20" y="700" width="420" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="s_arch4" value="RequestRecoveryManager: 从 replicated KV 恢复，去重避免重复处理" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=10;align=left;spacingLeft=8;" parent="sgl" vertex="1">
+                    <mxGeometry x="20" y="745" width="420" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="s_arch5" value="MTTR: ~30 秒 (20x 提升) | 运行时开销 less than 4%" style="rounded=1;whiteSpace=wrap;fillColor=#c5e1a5;strokeColor=#388e3c;fontSize=11;align=center;fontStyle=1;" parent="sgl" vertex="1">
+                    <mxGeometry x="20" y="805" width="420" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="s_e1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#4caf50;strokeWidth=2;endArrow=block;endFill=1;" parent="sgl" source="s1" target="s2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="s_e2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#4caf50;strokeWidth=2;endArrow=block;endFill=1;" parent="sgl" source="s2" target="s3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="s_e3" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#4caf50;strokeWidth=2;endArrow=block;endFill=1;" parent="sgl" source="s3" target="s4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="s_e4" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#4caf50;strokeWidth=2;endArrow=block;endFill=1;" parent="sgl" source="s4" target="s5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="s_e5" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#558b2f;strokeWidth=2;endArrow=block;endFill=1;" parent="sgl" source="s5" target="s6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="s_e6" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#558b2f;strokeWidth=2;endArrow=block;endFill=1;" parent="sgl" source="s6" target="s7" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp" value="性能对比" style="swimlane;startSize=26;fillColor=#ede7f6;strokeColor=#5c6bc0;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="1275" width="1920" height="180" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_b3" value="MTTR" style="rounded=1;whiteSpace=wrap;fillColor=#c5cae9;strokeColor=#3f51b5;fontSize=11;align=center;fontStyle=1;" parent="comp" vertex="1">
+                    <mxGeometry x="20" y="40" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_bm" value="Baseline" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=11;align=center;" parent="comp" vertex="1">
+                    <mxGeometry x="180" y="40" width="160" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_bmv" value="~10 分钟" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=11;align=center;fontStyle=1;" parent="comp" vertex="1">
+                    <mxGeometry x="180" y="110" width="160" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_sm" value="~30 秒 (20x 提升)" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=11;align=center;fontStyle=1;" parent="comp" vertex="1">
+                    <mxGeometry x="360" y="40" width="180" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_smv" value="30 秒" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=11;align=center;" parent="comp" vertex="1">
+                    <mxGeometry x="360" y="110" width="180" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_tt" value="TTFT Avg" style="rounded=1;whiteSpace=wrap;fillColor=#c5cae9;strokeColor=#3f51b5;fontSize=11;align=center;fontStyle=1;" parent="comp" vertex="1">
+                    <mxGeometry x="560" y="40" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_ttv" value="基准 (高)" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=11;align=center;" parent="comp" vertex="1">
+                    <mxGeometry x="560" y="110" width="140" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_tti" value="378.9x 提升" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=11;align=center;fontStyle=1;" parent="comp" vertex="1">
+                    <mxGeometry x="720" y="40" width="160" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_ttiv" value="大幅下降" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=11;align=center;" parent="comp" vertex="1">
+                    <mxGeometry x="720" y="110" width="160" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_p99" value="TTFT p99" style="rounded=1;whiteSpace=wrap;fillColor=#c5cae9;strokeColor=#3f51b5;fontSize=11;align=center;fontStyle=1;" parent="comp" vertex="1">
+                    <mxGeometry x="900" y="40" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_p99v" value="基准 (高)" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=11;align=center;" parent="comp" vertex="1">
+                    <mxGeometry x="900" y="110" width="140" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_p99i" value="574.6x 提升" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=11;align=center;fontStyle=1;" parent="comp" vertex="1">
+                    <mxGeometry x="1060" y="40" width="160" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_p99iv" value="大幅下降" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=11;align=center;" parent="comp" vertex="1">
+                    <mxGeometry x="1060" y="110" width="160" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_lat" value="Latency Avg" style="rounded=1;whiteSpace=wrap;fillColor=#c5cae9;strokeColor=#3f51b5;fontSize=11;align=center;fontStyle=1;" parent="comp" vertex="1">
+                    <mxGeometry x="1240" y="40" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_latv" value="基准" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=11;align=center;" parent="comp" vertex="1">
+                    <mxGeometry x="1240" y="110" width="140" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_lati" value="3.1x 提升" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=11;align=center;fontStyle=1;" parent="comp" vertex="1">
+                    <mxGeometry x="1400" y="40" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_latval" value="下降" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=11;align=center;" parent="comp" vertex="1">
+                    <mxGeometry x="1400" y="110" width="140" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_lat99" value="Latency p99" style="rounded=1;whiteSpace=wrap;fillColor=#c5cae9;strokeColor=#3f51b5;fontSize=11;align=center;fontStyle=1;" parent="comp" vertex="1">
+                    <mxGeometry x="1560" y="40" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_lat99v" value="基准" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=11;align=center;" parent="comp" vertex="1">
+                    <mxGeometry x="1560" y="110" width="140" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_lat99i" value="2.8x 提升" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=11;align=center;fontStyle=1;" parent="comp" vertex="1">
+                    <mxGeometry x="1720" y="40" width="140" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_lat99val" value="下降" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=11;align=center;" parent="comp" vertex="1">
+                    <mxGeometry x="1720" y="110" width="140" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="comp_note" value="所有数据来自 KevlarFlow 论文实验评估" style="text;html=1;align=center;fontSize=9;fontColor=#9e9e9e;fontStyle=2;" parent="comp" vertex="1">
+                    <mxGeometry x="20" y="155" width="400" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow" value="SGLang 容错模块交互流程" style="swimlane;startSize=26;fillColor=#fff3e0;strokeColor=#ff8f00;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="1475" width="2920" height="220" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1" value="Failure&#10;发生" style="ellipse;whiteSpace=wrap;fillColor=#ffccbc;strokeColor=#e64a19;fontSize=11;fontStyle=1;align=center;" parent="flow" vertex="1">
+                    <mxGeometry x="20" y="45" width="80" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="f2" value="GPUHealthChecker&#10;四手段检测&#10;(NCCL/Heartbeat/Xid/PID)" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#ff9800;fontSize=10;align=center;" parent="flow" vertex="1">
+                    <mxGeometry x="130" y="40" width="200" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="f3" value="Publish&#10;FaultEvent" style="rounded=1;whiteSpace=wrap;fillColor=#ffccbc;strokeColor=#ff6f00;fontSize=10;align=center;" parent="flow" vertex="1">
+                    <mxGeometry x="360" y="45" width="120" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="f4" value="DataParallel&#10;Controller&#10;标记节点" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#ff9800;fontSize=10;align=center;" parent="flow" vertex="1">
+                    <mxGeometry x="510" y="40" width="160" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="f5" value="RequestRecovery&#10;Manager&#10;恢复请求" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#ff9800;fontSize=10;align=center;" parent="flow" vertex="1">
+                    <mxGeometry x="700" y="40" width="160" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="f6" value="Communicator&#10;Rebuilder&#10;重建通信器" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#ff9800;fontSize=10;align=center;" parent="flow" vertex="1">
+                    <mxGeometry x="890" y="40" width="160" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="f7" value="动态流量&#10;重路由" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#ff9800;fontSize=10;align=center;" parent="flow" vertex="1">
+                    <mxGeometry x="1080" y="40" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8" value="恢复完成&#10;正常服务" style="ellipse;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="flow" vertex="1">
+                    <mxGeometry x="1230" y="45" width="100" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e64a19;strokeWidth=2;endArrow=block;endFill=1;" parent="flow" source="f1" target="f2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#ff6f00;strokeWidth=2;endArrow=block;endFill=1;" parent="flow" source="f2" target="f3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe3" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#ff9800;strokeWidth=2;endArrow=block;endFill=1;" parent="flow" source="f3" target="f4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe4" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#ff9800;strokeWidth=2;endArrow=block;endFill=1;" parent="flow" source="f4" target="f5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe5" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#ff9800;strokeWidth=2;endArrow=block;endFill=1;dashed=1;" parent="flow" source="f5" target="f6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe5t" value="并发" style="text;html=1;align=center;fontSize=9;fontColor=#ff8f00;fontStyle=2;" parent="flow" vertex="1">
+                    <mxGeometry x="850" y="50" width="30" height="15" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe6" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#ff9800;strokeWidth=2;endArrow=block;endFill=1;" parent="flow" source="f6" target="f7" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe7" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;" parent="flow" source="f7" target="f8" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fnote" value="RequestRecoveryManager 与 CommunicatorRebuilder 并发执行" style="text;html=1;align=left;fontSize=9;fontColor=#e65100;fontStyle=2;" parent="flow" vertex="1">
+                    <mxGeometry x="700" y="115" width="400" height="20" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram name="Page 2: Failure 注入检测与 GPU 恢复流程" id="page2">
+        <mxGraphModel dx="1024" dy="584" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="3000" pageHeight="2800" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="t2" value="Page 2: Failure 注入检测与 GPU 恢复流程" style="text;html=1;align=center;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#1a237e;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="10" width="2400" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="det" value="GPUHealthChecker: 故障检测机制" style="swimlane;startSize=26;fillColor=#e8f0ff;strokeColor=#1565c0;fontStyle=1;fontSize=13;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="65" width="960" height="660" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_ft1" value="GPU_CRASH&#10;CUDA / Xid / ECC 错误" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;align=center;" parent="det" vertex="1">
+                    <mxGeometry x="25" y="55" width="120" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_ft2" value="NCCL_TIMEOUT&#10;peer 无响应" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;align=center;" parent="det" vertex="1">
+                    <mxGeometry x="155" y="55" width="130" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_ft3" value="PROCESS_CRASH&#10;OOM / Segfault" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=10;align=center;" parent="det" vertex="1">
+                    <mxGeometry x="25" y="105" width="120" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_ft4" value="HEARTBEAT_MISS&#10;心跳超时" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=center;" parent="det" vertex="1">
+                    <mxGeometry x="155" y="105" width="130" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_mech" value="四种检测手段" style="text;html=1;align=left;fontSize=12;fontStyle=5;fontColor=#1565c0;" parent="det" vertex="1">
+                    <mxGeometry x="20" y="165" width="200" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_m1" value="NCCL Probe&#10;&#10;定期 isend / irecv 探测 peers&#10;超时 30s to NCCL_TIMEOUT" style="rounded=1;whiteSpace=wrap;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="det" vertex="1">
+                    <mxGeometry x="20" y="195" width="280" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_m2" value="Heartbeat&#10;&#10;心跳超时 15s&#10;consecutive_failures &gt;= 3 to HEARTBEAT_MISS" style="rounded=1;whiteSpace=wrap;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="det" vertex="1">
+                    <mxGeometry x="20" y="290" width="280" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_m3" value="Xid Error&#10;&#10;nvidia-smi / dmesg 检测&#10;to GPU_CRASH" style="rounded=1;whiteSpace=wrap;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="det" vertex="1">
+                    <mxGeometry x="20" y="385" width="280" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_m4" value="PID Check&#10;&#10;psutil 监控进程状态&#10;to PROCESS_CRASH" style="rounded=1;whiteSpace=wrap;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="det" vertex="1">
+                    <mxGeometry x="20" y="480" width="280" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_ps" value="发布订阅模式" style="text;html=1;align=left;fontSize=12;fontStyle=5;fontColor=#1565c0;" parent="det" vertex="1">
+                    <mxGeometry x="320" y="165" width="200" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_ps1" value="subscribe_fault(callback)" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=center;" parent="det" vertex="1">
+                    <mxGeometry x="320" y="195" width="300" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_ps2" value="_publish_fault(FaultEvent)&#10;dp_rank + fault_type + timestamp + details" style="rounded=1;whiteSpace=wrap;fillColor=#ffccbc;strokeColor=#ff6f00;fontSize=10;align=center;" parent="det" vertex="1">
+                    <mxGeometry x="320" y="250" width="300" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_ps3" value="DataParallelController 标记节点 unhealthy" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#ff9800;fontSize=10;align=center;" parent="det" vertex="1">
+                    <mxGeometry x="320" y="320" width="300" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_ps4" value="动态流量重路由: 故障节点被绕过" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=center;" parent="det" vertex="1">
+                    <mxGeometry x="320" y="375" width="300" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_ps5" value="RequestRecoveryManager: 找到 backup peer" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=center;" parent="det" vertex="1">
+                    <mxGeometry x="320" y="430" width="300" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_ps6" value="CommunicatorRebuilder: 触发重建" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=center;" parent="det" vertex="1">
+                    <mxGeometry x="320" y="485" width="300" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_code" value="关键配置参数" style="text;html=1;align=left;fontSize=11;fontStyle=5;fontColor=#1565c0;" parent="det" vertex="1">
+                    <mxGeometry x="640" y="165" width="200" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="d_c1" value="heartbeat_interval=5.0s&#10;heartbeat_timeout=15.0s&#10;nccl_probe_interval=10.0s&#10;nccl_probe_timeout=30.0s&#10;max_consecutive_failures=3" style="rounded=1;whiteSpace=wrap;fillColor=#e8f0ff;strokeColor=#1565c0;fontSize=9;align=left;spacingLeft=8;spacingTop=4;dashed=1;" parent="det" vertex="1">
+                    <mxGeometry x="640" y="195" width="300" height="130" as="geometry"/>
+                </mxCell>
+                <mxCell id="reb" value="CommunicatorRebuilder: 通信器重建流程" style="swimlane;startSize=26;fillColor=#fff8e0;strokeColor=#ff8f00;fontStyle=1;fontSize=13;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="1020" y="65" width="940" height="660" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_ph1" value="IDLE (空闲)" style="rounded=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#9e9e9e;fontSize=10;align=center;" parent="reb" vertex="1">
+                    <mxGeometry x="25" y="55" width="120" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_ph2" value="PAUSING" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#fdd835;fontSize=10;align=center;" parent="reb" vertex="1">
+                    <mxGeometry x="155" y="55" width="130" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_ph3" value="RECONSTRUCTING" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#ff9800;fontSize=10;align=center;" parent="reb" vertex="1">
+                    <mxGeometry x="25" y="93" width="120" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_ph4" value="TRANSFERRING_WEIGHTS" style="rounded=1;whiteSpace=wrap;fillColor=#ffccbc;strokeColor=#ff6f00;fontSize=10;align=center;" parent="reb" vertex="1">
+                    <mxGeometry x="155" y="93" width="130" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_ph5" value="RESUMING" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=center;" parent="reb" vertex="1">
+                    <mxGeometry x="25" y="131" width="260" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_s1" value="1. PAUSING&#10;&#10;暂停新请求进入，等待进行中请求 drain&#10;_pause_incoming_requests()" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#fdd835;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="reb" vertex="1">
+                    <mxGeometry x="20" y="175" width="280" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_s2" value="2. RECONSTRUCTING&#10;&#10;与健康节点同步 barrier()&#10;创建新的 NCCL communicator (排除失败节点)&#10;new_group() with healthy_ranks" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#ff9800;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="reb" vertex="1">
+                    <mxGeometry x="20" y="270" width="280" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_s3" value="3. TRANSFERRING_WEIGHTS&#10;&#10;从健康节点向替换节点增量传输权重&#10;(而非从头从存储加载)&#10;SendWeightsToRemoteInstanceReq" style="rounded=1;whiteSpace=wrap;fillColor=#ffccbc;strokeColor=#ff6f00;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="reb" vertex="1">
+                    <mxGeometry x="20" y="385" width="280" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_s4" value="4. RESUMING&#10;&#10;更新 parallel_state 模块&#10;_update_parallel_state()&#10;恢复流水线服务" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="reb" vertex="1">
+                    <mxGeometry x="20" y="500" width="280" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_rm" value="RequestRecoveryManager" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=left;spacingLeft=8;spacingTop=4;" parent="reb" vertex="1">
+                    <mxGeometry x="320" y="45" width="300" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_rm_st" value="NORMAL to DETECTED to RECOVERING&#10;to RECOVERED or RETRYING or FAILED" style="text;html=1;align=center;fontSize=9;fontColor=#2e7d32;" parent="reb" vertex="1">
+                    <mxGeometry x="325" y="97" width="290" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_rm1" value="find_backup_peer()&#10;&#10;rank 0 持有其他 rank 的 KV 副本&#10;优先选 rank 0 作为 backup" style="rounded=1;whiteSpace=wrap;fillColor=#f1f8e9;strokeColor=#81c784;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="reb" vertex="1">
+                    <mxGeometry x="320" y="150" width="300" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_rm2" value="_check_replicated_kv()&#10;&#10;检查 backup 节点是否已有&#10;replicated KV 缓存" style="rounded=1;whiteSpace=wrap;fillColor=#f1f8e9;strokeColor=#81c784;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="reb" vertex="1">
+                    <mxGeometry x="320" y="245" width="300" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_rm3" value="_send_recovery_request()&#10;&#10;发送 RecoveryRequest 到 backup 节点&#10;从 replicated KV 恢复推理&#10;避免从头重试" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="reb" vertex="1">
+                    <mxGeometry x="320" y="340" width="300" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_rm4" value="去重机制&#10;&#10;_recovered_ids: 已恢复请求集合&#10;_in_recovery: 正在恢复的请求集合&#10;忽略重复重试请求" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="reb" vertex="1">
+                    <mxGeometry x="320" y="445" width="300" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_code" value="关键参数" style="text;html=1;align=left;fontSize=11;fontStyle=5;fontColor=#ff8f00;" parent="reb" vertex="1">
+                    <mxGeometry x="640" y="45" width="100" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_c1" value="rebuild_timeout=120s&#10;weight_transfer_timeout=60s&#10;max_recovery_attempts=3&#10;recovery_timeout=30s" style="rounded=1;whiteSpace=wrap;fillColor=#fff8e0;strokeColor=#ff8f00;fontSize=9;align=left;spacingLeft=8;spacingTop=4;dashed=1;" parent="reb" vertex="1">
+                    <mxGeometry x="640" y="70" width="280" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="r_note" value="NCCL 不支持动态 rank 添加&#10;通过重建 communicator with healthy ranks 实现" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=9;align=left;spacingLeft=8;spacingTop=4;" parent="reb" vertex="1">
+                    <mxGeometry x="640" y="185" width="280" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="kvman" value="KV Cache 管理: 数据结构与复制机制" style="swimlane;startSize=26;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontStyle=1;fontSize=13;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="745" width="2920" height="560" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_arch" value="DP Rank 0 (Primary / Source)" style="rounded=1;whiteSpace=wrap;fillColor=#ede0ff;strokeColor=#7b1fa2;fontSize=11;fontStyle=1;align=center;" parent="kvman" vertex="1">
+                    <mxGeometry x="20" y="45" width="180" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_arch1" value="Prefill: 生成 KV Cache&#10;Decode: 生成新 KV Token" style="rounded=1;whiteSpace=wrap;fillColor=#d1c4e9;strokeColor=#7b1fa2;fontSize=10;align=center;" parent="kvman" vertex="1">
+                    <mxGeometry x="20" y="95" width="180" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_bc" value="NCCL Broadcast&#10;torch.distributed.broadcast&#10;k_buffer[indices] / v_buffer[indices]&#10;src=0 (rank 0)" style="rounded=1;whiteSpace=wrap;fillColor=#e1bee7;strokeColor=#8e24aa;fontSize=10;align=center;" parent="kvman" vertex="1">
+                    <mxGeometry x="220" y="65" width="200" height="85" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_r1" value="DP Rank 1 (Replica)" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5ff;strokeColor=#1565c0;fontSize=11;fontStyle=1;align=center;" parent="kvman" vertex="1">
+                    <mxGeometry x="440" y="45" width="180" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_r2" value="DP Rank 2 (Replica)" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5ff;strokeColor=#1565c0;fontSize=11;fontStyle=1;align=center;" parent="kvman" vertex="1">
+                    <mxGeometry x="440" y="95" width="180" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_r3" value="DP Rank 3 (Replica)" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5ff;strokeColor=#1565c0;fontSize=11;fontStyle=1;align=center;" parent="kvman" vertex="1">
+                    <mxGeometry x="440" y="145" width="180" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_pool" value="MHATokenToKVPool" style="rounded=1;whiteSpace=wrap;fillColor=#f3e5f5;strokeColor=#9c27b0;fontSize=11;fontStyle=1;align=center;" parent="kvman" vertex="1">
+                    <mxGeometry x="20" y="205" width="180" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_kbuf" value="k_buffer[layer_idx][cache_loc]&#10;v_buffer[layer_idx][cache_loc]" style="rounded=1;whiteSpace=wrap;fillColor=#e1bee7;strokeColor=#8e24aa;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="kvman" vertex="1">
+                    <mxGeometry x="20" y="245" width="260" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_idx" value="out_cache_loc&#10;索引张量" style="rounded=1;whiteSpace=wrap;fillColor=#d1c4e9;strokeColor=#7b1fa2;fontSize=10;align=center;" parent="kvman" vertex="1">
+                    <mxGeometry x="300" y="245" width="120" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_bc2" value="Broadcast: 相同 KV 写入&#10;Rank 1/2/3 的 buffer" style="rounded=1;whiteSpace=wrap;fillColor=#e1bee7;strokeColor=#8e24aa;fontSize=10;align=center;" parent="kvman" vertex="1">
+                    <mxGeometry x="220" y="250" width="180" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_async" value="AsyncKVReplicator" style="rounded=1;whiteSpace=wrap;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontSize=12;fontStyle=1;align=left;spacingLeft=8;spacingTop=4;" parent="kvman" vertex="1">
+                    <mxGeometry x="640" y="45" width="400" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_a1" value="Dedicated CUDA Stream (非阻塞)&#10;不影响推理延迟" style="rounded=1;whiteSpace=wrap;fillColor=#f3e5f5;strokeColor=#9c27b0;fontSize=10;align=left;spacingLeft=8;" parent="kvman" vertex="1">
+                    <mxGeometry x="640" y="85" width="400" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_p1" value="CRITICAL (0)&#10;Prefill 完成 to 立即全量 KV" style="rounded=1;whiteSpace=wrap;fillColor=#c62828;strokeColor=#b71c1c;fontSize=9;align=center;fontColor=#fff;" parent="kvman" vertex="1">
+                    <mxGeometry x="640" y="145" width="190" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_p2" value="HIGH (1)&#10;Active decode + 长历史" style="rounded=1;whiteSpace=wrap;fillColor=#e65100;strokeColor=#bf360c;fontSize=9;align=center;fontColor=#fff;" parent="kvman" vertex="1">
+                    <mxGeometry x="840" y="145" width="190" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_p3" value="NORMAL (2)&#10;Regular decode" style="rounded=1;whiteSpace=wrap;fillColor=#ff9800;strokeColor=#e65100;fontSize=9;align=center;" parent="kvman" vertex="1">
+                    <mxGeometry x="640" y="205" width="190" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_p4" value="LOW (3)&#10;Idle to 内存压力大时丢弃" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#ff9800;fontSize=9;align=center;" parent="kvman" vertex="1">
+                    <mxGeometry x="840" y="205" width="190" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_p5" value="BACKGROUND (4)&#10;已有副本 to 仅空闲时补充" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=9;align=center;" parent="kvman" vertex="1">
+                    <mxGeometry x="640" y="260" width="390" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_t1" value="on_prefill_complete()&#10;&#10;Prefill 完成后立即触发&#10;优先级: CRITICAL&#10;is_prefill=True" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="kvman" vertex="1">
+                    <mxGeometry x="640" y="315" width="200" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_t2" value="on_decode_step()&#10;&#10;每个 decode 步骤后触发&#10;优先级: NORMAL / HIGH&#10;is_prefill=False" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="kvman" vertex="1">
+                    <mxGeometry x="850" y="315" width="200" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_impl" value="stage_kv_replica.py 实现" style="text;html=1;align=left;fontSize=11;fontStyle=5;fontColor=#7b1fa2;" parent="kvman" vertex="1">
+                    <mxGeometry x="1060" y="45" width="200" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_i1" value="maybe_sync_stage_kv_replica()&#10;&#10;入口函数&#10;enable_async_kv_replica 开关" style="rounded=1;whiteSpace=wrap;fillColor=#f3e5f5;strokeColor=#9c27b0;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="kvman" vertex="1">
+                    <mxGeometry x="1060" y="70" width="280" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_i3" value="Step 1: 分块&#10;num_chunks = ceil(num_tokens / 32)" style="rounded=1;whiteSpace=wrap;fillColor=#e1bee7;strokeColor=#8e24aa;fontSize=10;align=left;spacingLeft=8;" parent="kvman" vertex="1">
+                    <mxGeometry x="1060" y="160" width="280" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_i4" value="Step 2: 逐层循环&#10;for li in layer_indices" style="rounded=1;whiteSpace=wrap;fillColor=#e1bee7;strokeColor=#8e24aa;fontSize=10;align=left;spacingLeft=8;" parent="kvman" vertex="1">
+                    <mxGeometry x="1060" y="220" width="280" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_i5" value="Step 3: 逐块 NCCL 广播&#10;dist.broadcast(k_buf[chunk], src=0)&#10;dist.broadcast(v_buf[chunk], src=0)&#10;stage_replica_group" style="rounded=1;whiteSpace=wrap;fillColor=#d1c4e9;strokeColor=#7b1fa2;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="kvman" vertex="1">
+                    <mxGeometry x="1060" y="280" width="280" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_i6" value="内存压力处理:&#10;torch.cuda.memory_reserved()&#10;阈值=0.1 (10%)&#10;丢弃 LOW/BACKGROUND 任务" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=9;align=left;spacingLeft=8;spacingTop=4;" parent="kvman" vertex="1">
+                    <mxGeometry x="1360" y="160" width="260" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_i7" value="关键参数:&#10;chunk_size=32&#10;max_queue_size=256&#10;stage_kv_sync_prefill_only&#10;stage_kv_sync_every_n_steps" style="rounded=1;whiteSpace=wrap;fillColor=#e8f0ff;strokeColor=#1565c0;fontSize=9;align=left;spacingLeft=8;spacingTop=4;" parent="kvman" vertex="1">
+                    <mxGeometry x="1360" y="255" width="260" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="kv_arrow1" value="广播 KV" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#8e24aa;strokeWidth=2;endArrow=classicThin;endFill=1;fontSize=9;labelBackgroundColor=#f3e5f5;" parent="kvman" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="200" y="100" as="sourcePoint"/>
+                        <mxPoint x="440" y="65" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram name="Page 3: KV 管理细节 - 传输时机与方式" id="page3">
+        <mxGraphModel dx="1434" dy="817" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="3000" pageHeight="2800" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="t3" value="Page 3: KV 管理细节 - 传输时机与方式" style="text;html=1;align=center;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#1a237e;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="10" width="2400" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="top_row" value="" style="rounded=0;fillColor=none;strokeColor=none;container=1;pointerEvents=0;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="65" width="2920" height="680" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow1" value="Prefill 阶段的 KV 传输流程" style="swimlane;startSize=26;fillColor=#e8f5e9;strokeColor=#2e7d32;fontStyle=1;fontSize=13;rounded=1;" parent="top_row" vertex="1">
+                    <mxGeometry width="1410" height="680" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_1" value="Request&#10;请求到达" style="ellipse;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="flow1" vertex="1">
+                    <mxGeometry x="20" y="45" width="90" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_2" value="Prefill&#10;Step" style="rounded=1;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#1b5e20;fontSize=11;align=center;" parent="flow1" vertex="1">
+                    <mxGeometry x="130" y="50" width="100" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_3" value="on_prefill_complete()&#10;&#10;触发 AsyncKVReplicator&#10;enqueue_replication()&#10;优先级: CRITICAL" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="flow1" vertex="1">
+                    <mxGeometry x="250" y="40" width="220" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_4" value="Dedicated CUDA&#10;Stream 处理&#10;(非阻塞推理)" style="rounded=1;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#1b5e20;fontSize=10;align=center;" parent="flow1" vertex="1">
+                    <mxGeometry x="490" y="50" width="160" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_5" value="NCCL&#10;Broadcast&#10;(chunk=32)" style="rounded=1;whiteSpace=wrap;fillColor=#81c784;strokeColor=#388e3c;fontSize=10;align=center;" parent="flow1" vertex="1">
+                    <mxGeometry x="670" y="50" width="120" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_6" value="All Replica&#10;Ranks 收到 KV" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="flow1" vertex="1">
+                    <mxGeometry x="810" y="50" width="130" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_7" value="mark_replicated()&#10;标记完成" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=10;align=center;" parent="flow1" vertex="1">
+                    <mxGeometry x="960" y="50" width="140" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_8" value="继续 Decode&#10;(正常推理)" style="ellipse;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#1b5e20;fontSize=11;fontStyle=1;align=center;" parent="flow1" vertex="1">
+                    <mxGeometry x="1120" y="50" width="100" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe1_1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;" parent="flow1" source="f1_1" target="f1_2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe1_2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;" parent="flow1" source="f1_2" target="f1_3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe1_3" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;" parent="flow1" source="f1_3" target="f1_4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe1_4" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#388e3c;strokeWidth=2;endArrow=block;endFill=1;" parent="flow1" source="f1_4" target="f1_5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe1_5" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;" parent="flow1" source="f1_5" target="f1_6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe1_6" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#4caf50;strokeWidth=2;endArrow=block;endFill=1;" parent="flow1" source="f1_6" target="f1_7" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe1_7" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1b5e20;strokeWidth=2;endArrow=block;endFill=1;" parent="flow1" source="f1_7" target="f1_8" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_n1" value="Prefill 特点: 全量 KV (所有 tokens)，优先级 CRITICAL，一次性全部复制" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#2e7d32;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="flow1" vertex="1">
+                    <mxGeometry x="20" y="140" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_n2" value="Dedicated CUDA Stream: 与推理 stream 并行执行，不阻塞推理" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=left;spacingLeft=8;" parent="flow1" vertex="1">
+                    <mxGeometry x="20" y="190" width="560" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_n4" value="完整复制路径 (stage_kv_replica.py)" style="text;html=1;align=left;fontSize=11;fontStyle=5;fontColor=#1b5e20;" parent="flow1" vertex="1">
+                    <mxGeometry x="20" y="240" width="300" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_n5" value="k_buffer[li][indices] = rank 0's k_buffer[li][indices]&#10;v_buffer[li][indices] = rank 0's v_buffer[li][indices]&#10;(for each layer li in range(num_layers))" style="rounded=1;whiteSpace=wrap;fillColor=#f1f8e9;strokeColor=#81c784;fontSize=10;align=left;spacingLeft=8;spacingTop=4;fontFamily=Courier New;" parent="flow1" vertex="1">
+                    <mxGeometry x="20" y="270" width="560" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_n6" value="优先级队列: 按 priority.value 排序，CRITICAL 优先处理" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=left;spacingLeft=8;" parent="flow1" vertex="1">
+                    <mxGeometry x="20" y="355" width="560" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_n7" value="Replicated 请求 ID 去重: _replicated_ids 集合，跳过已完成的复制" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=left;spacingLeft=8;" parent="flow1" vertex="1">
+                    <mxGeometry x="20" y="400" width="560" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="f1_n8" value="chunk=32: 每批 32 tokens，减少大 tensor 复制的阻塞时间" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=left;spacingLeft=8;" parent="flow1" vertex="1">
+                    <mxGeometry x="20" y="445" width="560" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="flow1b" value="Decode 阶段的 KV 传输流程" style="swimlane;startSize=26;fillColor=#fff3e0;strokeColor=#ff8f00;fontStyle=1;fontSize=13;rounded=1;" parent="flow1" vertex="1">
+                    <mxGeometry x="600" y="240" width="780" height="420" as="geometry"/>
+                </mxCell>
+                <mxCell id="f2_1" value="Decode&#10;Step" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=11;align=center;" parent="flow1b" vertex="1">
+                    <mxGeometry x="20" y="45" width="100" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="f2_2" value="on_decode_step()&#10;&#10;触发 AsyncKVReplicator&#10;enqueue_replication()&#10;优先级: NORMAL" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#ff9800;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="flow1b" vertex="1">
+                    <mxGeometry x="140" y="40" width="220" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="f2_3" value="只复制&#10;新增 tokens&#10;(Delta KV)" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=10;align=center;" parent="flow1b" vertex="1">
+                    <mxGeometry x="380" y="50" width="110" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="f2_4" value="NCCL&#10;Broadcast&#10;(chunk=32)" style="rounded=1;whiteSpace=wrap;fillColor=#ffccbc;strokeColor=#ff6f00;fontSize=10;align=center;" parent="flow1b" vertex="1">
+                    <mxGeometry x="510" y="50" width="120" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="f2_5" value="Replicas 追加&#10;新 KV" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#ff9800;fontSize=10;align=center;" parent="flow1b" vertex="1">
+                    <mxGeometry x="650" y="50" width="120" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe2_1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;endArrow=block;endFill=1;" parent="flow1b" source="f2_1" target="f2_2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe2_2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#ff9800;strokeWidth=2;endArrow=block;endFill=1;" parent="flow1b" source="f2_2" target="f2_3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe2_3" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#ff6f00;strokeWidth=2;endArrow=block;endFill=1;" parent="flow1b" source="f2_3" target="f2_4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="fe2_4" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#ff9800;strokeWidth=2;endArrow=block;endFill=1;" parent="flow1b" source="f2_4" target="f2_5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f2_n1" value="Decode 特点: 增量 KV (仅新增 token)，优先级 NORMAL，逐步追加复制" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#ff8f00;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="flow1b" vertex="1">
+                    <mxGeometry x="20" y="120" width="740" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="f2_n2" value="stage_kv_sync_every_n_steps 参数: 每 N 步 decode 才复制一次 (节省带宽)" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#ff9800;fontSize=10;align=left;spacingLeft=8;" parent="flow1b" vertex="1">
+                    <mxGeometry x="20" y="170" width="740" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="f2_n3" value="HIGH 优先级: 当 decode 请求有长历史时提升优先级 (避免长序列复制延迟)" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#ff9800;fontSize=10;align=left;spacingLeft=8;" parent="flow1b" vertex="1">
+                    <mxGeometry x="20" y="215" width="740" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="recovery_flow" value="Failure 恢复流程 (KV 恢复)" style="swimlane;startSize=26;fillColor=#fce4ec;strokeColor=#c2185b;fontStyle=1;fontSize=13;rounded=1;" parent="top_row" vertex="1">
+                    <mxGeometry x="1440" width="480" height="680" as="geometry"/>
+                </mxCell>
+                <mxCell id="rf1" value="Failure&#10;Detected" style="ellipse;whiteSpace=wrap;fillColor=#f48fb1;strokeColor=#c2185b;fontSize=11;fontStyle=1;align=center;" parent="recovery_flow" vertex="1">
+                    <mxGeometry x="20" y="45" width="100" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="rf2" value="RequestRecoveryManager&#10;查找 backup peer" style="rounded=1;whiteSpace=wrap;fillColor=#f8bbd0;strokeColor=#c2185b;fontSize=10;align=center;" parent="recovery_flow" vertex="1">
+                    <mxGeometry x="20" y="120" width="200" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="rf3" value="检查 replicated KV&#10;wait_for_replication()&#10;超时 1s" style="rounded=1;whiteSpace=wrap;fillColor=#fce4ec;strokeColor=#c2185b;fontSize=10;align=center;" parent="recovery_flow" vertex="1">
+                    <mxGeometry x="20" y="195" width="200" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="rf4" value="KV 可用?" style="rhombus;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=11;" parent="recovery_flow" vertex="1">
+                    <mxGeometry x="50" y="280" width="100" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="rf5" value="从 replicated KV&#10;恢复推理" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=center;" parent="recovery_flow" vertex="1">
+                    <mxGeometry x="20" y="375" width="200" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="rf6" value="标记 RECOVERED&#10;mark_recovered()&#10;忽略后续重试" style="rounded=1;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#1b5e20;fontSize=10;align=center;" parent="recovery_flow" vertex="1">
+                    <mxGeometry x="20" y="450" width="200" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="rf7" value="Fallback:&#10;正常重试&#10;(从头开始)" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;align=center;" parent="recovery_flow" vertex="1">
+                    <mxGeometry x="250" y="355" width="130" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="rf8" value="用户无感知&#10;Session 上下文完整" style="ellipse;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="recovery_flow" vertex="1">
+                    <mxGeometry x="20" y="540" width="200" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="rf_note" value="KevlarFlow 核心: 将硬故障转换为无缝迁移，无需从头重试" style="rounded=1;whiteSpace=wrap;fillColor=#fce4ec;strokeColor=#c2185b;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="recovery_flow" vertex="1">
+                    <mxGeometry x="20" y="600" width="440" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="rfe1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#c2185b;strokeWidth=2;endArrow=block;endFill=1;" parent="recovery_flow" source="rf1" target="rf2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rfe2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#c2185b;strokeWidth=2;endArrow=block;endFill=1;" parent="recovery_flow" source="rf2" target="rf3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rfe3" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#c2185b;strokeWidth=2;endArrow=block;endFill=1;" parent="recovery_flow" source="rf3" target="rf4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rfe4" value="Y" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#2e7d32;strokeWidth=2;endArrow=block;endFill=1;fontStyle=1;" parent="recovery_flow" source="rf4" target="rf5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rfe5" value="N" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#c62828;strokeWidth=2;endArrow=classicThin;endFill=1;" parent="recovery_flow" source="rf4" target="rf7" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rfe6" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1b5e20;strokeWidth=2;endArrow=block;endFill=1;" parent="recovery_flow" source="rf5" target="rf6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rfe7" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#1b5e20;strokeWidth=2;endArrow=block;endFill=1;" parent="recovery_flow" source="rf6" target="rf8" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="mem" value="内存压力与备援管理" style="swimlane;startSize=26;fillColor=#fff8e0;strokeColor=#ff8f00;fontStyle=1;fontSize=13;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="765" width="1410" height="350" as="geometry"/>
+                </mxCell>
+                <mxCell id="mem2" value="torch.cuda.memory_reserved() 检测&#10;memory_pressure_threshold = 0.1 (10%)&#10;当 free_memory less than 10% total 时触发" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#ff9800;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="mem" vertex="1">
+                    <mxGeometry x="20" y="45" width="400" height="75" as="geometry"/>
+                </mxCell>
+                <mxCell id="mem4" value="丢弃 LOW (3) 优先级的复制任务" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#ff9800;fontSize=10;align=center;" parent="mem" vertex="1">
+                    <mxGeometry x="20" y="140" width="250" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="mem5" value="丢弃 BACKGROUND (4) 优先级的复制任务" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#ff9800;fontSize=10;align=center;" parent="mem" vertex="1">
+                    <mxGeometry x="280" y="140" width="280" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="mem6" value="保留 CRITICAL / HIGH / NORMAL" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=10;align=center;fontStyle=1;" parent="mem" vertex="1">
+                    <mxGeometry x="20" y="195" width="540" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="mem7" value="为什么可以丢弃?&#10;&#10;Prefill KV 已在 rank 0 上完整存在&#10;replicated KV 只是备援，不影响推理正确性&#10;下次 decode 触发时重新复制即可" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="mem" vertex="1">
+                    <mxGeometry x="20" y="250" width="540" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="back" value="Background 复制与备援机制" style="swimlane;startSize=26;fillColor=#ede7f6;strokeColor=#5c6bc0;fontStyle=1;fontSize=13;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="1470" y="765" width="490" height="350" as="geometry"/>
+                </mxCell>
+                <mxCell id="back1" value="为什么后台复制?&#10;&#10;推理延迟敏感，不能阻塞主计算&#10;KV 复制对 TTFT/Latency 无感知影响&#10;GPU 利用率约 50-60%，有充足余量" style="rounded=1;whiteSpace=wrap;fillColor=#ede7f6;strokeColor=#5c6bc0;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="back" vertex="1">
+                    <mxGeometry x="20" y="45" width="440" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="back2" value="为什么是 Rank 0?&#10;&#10;Rank 0 是 prefill/decode 的主节点&#10;所有 KV 都在 Rank 0 首先生成&#10;其他 rank 从 rank 0 拉取 (pull model)" style="rounded=1;whiteSpace=wrap;fillColor=#c5cae9;strokeColor=#3f51b5;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="back" vertex="1">
+                    <mxGeometry x="20" y="160" width="440" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="back3" value="ring-shaped 复制:&#10;多个 backup rank 组成 ring，分布式持有 KV 副本&#10;支持多节点同时故障的恢复" style="rounded=1;whiteSpace=wrap;fillColor=#d1c4e9;strokeColor=#512da8;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="back" vertex="1">
+                    <mxGeometry x="20" y="275" width="440" height="75" as="geometry"/>
+                </mxCell>
+                <mxCell id="sum3" value="总结: KV 管理核心设计" style="swimlane;startSize=26;fillColor=#eceff1;strokeColor=#455a64;fontStyle=1;fontSize=13;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="1135" width="2920" height="200" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3_1" value="传输时机:&#10;Prefill 完成 (CRITICAL)&#10;Decode 步骤 (NORMAL)&#10;每 N 步可选 (stage_kv_sync_every_n_steps)" style="rounded=1;whiteSpace=wrap;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="sum3" vertex="1">
+                    <mxGeometry x="20" y="45" width="280" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3_2" value="传输方式:&#10;Dedicated CUDA Stream (非阻塞)&#10;Chunk=32 tokens 分块&#10;优先级队列排序&#10;stage_replica_group NCCL 广播" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#4caf50;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="sum3" vertex="1">
+                    <mxGeometry x="320" y="45" width="280" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3_3" value="内存管理:&#10;内存压力阈值 10%&#10;丢弃 LOW/BACKGROUND 任务&#10;保留 CRITICAL/HIGH/NORMAL" style="rounded=1;whiteSpace=wrap;fillColor=#fff3e0;strokeColor=#ff9800;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="sum3" vertex="1">
+                    <mxGeometry x="620" y="45" width="280" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3_4" value="恢复机制:&#10;从 replicated KV 恢复推理&#10;无需从头重试&#10;去重避免重复处理&#10;用户无感知 session 完整" style="rounded=1;whiteSpace=wrap;fillColor=#fce4ec;strokeColor=#c2185b;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="sum3" vertex="1">
+                    <mxGeometry x="920" y="45" width="280" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3_5" value="性能指标:&#10;运行时开销 less than 4%&#10;(实验数据，8 节点 / 16 节点)&#10;MTTR 30s vs 10min&#10;MTTR 提升 20x" style="rounded=1;whiteSpace=wrap;fillColor=#ede7f6;strokeColor=#5c6bc0;fontSize=10;align=left;spacingLeft=8;spacingTop=4;" parent="sum3" vertex="1">
+                    <mxGeometry x="1220" y="45" width="280" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3_6" value="参考代码:&#10;fault_tolerance/fault_detector.py&#10;fault_tolerance/async_kv_replicator.py&#10;fault_tolerance/communicator_rebuilder.py&#10;fault_tolerance/request_recovery.py&#10;distributed/stage_kv_replica.py" style="rounded=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#9e9e9e;fontSize=9;align=left;spacingLeft=8;spacingTop=4;dashed=1;" parent="sum3" vertex="1">
+                    <mxGeometry x="1520" y="45" width="380" height="110" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

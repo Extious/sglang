@@ -422,6 +422,14 @@ class ServerArgs:
     enable_stage_kv_replica: bool = False
     stage_kv_sync_every_n_steps: int = 1
     stage_kv_sync_prefill_only: bool = False
+    # Async background KV replication (non-blocking, uses dedicated CUDA stream)
+    enable_async_kv_replica: bool = False
+    # Production fault detection for KevlarFlow
+    enable_kevlarflow_fault_detection: bool = False
+    health_check_interval: float = 5.0
+    health_check_timeout: float = 15.0
+    nccl_probe_interval: float = 10.0
+    max_health_failures: int = 3
 
     attn_cp_size: int = 1
     moe_dp_size: int = 1
@@ -3745,6 +3753,42 @@ class ServerArgs:
             "--stage-kv-sync-prefill-only",
             action="store_true",
             help="Only sync KV after prefill/extend, not on decode steps.",
+        )
+        parser.add_argument(
+            "--enable-kevlarflow-fault-detection",
+            action="store_true",
+            help="Enable production GPU fault detection for KevlarFlow fault tolerance "
+            "(heartbeat, NCCL probe, Xid error detection).",
+        )
+        parser.add_argument(
+            "--enable-async-kv-replica",
+            action="store_true",
+            help="Use async background KV replication (non-blocking, dedicated CUDA stream) "
+            "instead of synchronous broadcast in stage-kv-replica.",
+        )
+        parser.add_argument(
+            "--health-check-interval",
+            type=float,
+            default=ServerArgs.health_check_interval,
+            help="Interval between worker heartbeat messages (seconds).",
+        )
+        parser.add_argument(
+            "--health-check-timeout",
+            type=float,
+            default=ServerArgs.health_check_timeout,
+            help="Timeout before marking a worker unhealthy (seconds).",
+        )
+        parser.add_argument(
+            "--nccl-probe-interval",
+            type=float,
+            default=ServerArgs.nccl_probe_interval,
+            help="Interval between NCCL health probes (seconds).",
+        )
+        parser.add_argument(
+            "--max-health-failures",
+            type=int,
+            default=ServerArgs.max_health_failures,
+            help="Consecutive failures before declaring a worker unhealthy.",
         )
 
         # Multi-node distributed serving

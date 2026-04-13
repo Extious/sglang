@@ -1253,13 +1253,19 @@ class Scheduler(
                 recv_reqs = None
         else:
             if self.attn_tp_rank == 0 and self.attn_cp_rank == 0:
-                dp_offset = self.attn_dp_rank * self.attn_tp_size
+                # Must match _pp_send_pyobj_to_next_stage / pp_group.ranks neighbors;
+                # pp_rank*tp+attn_dp*attn_tp is not always the torch global rank.
+                pg = self.pp_group
+                _ws = pg.world_size
+                _ri = pg.rank_in_group
+                _prev_g = pg.ranks[(_ri - 1) % _ws]
+                gr = torch.distributed.get_rank()
                 recv_reqs = point_to_point_pyobj(
                     [],
-                    self.pp_rank * self.tp_size + dp_offset,
+                    gr,
                     self.world_group.cpu_group,
-                    (self.pp_rank - 1) * self.tp_size + dp_offset,
-                    self.pp_rank * self.tp_size + dp_offset,
+                    _prev_g,
+                    gr,
                 )
             else:
                 recv_reqs = None

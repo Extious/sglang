@@ -20,9 +20,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-_CREWAI_DIR = Path(__file__).resolve().parent
-if str(_CREWAI_DIR) not in sys.path:
-    sys.path.insert(0, str(_CREWAI_DIR))
+_CREWAI_ROOT = Path(__file__).resolve().parents[1]
+if str(_CREWAI_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CREWAI_ROOT))
 from trace_summaries import (
     write_job_summary_csv,
     write_task_summary_csv,
@@ -231,9 +231,9 @@ class FaultInjectionConfig:
 class FaultInjectionRunner:
     def __init__(self, cfg: FaultInjectionConfig):
         self.cfg = cfg
-        self.crewai_dir = Path(__file__).resolve().parent
+        self.crewai_dir = Path(__file__).resolve().parents[1]
         self.venv_dir = self.crewai_dir / ".venv"
-        self.crewai_py = cfg.crewai_script or (self.crewai_dir / "crewai_collaboration.py")
+        self.crewai_py = cfg.crewai_script or (self.crewai_dir / "client" / "collaboration.py")
         self.events_file = cfg.output_dir / "events.jsonl"
         self.run_log = cfg.output_dir / "run.log"
         self.app_stdout = cfg.output_dir / "crewai_stdout.log"
@@ -582,7 +582,7 @@ class FaultInjectionRunner:
         if self.runtime_failover_events_file:
             snapshot_server_logs(self.runtime_failover_events_file, cfg.output_dir)
         metrics_script = cfg.failover_metrics_script or (
-            self.crewai_dir / "build_internal_failover_metrics.py"
+            self.crewai_dir / "experiments" / "build_internal_failover_metrics.py"
         )
         if metrics_script.is_file():
             out_json = cfg.output_dir / "internal_failover_metrics.json"

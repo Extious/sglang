@@ -25,8 +25,9 @@ from crewai.events.types.task_events import TaskCompletedEvent, TaskFailedEvent,
 from crewai.llms.base_llm import get_current_call_id
 
 ROLE_TO_TASK_LABEL = {}
-TOPIC_CSV_FILE = Path(__file__).with_name("topics.csv")
-TRACE_LOG_FILE = Path(__file__).with_name("trace_log.json")
+_CREWAI_ROOT = Path(__file__).resolve().parents[1]
+TOPIC_CSV_FILE = _CREWAI_ROOT / "topics.csv"
+TRACE_LOG_FILE = _CREWAI_ROOT / "trace_log.json"
 EVENTS_FILE_ENV = os.environ.get("CREWAI_EVENTS_FILE", "").strip()
 EVENTS_FILE = Path(EVENTS_FILE_ENV).expanduser() if EVENTS_FILE_ENV else None
 TOPIC_LIMIT = 10

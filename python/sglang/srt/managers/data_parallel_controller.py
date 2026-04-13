@@ -32,6 +32,7 @@ from sglang.srt.layers.dp_attention import compute_dp_attention_world_info
 from sglang.srt.managers.io_struct import (
     ActiveRanksOutput,
     BlockReqInput,
+    GpuHealthReportReq,
     SimulateGpuFailureReq,
     TokenizedEmbeddingReqInput,
     TokenizedGenerateReqInput,
@@ -65,6 +66,17 @@ from sglang.srt.utils.common import (
 )
 from sglang.srt.utils.torch_memory_saver_adapter import TorchMemorySaverAdapter
 from sglang.srt.utils.watchdog import Watchdog
+from sglang.srt.fault_tolerance.fault_detector import (
+    GPUHealthChecker,
+    FaultEvent,
+    FaultType,
+)
+from sglang.srt.fault_tolerance.communicator_rebuilder import (
+    CommunicatorRebuilder,
+)
+from sglang.srt.fault_tolerance.request_recovery import (
+    RequestRecoveryManager,
+)
 from sglang.utils import TypeBasedDispatcher, get_exception_traceback
 
 logger = logging.getLogger(__name__)
@@ -174,6 +186,9 @@ class DataParallelController:
 
         self.init_dispatcher()
 
+        # Initialize GPU fault detector for production fault detection
+        self._init_gpu_health_checker(server_args)
+
         self.soft_watchdog = Watchdog.create(
             debug_name="DataParallelController",
             watchdog_timeout=server_args.soft_watchdog_timeout,
@@ -183,6 +198,122 @@ class DataParallelController:
 
         if server_args.enable_metrics:
             start_cpu_monitor_thread("data_parallel_controller")
+
+    def _init_gpu_health_checker(self, server_args: ServerArgs) -> None:
+        """
+        Initialize the GPU health checker for production fault detection.
+
+        The checker monitors all DP workers and automatically triggers
+        traffic rerouting when failures are detected.
+        """
+        if not getattr(server_args, "enable_kevlarflow_fault_detection", False):
+            # Fault detection disabled - use simulated API only
+            self._gpu_health_checker: Optional[GPUHealthChecker] = None
+            logger.info("GPU health checker disabled (enable_kevlarflow_fault_detection=False)")
+            return
+
+        try:
+            from sglang.srt.distributed.parallel_state import get_world_group
+            nccl_group = get_world_group()
+        except Exception:
+            nccl_group = None
+
+        self._gpu_health_checker = GPUHealthChecker(
+            dp_size=server_args.dp_size,
+            my_dp_rank=0,  # Controller is rank 0 in the DP group
+            nccl_group=nccl_group,
+            heartbeat_interval=getattr(server_args, "health_check_interval", 5.0),
+            heartbeat_timeout=getattr(server_args, "health_check_timeout", 15.0),
+            nccl_probe_interval=getattr(server_args, "nccl_probe_interval", 10.0),
+            max_consecutive_failures=getattr(server_args, "max_health_failures", 3),
+        )
+
+        # Subscribe to fault and recovery events
+        self._gpu_health_checker.subscribe_fault(self._on_fault_detected)
+        self._gpu_health_checker.subscribe_recovery(self._on_worker_recovered)
+
+        # Start the health checker
+        self._gpu_health_checker.start()
+
+        logger.info(
+            f"GPU health checker initialized: dp_size={server_args.dp_size}, "
+            f"interval={self._gpu_health_checker.heartbeat_interval}s, "
+            f"timeout={self._gpu_health_checker.heartbeat_timeout}s"
+        )
+
+        # Initialize communicator rebuilder for dynamic NCCL group reconstruction
+        self._init_communicator_rebuilder(server_args)
+
+        # Initialize request recovery manager for seamless request migration
+        self._init_request_recovery_manager(server_args)
+
+    def _init_communicator_rebuilder(self, server_args: ServerArgs) -> None:
+        """Initialize the communicator rebuilder for dynamic NCCL group rebuild."""
+        if not getattr(server_args, "enable_kevlarflow_fault_detection", False):
+            self._comm_rebuilder: Optional[CommunicatorRebuilder] = None
+            return
+
+        try:
+            from sglang.srt.distributed.parallel_state import get_world_group
+            world_group = get_world_group()
+        except Exception:
+            world_group = None
+
+        self._comm_rebuilder = CommunicatorRebuilder(
+            dp_size=server_args.dp_size,
+            my_rank=0,
+            world_group=world_group,
+            enabled=True,
+        )
+
+        # Subscribe to rebuild progress events
+        self._comm_rebuilder.subscribe_progress(self._on_rebuild_progress)
+
+        logger.info("Communicator rebuilder initialized")
+
+    def _on_rebuild_progress(self, ctx) -> None:
+        """Callback invoked when communicator rebuild progresses."""
+        from sglang.srt.fault_tolerance.communicator_rebuilder import RebuildPhase
+        logger.info(
+            f"Communicator rebuild progress: phase={ctx.phase.name}, "
+            f"duration={ctx.duration:.2f}s"
+        )
+        if ctx.phase == RebuildPhase.FAILED:
+            logger.error(f"Communicator rebuild failed: {ctx.error_message}")
+        elif ctx.phase == RebuildPhase.COMPLETED:
+            logger.info("Communicator rebuild completed successfully")
+
+    def _init_request_recovery_manager(self, server_args: ServerArgs) -> None:
+        """Initialize the request recovery manager for seamless request migration."""
+        if not getattr(server_args, "enable_kevlarflow_fault_detection", False):
+            self._request_recovery_mgr: Optional[RequestRecoveryManager] = None
+            return
+
+        self._request_recovery_mgr = RequestRecoveryManager(
+            dp_size=server_args.dp_size,
+            my_dp_rank=0,
+            enabled=True,
+        )
+        self._request_recovery_mgr.subscribe_recovered(self._on_request_recovered)
+        self._request_recovery_mgr.subscribe_failed(self._on_request_recovery_failed)
+        self._request_recovery_mgr.start()
+
+        logger.info("Request recovery manager initialized")
+
+    def _on_request_recovered(self, task) -> None:
+        """Callback when a request is successfully recovered."""
+        logger.info(
+            f"Request recovered: req_id={task.req_id}, "
+            f"from dp_rank={task.failed_dp_rank} -> backup={task.backup_dp_rank}, "
+            f"duration={task.duration:.2f}s"
+        )
+
+    def _on_request_recovery_failed(self, task) -> None:
+        """Callback when request recovery fails."""
+        logger.warning(
+            f"Request recovery failed: req_id={task.req_id}, "
+            f"reason={task.error_message}"
+        )
 
     def send_to_all_workers(self, obj):
         for i, worker in enumerate(self.workers):
@@ -220,9 +351,53 @@ class DataParallelController:
                 (WatchLoadUpdateReq, self.handle_load_update_req),
                 (ActiveRanksOutput, self.update_active_ranks),
                 (SimulateGpuFailureReq, self.handle_simulate_gpu_failure),
+                (GpuHealthReportReq, self.handle_gpu_health_report),
             ]
         )
         self._request_dispatcher.add_fallback_fn(self.send_control_message)
+
+    def handle_gpu_health_report(self, obj: GpuHealthReportReq):
+        """Handle periodic health heartbeat from a DP worker."""
+        if not hasattr(self, "_gpu_health_checker") or self._gpu_health_checker is None:
+            return
+        self._gpu_health_checker.receive_heartbeat(obj.dp_rank)
+        if obj.pid > 0:
+            self._gpu_health_checker.register_pid(obj.dp_rank, obj.pid)
+
+    def _on_fault_detected(self, event: FaultEvent):
+        """Callback invoked by GPUHealthChecker when a fault is detected."""
+        logger.warning(f"GPUHealthChecker detected fault: {event}")
+        self.handle_simulate_gpu_failure(
+            SimulateGpuFailureReq(dp_rank=event.dp_rank, recover=False)
+        )
+        # Trigger communicator rebuild if rebuilder is available
+        if hasattr(self, "_comm_rebuilder") and self._comm_rebuilder is not None:
+            self._comm_rebuilder.trigger_rebuild_on_fault(failed_rank=event.dp_rank)
+        # Trigger request recovery if available
+        if hasattr(self, "_request_recovery_mgr") and self._request_recovery_mgr is not None:
+            self._request_recovery_mgr.update_worker_health(event.dp_rank, False)
+            # Get affected requests from pending queue and trigger recovery
+            affected_req_ids = [
+                getattr(req, "rid", None)
+                for req in self.pending_req_queue
+                if getattr(req, "data_parallel_rank", None) == event.dp_rank
+            ]
+            affected_req_ids = [rid for rid in affected_req_ids if rid is not None]
+            if affected_req_ids:
+                self._request_recovery_mgr.on_fault_detected(
+                    failed_dp_rank=event.dp_rank,
+                    affected_req_ids=affected_req_ids,
+                )
+
+    def _on_worker_recovered(self, dp_rank: int):
+        """Callback invoked by GPUHealthChecker when a worker recovers."""
+        logger.info(f"GPUHealthChecker detected recovery: dp_rank={dp_rank}")
+        self.handle_simulate_gpu_failure(
+            SimulateGpuFailureReq(dp_rank=dp_rank, recover=True)
+        )
+        # Update request recovery manager
+        if hasattr(self, "_request_recovery_mgr") and self._request_recovery_mgr is not None:
+            self._request_recovery_mgr.update_worker_health(dp_rank, True)
 
     def handle_simulate_gpu_failure(self, obj: SimulateGpuFailureReq):
         if 0 <= obj.dp_rank < len(self.status):

@@ -86,7 +86,7 @@ DEFAULT_VENV_LOCAL_ROOT="/tmp/${USER}/sglang-runtime-cache"
 show_help() {
     cat <<'EOF'
 Usage:
-  sbatch [SBATCH_OPTIONS] deploy_sglang_dp2_pp2.slurm [SCRIPT_OPTIONS]
+  sbatch [SBATCH_OPTIONS] deploy_sglang.slurm [SCRIPT_OPTIONS]
 
 Script options:
   --model-path PATH        Model path (default: Qwen/Qwen3-32B)

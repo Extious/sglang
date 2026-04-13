@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram name="Page 1: HiCache — Tensor Parallelism (TP)" id="tp_page">
-        <mxGraphModel dx="1860" dy="908" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="3000" pageHeight="2800" math="0" shadow="0">
+        <mxGraphModel dx="720" dy="885" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="3000" pageHeight="2800" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -34,10 +34,10 @@
                 <mxCell id="ov_tp_note" value="Under TP: each rank has&#10;its own L1 + L2 instance&#10;Sync via all_reduce" style="rounded=1;whiteSpace=wrap;fillColor=#ffcdd2;strokeColor=#c62828;fontSize=10;align=center;dashed=1;" parent="ov" vertex="1">
                     <mxGeometry x="1620" y="40" width="210" height="55" as="geometry"/>
                 </mxCell>
-                <mxCell id="ov_flow1" value="End-to-end KV path (one prefill): ① match_prefix (local tree) → ② prefetch L3→L2 [all_reduce MIN: hit count, completed tokens] → ③ load L2→L1 ‖ LayerDoneCounter overlap" style="text;html=1;align=left;verticalAlign=top;spacingTop=2;spacingLeft=10;fontSize=9;fontColor=#263238;" vertex="1" parent="ov">
+                <mxCell id="ov_flow1" value="End-to-end KV path (one prefill): ① match_prefix (local tree) → ② prefetch L3→L2 [all_reduce MIN: hit count, completed tokens] → ③ load L2→L1 ‖ LayerDoneCounter overlap" style="text;html=1;align=left;verticalAlign=top;spacingTop=2;spacingLeft=10;fontSize=9;fontColor=#263238;" parent="ov" vertex="1">
                     <mxGeometry x="12" y="98" width="2360" height="36" as="geometry"/>
                 </mxCell>
-                <mxCell id="ov_flow2" value="④ Prefill + TP (attn / MLP on shard) → ⑤ write-back [all_reduce MIN on ACK]; MHA: all ranks → L3 · MLA: tp_rank=0 only → ⑥ storage drain [all_reduce MIN on queues]" style="text;html=1;align=left;verticalAlign=top;spacingTop=2;spacingLeft=10;fontSize=9;fontColor=#263238;" vertex="1" parent="ov">
+                <mxCell id="ov_flow2" value="④ Prefill + TP (attn / MLP on shard) → ⑤ write-back [all_reduce MIN on ACK]; MHA: all ranks → L3 · MLA: tp_rank=0 only → ⑥ storage drain [all_reduce MIN on queues]" style="text;html=1;align=left;verticalAlign=top;spacingTop=2;spacingLeft=10;fontSize=9;fontColor=#263238;" parent="ov" vertex="1">
                     <mxGeometry x="12" y="136" width="2360" height="36" as="geometry"/>
                 </mxCell>
                 <mxCell id="r0" value="TP Rank 0 (GPU 0)" style="swimlane;startSize=30;fillColor=#f5f5f5;strokeColor=#424242;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
@@ -370,7 +370,7 @@
         </mxGraphModel>
     </diagram>
     <diagram name="Page 2: HiCache — Pipeline Parallelism (PP)" id="pp_page">
-        <mxGraphModel dx="1674" dy="817" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="3000" pageHeight="2500" math="0" shadow="0">
+        <mxGraphModel dx="468" dy="575" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="3000" pageHeight="2500" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -407,7 +407,7 @@
                 <mxCell id="pov_params" value="Config:&#10;pp_rank, pp_size&#10;passed to CacheInitParams" style="rounded=1;whiteSpace=wrap;fillColor=#e0e0e0;strokeColor=#9e9e9e;fontSize=10;align=center;dashed=1;" parent="pov" vertex="1">
                     <mxGeometry x="1680" y="40" width="220" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="pov_flow" value="Per PP stage: separate HiRadixCache, HiCacheController, L1/L2. TP all_reduce(MIN) only within the stage.&#10;Activations flow stage k → k+1 (no shared HiCache tree). L3 keys include pp_rank (+ tp_rank for MHA)." style="text;html=1;align=left;verticalAlign=top;spacingTop=4;spacingLeft=10;fontSize=9;fontColor=#880e4f;fontStyle=2;" vertex="1" parent="pov">
+                <mxCell id="pov_flow" value="Per PP stage: separate HiRadixCache, HiCacheController, L1/L2. TP all_reduce(MIN) only within the stage.&#10;Activations flow stage k → k+1 (no shared HiCache tree). L3 keys include pp_rank (+ tp_rank for MHA)." style="text;html=1;align=left;verticalAlign=top;spacingTop=4;spacingLeft=10;fontSize=9;fontColor=#880e4f;fontStyle=2;" parent="pov" vertex="1">
                     <mxGeometry x="15" y="118" width="2350" height="68" as="geometry"/>
                 </mxCell>
                 <mxCell id="ps0" value="PP Stage 0 (pp_rank=0, Layers 0 .. N/pp_size - 1)" style="swimlane;startSize=28;fillColor=#fce4ec;strokeColor=#c2185b;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
@@ -665,7 +665,7 @@
         </mxGraphModel>
     </diagram>
     <diagram name="Page 3: DP Attention &amp; Expert Parallel (EP)" id="dp_ep_page">
-        <mxGraphModel dx="3044" dy="1485" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="3000" pageHeight="2900" math="0" shadow="0">
+        <mxGraphModel dx="448" dy="806" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="3000" pageHeight="2900" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -711,7 +711,7 @@
                 <mxCell id="d3_dp_sched" value="server_args&#10;dp_size, enable_dp_attention,&#10;moe_dense_tp_size, attn_cp_size" style="rounded=1;whiteSpace=wrap;fillColor=#fff;strokeColor=#7986cb;fontSize=9;align=left;spacingLeft=8;verticalAlign=top;dashed=1;" parent="d3_dp_lane" vertex="1">
                     <mxGeometry x="1040" y="92" width="280" height="118" as="geometry"/>
                 </mxCell>
-                <mxCell id="d3_dp_strip" value="Token path (schematic)" style="text;html=1;align=left;fontSize=10;fontStyle=1;fontColor=#283593;" vertex="1" parent="d3_dp_lane">
+                <mxCell id="d3_dp_strip" value="Token path (schematic)" style="text;html=1;align=left;fontSize=10;fontStyle=1;fontColor=#283593;" parent="d3_dp_lane" vertex="1">
                     <mxGeometry x="20" y="228" width="280" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="d3_dp_r0" value="DP rank 0&#10;tokens A" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=9;align=center;" parent="d3_dp_lane" vertex="1">
@@ -762,7 +762,7 @@
                 <mxCell id="d3_ep_dp" value="DP/TP interplay&#10;moe_dense_tp_size,&#10;DeepEP + EP group (moe/utils.py)" style="rounded=1;whiteSpace=wrap;fillColor=#dcedc8;strokeColor=#558b2f;fontSize=9;align=left;spacingLeft=8;verticalAlign=top;dashed=1;" parent="d3_ep_lane" vertex="1">
                     <mxGeometry x="840" y="34" width="320" height="92" as="geometry"/>
                 </mxCell>
-                <mxCell id="d3_ep_strip" value="MoE routing (schematic)" style="text;html=1;align=left;fontSize=10;fontStyle=1;fontColor=#33691e;" vertex="1" parent="d3_ep_lane">
+                <mxCell id="d3_ep_strip" value="MoE routing (schematic)" style="text;html=1;align=left;fontSize=10;fontStyle=1;fontColor=#33691e;" parent="d3_ep_lane" vertex="1">
                     <mxGeometry x="20" y="140" width="240" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="d3_ep_tok" value="Tokens" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=9;align=center;" parent="d3_ep_lane" vertex="1">

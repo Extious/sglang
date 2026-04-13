@@ -17,14 +17,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
-_CREWAI_DIR = Path(__file__).resolve().parent
-if str(_CREWAI_DIR) not in sys.path:
-    sys.path.insert(0, str(_CREWAI_DIR))
-from fault_injection_runner import FaultInjectionConfig, FaultInjectionRunner
+_CREWAI_ROOT = Path(__file__).resolve().parents[1]
+if str(_CREWAI_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CREWAI_ROOT))
+from experiments.fault_injection import FaultInjectionConfig, FaultInjectionRunner
 
 
 def multi_agent_dir() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return Path(__file__).resolve().parents[3]
 
 
 @dataclass
@@ -153,7 +153,7 @@ def _wait_server_artifacts(
 
 
 def _venv_python() -> Path:
-    venv = _CREWAI_DIR / ".venv" / "bin" / "python"
+    venv = _CREWAI_ROOT / ".venv" / "bin" / "python"
     if venv.is_file():
         return venv
     return Path(sys.executable)
@@ -311,7 +311,7 @@ def run_one_group(
         log(f"WARNING: CrewAI run exited with code {test_rc}")
 
     if trace_file.is_file() and trace_file.stat().st_size > 0:
-        prof = _CREWAI_DIR / "plot_trace_log_profile.py"
+        prof = _CREWAI_ROOT / "plots" / "trace_log_profile.py"
         _run_plot(
             prof,
             [
@@ -324,7 +324,7 @@ def run_one_group(
         )
         metrics_json = result_dir / "internal_failover_metrics.json"
         if metrics_json.is_file():
-            backup_plot = _CREWAI_DIR / "plot_backup_cache_hits.py"
+            backup_plot = _CREWAI_ROOT / "plots" / "backup_cache_hits.py"
             _run_plot(
                 backup_plot,
                 [
@@ -349,8 +349,8 @@ def run_one_group(
 def parse_args() -> ExperimentArgs:
     ma = multi_agent_dir()
     default_log = ma / "logs/qwen3_32b_a100"
-    default_results = ma / "results/crewai_ab_qwen3_32b_a100"
-    default_deploy = ma / "scripts" / "deploy_sglang_dp2_pp2.slurm"
+    default_results = ma / "applications/crewai/results/crewai_ab_qwen3_32b_a100"
+    default_deploy = ma / "scripts" / "deploy_sglang.slurm"
     default_jobs = ma / "applications/crewai/topics.csv"
     p = argparse.ArgumentParser(
         description="Baseline vs gpu_backup CrewAI experiments (CPU orchestration)."
@@ -510,7 +510,7 @@ def main() -> int:
     baseline_dir = ns.output_base_dir / "baseline"
     gpu_dir = ns.output_base_dir / "gpu_backup"
     if baseline_dir.is_dir() and gpu_dir.is_dir():
-        ab_plot = _CREWAI_DIR / "plot_ab_comparison.py"
+        ab_plot = _CREWAI_ROOT / "plots" / "ab_comparison.py"
         for ext in ("pdf", "png"):
             _run_plot(
                 ab_plot,

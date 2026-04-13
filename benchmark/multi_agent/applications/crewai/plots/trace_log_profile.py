@@ -37,6 +37,8 @@ AGENT_ORDER = [
 ]
 AGENT_ORDER_INDEX = {a: i for i, a in enumerate(AGENT_ORDER)}
 
+_CREWAI_ROOT = Path(__file__).resolve().parents[1]
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -45,13 +47,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         type=Path,
-        default=Path(__file__).with_name("trace_log.json"),
+        default=_CREWAI_ROOT / "trace_log.json",
         help="Path to the input trace log JSON file.",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path(__file__).with_name("trace_log_profile.png"),
+        default=_CREWAI_ROOT / "trace_log_profile.png",
         help="Path to the output image file.",
     )
     return parser.parse_args()

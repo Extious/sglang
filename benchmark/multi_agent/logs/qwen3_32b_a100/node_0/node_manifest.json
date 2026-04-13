@@ -1,0 +1,67 @@
+{
+  "node_rank": 0,
+  "node": "hkbugpusrv07",
+  "node_url": "http://hkbugpusrv07:34000",
+  "head_server_url": "http://hkbugpusrv07:34000",
+  "venv_dir": "/home/comp/25482351/sglang/.venv",
+  "resolved_venv_dir": "/home/comp/25482351/sglang/.venv",
+  "model_path": "Qwen/Qwen3-32B",
+  "resolved_model_path": "/tmp/25482351/sglang-model-cache/Qwen__Qwen3-32B",
+  "server_port": 34000,
+  "server_main_pid": 3738066,
+  "runtime_failover_events_file": "/home/comp/25482351/sglang/benchmark/multi_agent/logs/qwen3_32b_a100/runtime_failover_events.jsonl",
+  "stages": [
+    {
+      "stage_key": "0:0:0",
+      "dp_rank": 0,
+      "pp_rank": 0,
+      "tp_rank": 0,
+      "node_rank": 0,
+      "node": "hkbugpusrv07",
+      "node_url": "http://hkbugpusrv07:34000",
+      "head_server_url": "http://hkbugpusrv07:34000",
+      "kill_pattern": "sglang::scheduler_DP0_PP0",
+      "peer_listen_port": 35000,
+      "peer_target_stage_key": "1:0:0"
+    },
+    {
+      "stage_key": "0:1:0",
+      "dp_rank": 0,
+      "pp_rank": 1,
+      "tp_rank": 0,
+      "node_rank": 0,
+      "node": "hkbugpusrv07",
+      "node_url": "http://hkbugpusrv07:34000",
+      "head_server_url": "http://hkbugpusrv07:34000",
+      "kill_pattern": "sglang::scheduler_DP0_PP1",
+      "peer_listen_port": 35001,
+      "peer_target_stage_key": "1:1:0"
+    },
+    {
+      "stage_key": "1:0:0",
+      "dp_rank": 1,
+      "pp_rank": 0,
+      "tp_rank": 0,
+      "node_rank": 0,
+      "node": "hkbugpusrv07",
+      "node_url": "http://hkbugpusrv07:34000",
+      "head_server_url": "http://hkbugpusrv07:34000",
+      "kill_pattern": "sglang::scheduler_DP1_PP0",
+      "peer_listen_port": 35002,
+      "peer_target_stage_key": "0:0:0"
+    },
+    {
+      "stage_key": "1:1:0",
+      "dp_rank": 1,
+      "pp_rank": 1,
+      "tp_rank": 0,
+      "node_rank": 0,
+      "node": "hkbugpusrv07",
+      "node_url": "http://hkbugpusrv07:34000",
+      "head_server_url": "http://hkbugpusrv07:34000",
+      "kill_pattern": "sglang::scheduler_DP1_PP1",
+      "peer_listen_port": 35003,
+      "peer_target_stage_key": "0:1:0"
+    }
+  ]
+}

@@ -1550,6 +1550,22 @@ class SimulateGpuFailureReq(BaseReq):
 
 
 @dataclass
+class GpuHealthReportReq(BaseReq):
+    """
+    Periodic health heartbeat from a DP worker to DataParallelController.
+    Used by GPUHealthChecker to track worker liveness and detect crashes.
+
+    Workers send this message every SGLANG_HEALTH_CHECK_INTERVAL seconds.
+    """
+
+    dp_rank: int = 0
+    pid: int = 0
+    gpu_memory_used_mb: float = 0.0
+    gpu_utilization: float = 0.0
+    timestamp: float = 0.0
+
+
+@dataclass
 class GetInternalStateReq(BaseReq):
     pass
 

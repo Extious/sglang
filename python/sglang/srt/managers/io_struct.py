@@ -702,6 +702,20 @@ class TokenizedGenerateReqInput(BaseReq):
     # Session info for continual prompting
     session_params: Optional[SessionParams] = None
 
+    # Original prompt length before failover (for correct usage reporting)
+    original_prompt_len: Optional[int] = None
+
+    # Output tokens generated before failover (prepended to final output)
+    failover_prefix_ids: Optional[List[int]] = None
+
+    # Failover metrics passed through to the retried request
+    pre_failover_output_tokens: Optional[int] = None
+    pre_failover_backed_up_tokens: Optional[int] = None
+    # Source DP rank of the failed worker for failover-aware prefetch
+    failed_dp_rank: Optional[int] = None
+    # Remote backup lease generation (incremented on each failover retry)
+    remote_backup_generation: int = 0
+
     # LoRA related
     lora_id: Optional[str] = None  # None means just use the base model
 
@@ -1018,6 +1032,8 @@ class BatchTokenIDOutput(BaseBatchReq, SpeculativeDecodingMetricsMixin):
     customized_info: Optional[Dict[str, List[Any]]] = None
     # Detailed breakdown of cached tokens by source (device/host/storage)
     cached_tokens_details: Optional[List[Optional[Dict[str, Any]]]] = None
+    # Failover info for retried requests
+    failover_details: Optional[List[Optional[Dict[str, Any]]]] = None
     # DP rank of the scheduler that processed each request
     dp_ranks: Optional[List[int]] = None
 
@@ -1081,6 +1097,8 @@ class BatchStrOutput(BaseBatchReq, SpeculativeDecodingMetricsMixin):
     customized_info: Optional[Dict[str, List[Any]]] = None
     # Detailed breakdown of cached tokens by source (device/host/storage)
     cached_tokens_details: Optional[List[Optional[Dict[str, Any]]]] = None
+    # Failover info for retried requests
+    failover_details: Optional[List[Optional[Dict[str, Any]]]] = None
     # DP rank of the scheduler that processed each request
     dp_ranks: Optional[List[int]] = None
 
@@ -1105,6 +1123,8 @@ class BatchEmbeddingOutput(BaseBatchReq):
     retraction_counts: List[int]
     # Detailed breakdown of cached tokens by source (device/host/storage)
     cached_tokens_details: Optional[List[Optional[Dict[str, Any]]]] = None
+    # Failover info for retried requests
+    failover_details: Optional[List[Optional[Dict[str, Any]]]] = None
 
     # For observability
     time_stats: Optional[List[SchedulerReqTimeStats]] = None
@@ -1477,6 +1497,8 @@ class AbortReq(BaseReq):
     # The finished reason data
     finished_reason: Optional[Dict[str, Any]] = None
     abort_message: Optional[str] = None
+    # Source DP rank for failover-aware abort handling
+    dp_rank: Optional[int] = None
 
     def __post_init__(self):
         # FIXME: This is a hack to keep the same with the old code
@@ -1932,6 +1954,43 @@ class DumperControlReqOutput(BaseReq):
     success: bool
     response: List[Dict[str, Any]]
     error: str = ""
+
+
+@dataclass
+class SimulateGpuFailureReqInput(BaseReq):
+    """Request to simulate GPU failure on a specific DP rank."""
+    dp_rank: int = 0
+
+
+@dataclass
+class SimulateGpuRecoveryReqInput(BaseReq):
+    """Request to recover a previously failed DP rank."""
+    dp_rank: int = 0
+
+
+@dataclass
+class ReqSnapshot:
+    """Snapshot of an in-flight request captured before failover abort.
+
+    The scheduler owns the token sequence that was inserted into HiCache and
+    backed up remotely, so failover re-dispatch must use this sequence instead
+    of reconstructing it from tokenizer-side request state.
+    """
+
+    rid: str
+    output_ids: List[int]
+    backed_up_tokens: int = 0
+    origin_input_ids: List[int] = field(default_factory=list)
+    sampling_params: Optional[Any] = None
+    original_max_new_tokens: Optional[int] = None
+    stream: bool = False
+
+
+@dataclass
+class FailoverBatchReqInput(BaseReq):
+    """Sent from failed scheduler back to DPC with requests to re-dispatch."""
+    failed_dp_rank: int = 0
+    snapshots: List[ReqSnapshot] = field(default_factory=list)
 
 
 def _check_all_req_types():

@@ -1,0 +1,288 @@
+<mxfile host="65bd71144e">
+    <diagram name="GPU Failure Injection Flow" id="failure-flow">
+        <mxGraphModel dx="1466" dy="4835" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="3400" pageHeight="4200" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="2" value="HTTP Server (FastAPI)" style="swimlane;horizontal=0;startSize=30;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;fontStyle=1;container=0;" vertex="1" parent="1">
+                    <mxGeometry x="460" y="-40" width="370" height="4050" as="geometry"/>
+                </mxCell>
+                <mxCell id="h1" value="@app.post(&quot;/simulate_gpu_failure&quot;)&lt;br&gt;  parse dp_rank from request body&lt;br&gt;tokenizer_manager.simulate_gpu_failure(obj)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;align=left;spacingLeft=8;" parent="2" vertex="1">
+                    <mxGeometry x="60" y="875" width="280" height="56" as="geometry"/>
+                </mxCell>
+                <mxCell id="title" value="GPU Failure Injection and Internal Handling Flow (Detailed)" style="text;html=1;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#1A1A2E;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="400" y="-130" width="2600" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="subtitle" value="ExperimentPipeline → Trigger fires → Inject fault → Scheduler snapshot &amp; cold-reset → TokenizerManager re-dispatch → Healthy worker prefill with remote backup KV → Recovery" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontColor=#666699;fontStyle=2;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="400" y="-94" width="2600" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane_inj" value="Experiment Injector (injector_core.py)" style="swimlane;horizontal=0;startSize=30;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;fontStyle=1;container=0;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="-40" width="390" height="4110" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane_tm" value="TokenizerManager" style="swimlane;horizontal=0;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;fontStyle=1;container=0;" parent="1" vertex="1">
+                    <mxGeometry x="860" y="-40" width="440" height="4000" as="geometry"/>
+                </mxCell>
+                <mxCell id="tm1" value="simulate_gpu_failure():&#10;  construct SimulateGpuFailureReqInput(dp_rank)&#10;  send_to_scheduler.send_pyobj(req) → ZMQ to DPC" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=8;" parent="lane_tm" vertex="1">
+                    <mxGeometry x="50" y="1040" width="360" height="56" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane_dpc" value="DataParallelController" style="swimlane;horizontal=0;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1;container=0;" parent="1" vertex="1">
+                    <mxGeometry x="1340" y="-40" width="440" height="4000" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane_sch" value="Scheduler (Failed dp_rank=N)" style="swimlane;horizontal=0;startSize=30;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;container=0;" parent="1" vertex="1">
+                    <mxGeometry x="1820" y="-40" width="500" height="4000" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane_healthy" value="Scheduler (Healthy dp_rank=M) + Remote Backup" style="swimlane;horizontal=0;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;container=0;" parent="1" vertex="1">
+                    <mxGeometry x="2360" y="-40" width="540" height="4000" as="geometry"/>
+                </mxCell>
+                <mxCell id="stub" value="" style="text;html=1;fontSize=1;fillColor=none;strokeColor=none;" parent="1" vertex="1">
+                    <mxGeometry y="4000" width="10" height="10" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend_box" value="" style="rounded=0;whiteSpace=wrap;fillColor=#FAFAFA;strokeColor=#999999;fontSize=10;dashed=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="3520" width="2860" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend_title" value="Legend" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#333333;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="3530" width="60" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg1" value="" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="3560" width="140" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg1_label" value="Experiment Injector" style="text;html=1;align=left;verticalAlign=middle;fontSize=9;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="210" y="3560" width="120" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg2" value="" style="rounded=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="3560" width="140" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg2_label" value="HTTP Server" style="text;html=1;align=left;verticalAlign=middle;fontSize=9;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="510" y="3560" width="100" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg3" value="" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="640" y="3560" width="140" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg3_label" value="TokenizerManager" style="text;html=1;align=left;verticalAlign=middle;fontSize=9;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="790" y="3560" width="120" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg4" value="" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="940" y="3560" width="140" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg4_label" value="DataParallelController" style="text;html=1;align=left;verticalAlign=middle;fontSize=9;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="1090" y="3560" width="140" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg5" value="" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1260" y="3560" width="140" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg5_label" value="Failed Scheduler" style="text;html=1;align=left;verticalAlign=middle;fontSize=9;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="1410" y="3560" width="100" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg6" value="" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1540" y="3560" width="140" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg6_label" value="Healthy Scheduler" style="text;html=1;align=left;verticalAlign=middle;fontSize=9;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="1690" y="3560" width="110" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg7" value="" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1840" y="3560" width="140" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg7_label" value="Remote Backup / Cache" style="text;html=1;align=left;verticalAlign=middle;fontSize=9;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="1990" y="3560" width="130" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg8" value="" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#CC0000;fontSize=10;dashed=1;" parent="1" vertex="1">
+                    <mxGeometry x="2160" y="3560" width="140" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg8_label" value="Error / Failure Path" style="text;html=1;align=left;verticalAlign=middle;fontSize=9;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="2310" y="3560" width="120" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg9" value="---&gt;" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#b85450;strokeColor=none;fillColor=none;fontStyle=2;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="3600" width="280" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg9_label" value="Solid line: normal flow       Dashed: async / event-driven        Red: error / monitoring path" style="text;html=1;align=left;verticalAlign=middle;fontSize=9;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="340" y="3600" width="550" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="i4" value="ApiFaultMethod.inject():&#10;POST /simulate_gpu_failure&#10;{&quot;dp_rank&quot;: N}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="835" width="300" height="56" as="geometry"/>
+                </mxCell>
+                <mxCell id="i7" value="POST /simulate_gpu_recovery&#10;{&quot;dp_rank&quot;: N}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="1420" width="300" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="h3" value="@app.post(&quot;/simulate_gpu_recovery&quot;)&#10;  parse dp_rank from request body&#10;  tokenizer_manager.simulate_gpu_recovery(obj)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="500" y="1420" width="280" height="56" as="geometry"/>
+                </mxCell>
+                <mxCell id="tm2" value="handle_loop() receives&#10;  FailoverBatchReqInput&#10;  from failed scheduler via ZMQ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="900" y="1780" width="360" height="56" as="geometry"/>
+                </mxCell>
+                <mxCell id="tm3" value="_handle_failover_batch():&#10;1. append_failover_event(&quot;failover_dispatched&quot;,&#10;   failed_dp_rank=N)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="900" y="1860" width="360" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="etm23" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="tm2" target="tm3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="tm3a" value="For each ReqSnapshot in snapshots:&#10;  new_input_ids = origin_input_ids + output_ids&#10;  remaining_max = original_max_new_tokens - len(output_ids)&#10;  Construct TokenizedGenerateReqInput{&#10;    rid: snap.rid          (same client connection)&#10;    input_ids: new_input_ids&#10;    sampling_params: snap.sampling_params (reduced max_new_tokens)&#10;    failed_dp_rank: failover.failed_dp_rank&#10;    failover_prefix_ids: list(snap.output_ids)&#10;    pre_failover_output_tokens: len(snap.output_ids)&#10;    pre_failover_backed_up_tokens: snap.backed_up_tokens&#10;    stream: snap.stream&#10;  }" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="900" y="1935" width="360" height="160" as="geometry"/>
+                </mxCell>
+                <mxCell id="etm3_3a" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="tm3" target="tm3a" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="tm4" value="send_to_scheduler.send_pyobj(&#10;  retried TokenizedGenerateReqInput)&#10;  for each snapshot → ZMQ to DPC" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="900" y="2120" width="360" height="56" as="geometry"/>
+                </mxCell>
+                <mxCell id="etm3a_4" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="tm3a" target="tm4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="tm5" value="append_failover_event(&#10;  &quot;resume_accepted&quot;)" style="shape=document;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="900" y="2205" width="360" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="etm4_5" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="tm4" target="tm5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="tm6" value="simulate_gpu_recovery():&#10;  construct SimulateGpuRecoveryReqInput(dp_rank)&#10;  send_to_scheduler.send_pyobj(req) → ZMQ to DPC" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="900" y="1480" width="360" height="56" as="geometry"/>
+                </mxCell>
+                <mxCell id="etm_recovery_label" value="Recovery path" style="text;html=1;fontSize=9;fontColor=#82b366;strokeColor=none;fillColor=none;fontStyle=2;" parent="1" vertex="1">
+                    <mxGeometry x="900" y="1445" width="80" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="dpc1" value="handle_simulate_gpu_failure():&#10;  failed_dp_ranks.add(N)&#10;  workers[N].send_pyobj(req) → ZMQ to scheduler" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="1380" y="1150" width="360" height="56" as="geometry"/>
+                </mxCell>
+                <mxCell id="dpc2" value="Dispatch: _request_excluded_dp_ranks(req)&#10;  exclude = set(failed_dp_ranks)&#10;  if req.failed_dp_rank: exclude.add(int(req.failed_dp_rank))&#10;dp_budget.dispatch(method, exclude=exclude)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="1380" y="2120" width="360" height="64" as="geometry"/>
+                </mxCell>
+                <mxCell id="dpc2a" value="Filter: skip excluded ranks in dispatch&#10;  round_robin: advance from excluded to next healthy&#10;  total_tokens / total_requests: filter then select lowest&#10;  maybe_external_dp_rank_routing(): clear stale routed_dp_rank&#10;  If ALL ranks excluded → log error, drop request" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5E6FF;strokeColor=#9673a6;fontSize=10;align=left;spacingLeft=8;dashed=1;" parent="1" vertex="1">
+                    <mxGeometry x="1380" y="2210" width="360" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="edpc2_2a" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="dpc2" target="dpc2a" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="dpc3" value="handle_simulate_gpu_recovery():&#10;  failed_dp_ranks.discard(N)&#10;  workers[N].send_pyobj(req) → ZMQ to scheduler" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="1380" y="1600" width="360" height="56" as="geometry"/>
+                </mxCell>
+                <mxCell id="edpc_recovery_label" value="Recovery path" style="text;html=1;fontSize=9;fontColor=#82b366;strokeColor=none;fillColor=none;fontStyle=2;" parent="1" vertex="1">
+                    <mxGeometry x="1380" y="1565" width="80" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="s1" value="recv SimulateGpuFailureReqInput&#10;  via request dispatcher" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="1860" y="1280" width="420" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="s2" value="_collect_failover_reqs(): collect from ALL queues&#10;  waiting_queue + retry_queue&#10;  running_batch + cur_batch + last_batch&#10;  chunked_req + result_queue + running_mbs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="1860" y="1350" width="420" height="64" as="geometry"/>
+                </mxCell>
+                <mxCell id="es12" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="s1" target="s2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3" value="_snapshot_req(req) → ReqSnapshot&#10;  rid, origin_input_ids, output_ids&#10;  sampling_params, original_max_new_tokens&#10;  backed_up_tokens (from remote backup storage)&#10;  stream" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="1860" y="1440" width="420" height="72" as="geometry"/>
+                </mxCell>
+                <mxCell id="es23" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="s2" target="s3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="s4" value="_clear_failed_rank_scheduler_state():&#10;  Clear req_to_token_pool, kv_pool&#10;  Reset token_to_kv_pool_allocator&#10;  Clear tree_cache (HiRadixCache)&#10;  Drop all queues and batches" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="1860" y="1540" width="420" height="72" as="geometry"/>
+                </mxCell>
+                <mxCell id="es34" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="s3" target="s4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="s5" value="self._gpu_failed = True&#10;  get_next_batch_to_run() returns None&#10;  (no new scheduling on this worker&#10;   until recovery)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="1860" y="1638" width="420" height="64" as="geometry"/>
+                </mxCell>
+                <mxCell id="es45" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="s4" target="s5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="s6" value="send_to_tokenizer.send_output(&#10;  FailoverBatchReqInput(&#10;    failed_dp_rank = N,&#10;    snapshots = [ReqSnapshot, ...]))" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="1860" y="1730" width="420" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="es56" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="s5" target="s6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="s7" value="append_failover_event(&#10;  &quot;gpu_failure_simulated&quot;)" style="shape=document;whiteSpace=wrap;html=1;fillColor=#F2F2F2;strokeColor=#666666;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="1860" y="1828" width="420" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="es67" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="s6" target="s7" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="s8" value="recv SimulateGpuRecoveryReqInput&#10;  self._gpu_failed = False&#10;  (scheduler resumes normal operation)&#10;  append_failover_event(&quot;gpu_recovered&quot;)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="1860" y="1720" width="420" height="64" as="geometry"/>
+                </mxCell>
+                <mxCell id="hs1" value="Receive retried TokenizedGenerateReqInput&#10;  input_ids = origin_prompt + partial_output&#10;  max_new_tokens = original_max - generated&#10;  (includes failover_prefix_ids for identification)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="2400" y="2320" width="460" height="64" as="geometry"/>
+                </mxCell>
+                <mxCell id="hs1a" value="Identify failover request via:&#10;  req.failover_prefix_ids (non-empty → failover)&#10;  req.failed_dp_rank (set to N → routed to healthy only)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="2400" y="2410" width="460" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="ehs1_1a" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="hs1" target="hs1a" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="hs2" value="handle_generate_request()&#10;  Create Req with extended input_ids&#10;  Add to waiting_queue&#10;  (same rid → client HTTP stream stays alive)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="2400" y="2490" width="460" height="64" as="geometry"/>
+                </mxCell>
+                <mxCell id="ehs1a_2" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="hs1a" target="hs2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="hs3" value="Prefill: HiRadixCache.match_prefix()&#10;  check remote_backup_storage for matching&#10;  KV cache pages (by token prefix hash)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="2400" y="2580" width="460" height="56" as="geometry"/>
+                </mxCell>
+                <mxCell id="ehs2_3" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="hs2" target="hs3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="hs4" value="Remote Backup Storage (shared across DP ranks):&#10;  returns cached KV pages for matched prefix&#10;  Load pages into local KV pool (avoid recompute)&#10;  Prefill only the delta (new tokens since last backup)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="2400" y="2660" width="460" height="64" as="geometry"/>
+                </mxCell>
+                <mxCell id="ehs3_4" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="hs3" target="hs4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="hs5" value="Continue decode from failure point&#10;  Stream output tokens from remaining max_new_tokens&#10;  Client HTTP stream stays alive (same rid)&#10;  Transparent failover — no client-side changes needed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="2400" y="2750" width="460" height="64" as="geometry"/>
+                </mxCell>
+                <mxCell id="ehs4_5" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="hs4" target="hs5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="hs6" value="Metrics tracked in output:&#10;  is_failover_retried: True&#10;  pre_failover_output_tokens: N&#10;  pre_failover_backed_up_tokens: B (KV cache hits)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6FFE6;strokeColor=#82b366;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+                    <mxGeometry x="2400" y="2840" width="460" height="64" as="geometry"/>
+                </mxCell>
+                <mxCell id="ehs5_6" style="edgeStyle=orthogonalEdgeStyle;" parent="1" source="hs5" target="hs6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cx1" value="POST /simulate_gpu_failure" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#82b366;fontStyle=1;fontSize=10;endArrow=block;" parent="1" source="i4" target="h1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cx2" value="await → simulate_gpu_failure(obj)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontSize=10;endArrow=block;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" parent="1" source="h1" target="tm1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="660" y="950"/>
+                            <mxPoint x="1080" y="950"/>
+                        </Array>
+                        <mxPoint x="640" y="964" as="sourcePoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="cx3" value="ZMQ PUSH: SimulateGpuFailureReqInput" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;fontSize=10;endArrow=block;" parent="1" source="tm1" target="dpc1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cx4" value="ZMQ to dp_rank=N" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9673a6;fontSize=10;endArrow=block;" parent="1" source="dpc1" target="s1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cx5" value="FailoverBatchReqInput via ZMQ" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;fontSize=10;endArrow=block;dashed=1;" parent="1" source="s6" target="tm2" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1650" y="1810"/>
+                            <mxPoint x="1650" y="1810"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="cx6" value="retried reqs via ZMQ" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;fontSize=10;endArrow=block;" parent="1" source="tm4" target="dpc2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cx7" value="dispatch to healthy worker" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9673a6;fontSize=10;endArrow=block;" parent="1" source="dpc2a" target="hs1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cx8" value="POST /simulate_gpu_recovery" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#82b366;fontStyle=1;fontSize=10;endArrow=block;dashed=1;" parent="1" source="i7" target="h3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cx9" value="via TM → DPC → Scheduler" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#82b366;fontSize=10;endArrow=block;dashed=1;" parent="1" source="h3" target="tm6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cx10" value="ZMQ" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;fontSize=10;endArrow=block;dashed=1;" parent="1" source="tm6" target="dpc3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cx11" value="to dp_rank=N" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9673a6;fontSize=10;endArrow=block;dashed=1;" parent="1" source="dpc3" target="s8" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

@@ -15,6 +15,7 @@ from sglang.srt.managers.io_struct import (
     BatchTokenIDOutput,
 )
 from sglang.srt.managers.schedule_batch import (
+    build_cached_tokens_details,
     BaseFinishReason,
     Req,
     ScheduleBatch,
@@ -56,31 +57,30 @@ class SchedulerOutputProcessorMixin:
 
         Returns:
             - None if no cached tokens at all
-            - {"device": X, "host": Y} without storage breakdown
-            - {"device": X, "host": Y, "storage": Z} with storage breakdown
+            - {"device": X, "host": Y, ...} with optional storage and reuse fields
         """
-        if (
-            req.cached_tokens_device > 0
-            or req.cached_tokens_host > 0
-            or req.cached_tokens_storage > 0
-        ):
-            details = {
-                "device": req.cached_tokens_device,
-                "host": req.cached_tokens_host,
-            }
-            # Only include storage fields if L3 storage is enabled
-            if getattr(self, "enable_hicache_storage", False):
-                details["storage"] = req.cached_tokens_storage
-                details["storage_backend"] = self._get_storage_backend_type()
-            return details
+        enable_hicache_storage = getattr(self, "enable_hicache_storage", False)
+        storage_backend_type = (
+            self._get_storage_backend_type() if enable_hicache_storage else "none"
+        )
+        return build_cached_tokens_details(
+            req,
+            enable_hicache_storage=enable_hicache_storage,
+            storage_backend_type=storage_backend_type,
+        )
 
-        if req.cached_tokens > 0:
-            return {
-                "device": req.cached_tokens,
-                "host": 0,
-            }
-
-        return None
+    def _get_failover_details(self: Scheduler, req: Req) -> Optional[dict]:
+        """Get failover info for a request, if it was retried after failure."""
+        if not req.is_failover_retried:
+            return None
+        pre_failover_output_tokens = int(req.pre_failover_output_tokens or 0)
+        if pre_failover_output_tokens <= 0 and req.failover_prefix_ids:
+            pre_failover_output_tokens = len(req.failover_prefix_ids)
+        return {
+            "is_retried": True,
+            "pre_failover_output_tokens": pre_failover_output_tokens,
+            "pre_failover_backed_up_tokens": int(req.pre_failover_backed_up_tokens or 0),
+        }
 
     def process_batch_result_prebuilt(self: Scheduler, batch: ScheduleBatch):
         assert self.disaggregation_mode == DisaggregationMode.DECODE
@@ -945,6 +945,7 @@ class SchedulerOutputProcessorMixin:
         completion_tokens = []
         cached_tokens = []
         cached_tokens_details = []  # Detailed breakdown by cache source
+        failover_details = []
         spec_verify_ct = []
         spec_accepted_tokens = []
         spec_acceptance_histogram = []
@@ -1041,13 +1042,21 @@ class SchedulerOutputProcessorMixin:
                     req.sampling_params.spaces_between_special_tokens
                 )
                 no_stop_trim.append(req.sampling_params.no_stop_trim)
-                prompt_tokens.append(len(req.origin_input_ids))
+                if req.original_prompt_len is not None:
+                    prompt_tokens.append(req.original_prompt_len)
+                    # Report original max_new_tokens as completion_tokens
+                    # so client stats are unaffected by failover.
+                    failover_prior = len(req.origin_input_ids) - req.original_prompt_len
+                    completion_tokens.append(len(output_ids_) + failover_prior)
+                else:
+                    prompt_tokens.append(len(req.origin_input_ids))
+                    completion_tokens.append(len(output_ids_))
                 reasoning_tokens.append(req.reasoning_tokens)
-                completion_tokens.append(len(output_ids_))
                 cached_tokens.append(req.cached_tokens)
 
                 # Collect detailed cache breakdown if available
                 cached_tokens_details.append(self._get_cached_tokens_details(req))
+                failover_details.append(self._get_failover_details(req))
 
                 retraction_counts.append(req.retraction_count)
 
@@ -1176,6 +1185,7 @@ class SchedulerOutputProcessorMixin:
                     completion_tokens=completion_tokens,
                     cached_tokens=cached_tokens,
                     cached_tokens_details=cached_tokens_details,
+                    failover_details=failover_details,
                     input_token_logprobs_val=input_token_logprobs_val,
                     input_token_logprobs_idx=input_token_logprobs_idx,
                     output_token_logprobs_val=output_token_logprobs_val,
@@ -1209,6 +1219,7 @@ class SchedulerOutputProcessorMixin:
         prompt_tokens = []
         cached_tokens = []
         cached_tokens_details = []  # Detailed breakdown by cache source
+        failover_details = []
         time_stats = []
         retraction_counts = []
         for req in reqs:
@@ -1217,11 +1228,15 @@ class SchedulerOutputProcessorMixin:
                 http_worker_ipcs.append(req.http_worker_ipc)
                 finished_reasons.append(req.finished_reason.to_json())
                 embeddings.append(req.embedding)
-                prompt_tokens.append(len(req.origin_input_ids))
+                if req.original_prompt_len is not None:
+                    prompt_tokens.append(req.original_prompt_len)
+                else:
+                    prompt_tokens.append(len(req.origin_input_ids))
                 cached_tokens.append(req.cached_tokens)
 
                 # Collect detailed cache breakdown if available
                 cached_tokens_details.append(self._get_cached_tokens_details(req))
+                failover_details.append(self._get_failover_details(req))
                 time_stats.append(req.time_stats)
                 retraction_counts.append(req.retraction_count)
         self.send_to_detokenizer.send_output(

@@ -5,6 +5,7 @@ from sglang.srt.entrypoints.openai.protocol import (
     CachedTokensDetails,
     ChatCompletionRequest,
     CompletionRequest,
+    FailoverDetails,
     LogProbs,
     StreamOptions,
 )
@@ -119,16 +120,36 @@ def process_cached_tokens_details_from_ret(
     if details is None:
         return None
 
-    # Check if L3 storage fields are present
+    # Check if remote backup storage fields are present
     if "storage" in details:
         return CachedTokensDetails(
             device=details.get("device", 0),
             host=details.get("host", 0),
+            reused_device=details.get("reused_device"),
+            reused_host=details.get("reused_host"),
             storage=details.get("storage", 0),
+            storage_query=details.get("storage_query"),
+            reused_storage=details.get("reused_storage"),
             storage_backend=details.get("storage_backend"),
         )
     else:
         return CachedTokensDetails(
             device=details.get("device", 0),
             host=details.get("host", 0),
+            reused_device=details.get("reused_device"),
+            reused_host=details.get("reused_host"),
         )
+
+# Dump failover details
+def process_failover_details_from_ret(
+    ret_item: Dict[str, Any],
+) -> Optional[FailoverDetails]:
+    """Process failover details from a ret item."""
+    details = ret_item["meta_info"].get("failover_details", None)
+    if details is None:
+        return None
+    return FailoverDetails(
+        is_retried=details.get("is_retried", True),
+        pre_failover_output_tokens=details.get("pre_failover_output_tokens", 0),
+        pre_failover_backed_up_tokens=details.get("pre_failover_backed_up_tokens", 0),
+    )

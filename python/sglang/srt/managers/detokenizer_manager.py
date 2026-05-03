@@ -361,6 +361,7 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
             token_steps=recv_obj.token_steps,
             load=recv_obj.load,
             dp_ranks=recv_obj.dp_ranks,
+            failover_details=recv_obj.failover_details,
             time_stats=recv_obj.time_stats,
         )
 

@@ -1,0 +1,1073 @@
+<mxfile host="65bd71144e">
+    <diagram id="00_main" name="00_main">
+        <mxGraphModel dx="2060" dy="1233" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1180" pageHeight="1230" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="00_main_title" value="00_main — event_loop_pp (sheet NN = tab name)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="16" y="12" width="1148" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="00_main_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" parent="1" vertex="1">
+                    <mxGeometry x="16" y="38" width="1148" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="m0" value="START event_loop_pp" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="78" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="m1" value="init_pp_loop_state  [sheet 01_init]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="128" width="560" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="m2" value="while True: server_is_idle = True" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="182" width="560" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="m3" value="for mb_id in range(pp_loop_size)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="236" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="m4" value="Bind running_mbs, last_mbs, next_first_rank_mb_id, next_mb_id" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="286" width="560" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="m5" value="recv_requests [02_recv] ; process_input_requests [03_proc]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="344" width="560" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="m6" value="Optional: tree_cache.check_hicache_events()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="402" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="m7" value="If not last_rank: prepare [04_prep] ; commit send_req [05] ; pyobj send [06]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="452" width="560" height="56" as="geometry"/>
+                </mxCell>
+                <mxCell id="m8" value="_pp_get_or_reuse_batch [08] ( get_next_batch_to_run [07] )" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="518" width="560" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="m9" value="Proxy path: needs [09] ; recv [11_recv_proxy]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="576" width="560" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="m10" value="If async_depth&gt;0: commit_send_output [15] (core [14_send_recv])" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="630" width="560" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="m11" value="Commit send_proxy_work [05]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="688" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="m12" value="If can launch: _pp_launch_batch [16]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="738" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="m13" value="If async_depth==0: commit_send_output [15]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="788" width="560" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="m14" value="Sync d2h ; _pp_process_batch_result [18] (recv path [14_send_recv])" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="842" width="560" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="m15" value="If not last_rank and launched: proxy dict send [17]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="904" width="560" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="m16" value="pp_outputs = next_pp_outputs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="962" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="m17" value="End for: maybe_send_checkpoint_updates [19]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="1012" width="560" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="m18" value="If server_is_idle: self_check_during_idle [20]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="1066" width="560" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="m19" value="Loop outer while True" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="1120" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="me0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m0" target="m1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m1" target="m2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m2" target="m3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m3" target="m4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m4" target="m5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m5" target="m6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m6" target="m7" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m7" target="m8" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m8" target="m9" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m9" target="m10" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m10" target="m11" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m11" target="m12" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m12" target="m13" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m13" target="m14" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m14" target="m15" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m15" target="m16" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m16" target="m17" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m17" target="m18" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="me18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="m18" target="m19" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="01_init" name="01_init">
+        <mxGraphModel dx="824" dy="493" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1120" pageHeight="460" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="01_init_title" value="01_init — init_pp_loop_state" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="01_init_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" parent="1" vertex="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="i0" value="pp_loop_size = pp_size + pp_async_batch_depth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="78" width="520" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="i1" value="require_attn_tp_allgather = not enable_nsa_prefill_context_parallel" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="260" y="128" width="600" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="i2" value="Allocate mbs, last_mbs, running_mbs, mb_metadata" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="182" width="520" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="i3" value="pp_outputs=None ; last_rank_comm_queue=deque()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="236" width="520" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="i4" value="send_*_work lists = [] ; launch_event=None" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="290" width="520" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="i5" value="Forward pending deques + pending proxy/output deques" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="344" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="i6" value="LEAF: no calls" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="380" y="398" width="360" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="ie0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="i0" target="i1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ie1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="i1" target="i2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ie2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="i2" target="i3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ie3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="i3" target="i4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ie4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="i4" target="i5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ie5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="i5" target="i6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="02_recv" name="02_recv">
+        <mxGraphModel dx="824" dy="493" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1120" pageHeight="540" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="02_recv_title" value="02_recv — recv_requests" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="02_recv_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" parent="1" vertex="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="r0" value="START recv_requests" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="380" y="78" width="360" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1" value="Optional recv_skipper early return []" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="128" width="520" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="r2" value="Branch by pp_rank / attn entry ranks (see code)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="178" width="560" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="r3" value="LEAF: ZMQ recv_pyobj OR point_to_point_pyobj OR None" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="220" y="236" width="680" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="r4" value="LEAF: input_blocker.handle" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="294" width="480" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="r5" value="LEAF: dp_attention splits + broadcast_pyobj OR tp broadcast" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="200" y="350" width="720" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="r6" value="LEAF: mm_receiver / trace hooks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="410" width="560" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="r7" value="return recv_reqs" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="380" y="468" width="360" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="re0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="r0" target="r1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="re1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="r1" target="r2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="re2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="r2" target="r3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="re3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="r3" target="r4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="re4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="r4" target="r5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="re5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="r5" target="r6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="re6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="r6" target="r7" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="03_proc" name="03_proc">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="420" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="03_proc_title" value="03_proc — process_input_requests" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="03_proc_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="p0" value="for recv_req in recv_reqs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="340" y="78" width="480" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1" value="health check busy? continue" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+                    <mxGeometry x="340" y="132" width="480" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="p2" value="LEAF _request_dispatcher(recv_req)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="300" y="186" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3" value="LEAF send_to_tokenizer / RPC" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="320" y="240" width="520" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="p4" value="next iteration / end for" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="340" y="294" width="480" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="p5" value="END" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+                    <mxGeometry x="420" y="348" width="320" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="pe0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="p0" target="p1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pe1" value="handle" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="p1" target="p2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pe2" value="continue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="p1" target="p0">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pe3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="p2" target="p3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pe4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="p3" target="p4">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pe5" value="loop" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="p4" target="p0">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pe6" value="done" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="p4" target="p5">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="04_prep" name="04_prep">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="540" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="04_prep_title" value="04_prep — _pp_prepare_reqs_for_next_stage" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="04_prep_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="pr0" value="is_last_rank or not first_rank?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+                    <mxGeometry x="320" y="78" width="480" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="pr1" value="return recv_reqs unchanged" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="340" y="138" width="440" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="pr2" value="Queue into pp_forward_pending" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="300" y="194" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="pr3" value="While pending: peek head" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="340" y="248" width="440" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="pr4" value="LEAF _pp_is_req_ready_for_forward" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="300" y="302" width="520" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="pr5" value="LEAF _pp_refresh_forward_req_cache_metadata" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="260" y="356" width="600" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="pr6" value="popleft -&gt; reqs_to_send" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="320" y="414" width="520" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="pr7" value="return reqs_to_send" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+                    <mxGeometry x="360" y="472" width="440" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="pre0" value="early exit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pr0" target="pr1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pre1" value="PP0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pr0" target="pr2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pre2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pr2" target="pr3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pre3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pr3" target="pr4">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pre4" value="ready" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pr4" target="pr5">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pre5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pr5" target="pr6">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pre6" value="more" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pr6" target="pr3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pre7" value="blocked empty" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pr4" target="pr7">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pre8" value="drain done" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pr6" target="pr7">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="05_commit" name="05_commit">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="460" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="05_commit_title" value="05_commit — _pp_commit_comm_work" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="05_commit_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="cm0" value="for p2p_work in work" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="360" y="78" width="400" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="cm1" value="p2p_work.work set?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+                    <mxGeometry x="380" y="132" width="360" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="cm2" value="LEAF work.wait()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="380" y="190" width="360" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="cm3" value="elif GPU payload: LEAF cuda stream sync" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="300" y="240" width="520" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="cm4" value="next p2p_work" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="400" y="294" width="320" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="cm5" value="work.clear()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="400" y="344" width="320" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="cm6" value="END" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+                    <mxGeometry x="400" y="394" width="320" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="cme0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="cm0" target="cm1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cme1" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="cm1" target="cm2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cme2" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="cm1" target="cm3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cme3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="cm2" target="cm4">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cme4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="cm3" target="cm4">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cme5" value="loop" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="cm4" target="cm0">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cme6" value="done" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="cm4" target="cm5">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="cme7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="cm5" target="cm6">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="06_pyobj" name="06_pyobj">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="320" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="06_pyobj_title" value="06_pyobj — _pp_send_pyobj_to_next_stage" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="06_pyobj_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="py0" value="attn_tp_rank==0?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+                    <mxGeometry x="380" y="78" width="360" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="py1" value="LEAF point_to_point_pyobj to next PP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="300" y="138" width="520" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="py2" value="else empty list" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="400" y="192" width="320" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="py3" value="return p2p_work" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+                    <mxGeometry x="380" y="246" width="360" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="pye0" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="py0" target="py1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pye1" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="py0" target="py2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pye2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="py1" target="py3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pye3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="py2" target="py3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="07_next_batch" name="07_next_batch">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="380" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="07_next_batch_title" value="07_next_batch — get_next_batch_to_run" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="07_next_batch_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="g0" value="LEAF abort timeouts / dllm filter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="280" y="78" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="g1" value="Merge last_batch extend into running" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="280" y="132" width="560" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="g2" value="LEAF get_new_batch_prefill OR dllm OR decode update_running_batch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="200" y="190" width="720" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="g3" value="LEAF maybe_prepare_mlp_sync_batch + trace_event_batch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="220" y="250" width="680" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="g4" value="return ScheduleBatch or None" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+                    <mxGeometry x="360" y="308" width="440" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="ge0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="g0" target="g1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ge1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="g1" target="g2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ge2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="g2" target="g3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ge3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="g3" target="g4">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="08_reuse" name="08_reuse">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="280" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="08_reuse_title" value="08_reuse — _pp_get_or_reuse_batch" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="08_reuse_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="u0" value="mbs[mb_id] set and mb_metadata[mb_id] is None?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+                    <mxGeometry x="300" y="78" width="520" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="u1" value="return mbs[mb_id]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="360" y="142" width="400" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="u2" value="mbs[mb_id]=new_batch; return" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="320" y="192" width="480" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="ue0" value="reuse" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="u0" target="u1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ue1" value="assign" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="u0" target="u2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="09_helpers" name="09_helpers">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="260" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="09_helpers_title" value="09_helpers — predicates used by recv_proxy" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="09_helpers_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="h0" value="LEAF _pp_batch_needs_proxy_tensors (boolean)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="280" y="78" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="h1" value="LEAF _pp_expected_proxy_first_dim" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="300" y="132" width="520" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="h2" value="LEAF _pp_batch_signature" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="320" y="186" width="480" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="he0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="h0" target="h1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="he1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="h1" target="h2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="10_pop_proxy" name="10_pop_proxy">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="360" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="10_pop_proxy_title" value="10_pop_proxy — _pp_pop_matching_pending_proxy_tensors" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="10_pop_proxy_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="pp0" value="for idx, proxy in enumerate(pp_pending_proxy_tensors)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="260" y="78" width="600" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="pp1" value="signature / dim match?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+                    <mxGeometry x="380" y="132" width="360" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="pp2" value="del idx; return stripped PPProxyTensors" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="280" y="190" width="560" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="pp3" value="continue scan" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="380" y="248" width="360" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="pp4" value="return None" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="400" y="300" width="320" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="ppe0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pp0" target="pp1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ppe1" value="match" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pp1" target="pp2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ppe2" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pp1" target="pp3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ppe3" value="loop" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pp3" target="pp0">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ppe4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pp2" target="pp4">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ppe5" value="empty" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pp0" target="pp4">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="11_recv_proxy" name="11_recv_proxy">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="480" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="11_recv_proxy_title" value="11_recv_proxy — _pp_recv_proxy_tensors" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="11_recv_proxy_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="rp0" value="first_rank? return None" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="320" y="78" width="480" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="rp1" value="try pop pending [10]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="340" y="132" width="440" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="rp2" value="matched? return" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+                    <mxGeometry x="380" y="186" width="360" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="rp3" value="LEAF recv_tensor_dict" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="340" y="240" width="440" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="rp4" value="output dict? stash outputs; return None" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="260" y="296" width="600" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="rp5" value="defer mismatch? stash proxy; return None" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="260" y="354" width="600" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="rp6" value="strip signature; return PPProxyTensors" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="280" y="412" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="rpe0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="rp0" target="rp1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rpe1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="rp1" target="rp2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rpe2" value="matched from pending" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="rp2" target="rp6">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rpe3" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="rp2" target="rp3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rpe4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="rp3" target="rp4">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rpe5" value="proxy tensor" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="rp4" target="rp5">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rpe6" value="ok output" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="rp4" target="rp6">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rpe7" value="retry later" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="rp5" target="rp1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="12_pop_out" name="12_pop_out">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="300" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="12_pop_out_title" value="12_pop_out — _pp_pop_matching_pending_output_tensors" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="12_pop_out_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="po0" value="for output in pp_pending_output_tensors" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="300" y="78" width="520" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="po1" value="signature match?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+                    <mxGeometry x="380" y="132" width="360" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="po2" value="pop; return" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="380" y="190" width="360" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="po3" value="return None" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="400" y="246" width="320" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="poe0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="po0" target="po1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="poe1" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="po1" target="po2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="poe2" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="po1" target="po0">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="poe3" value="empty" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="po0" target="po3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="13_send_out" name="13_send_out">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="320" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="13_send_out_title" value="13_send_out — _pp_send_output_to_next_stage" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="13_send_out_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="so0" value="is_last_rank?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+                    <mxGeometry x="400" y="78" width="320" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="so1" value="last: pop queue; wait_event; LEAF send_dict" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="260" y="138" width="600" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="so2" value="elif not last and pp_outputs: LEAF send_dict" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="240" y="196" width="640" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="so3" value="return send_output_work" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+                    <mxGeometry x="360" y="254" width="400" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="soe0" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="so0" target="so1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="soe1" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="so0" target="so2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="soe2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="so1" target="so3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="soe3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="so2" target="so3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="14_send_recv" name="14_send_recv">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="500" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="14_send_recv_title" value="14_send_recv — _pp_send_recv_and_preprocess_output_tensors" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="14_send_recv_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="sr0" value="send_work = _pp_send_output_to_next_stage [13]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="240" y="78" width="680" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="sr1" value="mbs[next_mb_id] is None?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+                    <mxGeometry x="340" y="132" width="480" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="sr2" value="return Nones + send_work" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="320" y="190" width="520" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="sr3" value="prebuilt? skip recv/prep" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+                    <mxGeometry x="360" y="244" width="440" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="sr4" value="pop output [12] or while recv_dict [LEAF _pp_recv_dict]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="200" y="304" width="720" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="sr5" value="copy_stream: LEAF _pp_prep_batch_result; Event.record" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="200" y="364" width="720" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="sr6" value="return outputs, batch_result, d2h_event, send_work" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+                    <mxGeometry x="200" y="426" width="720" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="sre0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="sr0" target="sr1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="sre1" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="sr1" target="sr2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="sre2" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="sr1" target="sr3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="sre3" value="not prebuilt" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="sr3" target="sr4">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="sre4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="sr4" target="sr5">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="sre5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="sr5" target="sr6">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="15_commit_out" name="15_commit_out">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="260" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="15_commit_out_title" value="15_commit_out — _pp_commit_send_output_work_and_preprocess_output_tensors" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="15_commit_out_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="co0" value="_pp_commit_comm_work(send_output_work) [05]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="260" y="78" width="600" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="co1" value="tuple = _pp_send_recv_and_preprocess [14]; store send_output_work" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="200" y="136" width="720" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="co2" value="return" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+                    <mxGeometry x="420" y="198" width="320" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="coe0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="co0" target="co1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="coe1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="co1" target="co2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="16_launch" name="16_launch">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="400" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="16_launch_title" value="16_launch — _pp_launch_batch" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="16_launch_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="lb0" value="forward_stream_ctx; forward_stream.wait_stream(default)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="240" y="78" width="640" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="lb1" value="LEAF run_batch(cur_batch, pp_proxy_tensors)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="260" y="136" width="600" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="lb2" value="mb_metadata[mb_id]=PPBatchMetadata; cuda Event.record" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="220" y="198" width="680" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="lb3" value="last_rank: queue (_pp_prepare_tensor_dict LEAF)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="220" y="260" width="680" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="lb4" value="return result, event" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+                    <mxGeometry x="360" y="322" width="440" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="lbe0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="lb0" target="lb1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="lbe1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="lb1" target="lb2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="lbe2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="lb2" target="lb3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="lbe3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="lb3" target="lb4">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="17_proxy_send" name="17_proxy_send">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="280" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="17_proxy_send_title" value="17_proxy_send — after launch, send hidden states" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="17_proxy_send_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps0" value="LEAF wait_event(launch_event)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="320" y="78" width="480" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps1" value="LEAF _pp_prepare_proxy_tensor_dict -&gt; attach signature" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="240" y="132" width="640" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps2" value="LEAF pp_group.send_tensor_dict async -&gt; send_proxy_work" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="220" y="190" width="680" height="48" as="geometry"/>
+                </mxCell>
+                <mxCell id="pse0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="ps0" target="ps1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="pse1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="ps1" target="ps2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="18_proc_res" name="18_proc_res">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="280" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="18_proc_res_title" value="18_proc_res — _pp_process_batch_result" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="18_proc_res_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="x0" value="disagg PREFILL?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+                    <mxGeometry x="400" y="78" width="320" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="x1" value="LEAF process_batch_result_disagg_prefill" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="260" y="138" width="600" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="x2" value="LEAF process_batch_result (large subtree)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="260" y="196" width="600" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="xe0" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="x0" target="x1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="xe1" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="x0" target="x2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="19_checkpoint" name="19_checkpoint">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="220" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="19_checkpoint_title" value="19_checkpoint — maybe_send_checkpoint_updates" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="19_checkpoint_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="ck0" value="guards + non-last PP: LEAF pop only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="280" y="78" width="560" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="ck1" value="last PP: LEAF all_gather + MIN reduce + CheckpointUpdateReq" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="200" y="136" width="720" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="cke0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="ck0" target="ck1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="20_idle" name="20_idle">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="340" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="20_idle_title" value="20_idle — self_check_during_idle" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="20_idle_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="id0" value="disagg busy? return" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+                    <mxGeometry x="360" y="78" width="400" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="id1" value="LEAF check_memory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="380" y="132" width="360" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="id2" value="LEAF check_tree_cache" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="380" y="180" width="360" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="id3" value="reset new_token_ratio" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="360" y="228" width="400" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="id4" value="LEAF maybe_sleep_on_idle" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="360" y="276" width="400" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="ide0" value="idle" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="id0" target="id1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ide1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="id1" target="id2">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ide2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="id2" target="id3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ide3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="id3" target="id4">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="21_recv_dict" name="21_recv_dict">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="240" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="21_recv_dict_title" value="21_recv_dict — _pp_recv_dict_from_prev_stage (leaf IPC)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="21_recv_dict_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="z0" value="LEAF pp_group.recv_tensor_dict(all_gather_group?)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="220" y="78" width="680" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="z1" value="Used inside [14_send_recv] recv loop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="260" y="136" width="600" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="ze0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="z0" target="z1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="22_prep_batch_res" name="22_prep_batch_res">
+        <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1120" pageHeight="300" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="22_prep_batch_res_title" value="22_prep_batch_res — _pp_prep_batch_result" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="22_prep_batch_res_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" vertex="1" parent="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="z2" value="if return_logprob: LEAF get_logprob_from_pp_outputs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" vertex="1" parent="1">
+                    <mxGeometry x="200" y="78" width="720" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3" value="batch.output_ids = next_token_ids" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="280" y="132" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="z4" value="build GenerationBatchResult" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+                    <mxGeometry x="300" y="186" width="520" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5" value="return output_result" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+                    <mxGeometry x="360" y="240" width="400" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="ze1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="z2" target="z3">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ze2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="z3" target="z4">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ze3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="z4" target="z5">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="23_attach_sig" name="23_attach_sig">
+        <mxGraphModel dx="969" dy="580" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1120" pageHeight="260" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="23_attach_sig_title" value="23_attach_sig — _pp_attach_batch_signature" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="16" y="12" width="1088" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="23_attach_sig_nav" value="Tabs 00_main-23_attach_sig. Gray LEAF = stop (zmq, torch.dist, point_to_point_pyobj, pp_group IPC, run_batch, process_batch_result)." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=9;fontColor=#1565c0;" parent="1" vertex="1">
+                    <mxGeometry x="16" y="38" width="1088" height="32" as="geometry"/>
+                </mxCell>
+                <mxCell id="z6" value="LEAF _pp_batch_signature(batch)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontStyle=2;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="78" width="560" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="z7" value="merge dict with __pp_batch_signature__ key" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+                    <mxGeometry x="240" y="132" width="640" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="z8" value="return tensor_dict" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="190" width="400" height="36" as="geometry"/>
+                </mxCell>
+                <mxCell id="ze4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="z6" target="z7" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ze5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" parent="1" source="z7" target="z8" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

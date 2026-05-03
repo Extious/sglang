@@ -24,11 +24,13 @@ import signal
 import socket
 import sys
 import threading
+import time
 from collections import deque
 from contextlib import nullcontext
 from datetime import datetime
 from enum import Enum
 from http import HTTPStatus
+from pathlib import Path
 from typing import Any, Awaitable, Dict, List, Optional, Tuple, Union
 
 import fastapi
@@ -56,6 +58,7 @@ from sglang.srt.managers.io_struct import (
     ConfigureLoggingReq,
     ContinueGenerationReqInput,
     EmbeddingReqInput,
+    FailoverBatchReqInput,
     FreezeGCReq,
     GenerateReqInput,
     HealthCheckOutput,
@@ -63,6 +66,8 @@ from sglang.srt.managers.io_struct import (
     OpenSessionReqOutput,
     PauseGenerationReqInput,
     SessionParams,
+    SimulateGpuFailureReqInput,
+    SimulateGpuRecoveryReqInput,
     TokenizedEmbeddingReqInput,
     TokenizedGenerateReqInput,
     UpdateWeightFromDiskReqInput,
@@ -330,6 +335,10 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
     def init_running_status(self):
         # Request states
         self.rid_to_state: Dict[str, ReqState] = {}
+        self.pending_failover_rids: set[str] = set()
+        self.failover_failed_dp_by_rid: Dict[str, int] = {}
+        self.failover_active_dp_by_rid: Dict[str, int] = {}
+        self.completed_failover_failed_dp_by_rid: Dict[str, int] = {}
         self.event_loop = None
         self.asyncio_tasks = set()
 
@@ -467,6 +476,7 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
                 (FreezeGCReq, lambda x: None),
                 # For handling case when scheduler skips detokenizer and forwards back to the tokenizer manager, we ignore it.
                 (HealthCheckOutput, lambda x: None),
+                (FailoverBatchReqInput, self._handle_failover_batch),
                 (ActiveRanksOutput, self.update_active_ranks),
             ]
         )
@@ -1400,6 +1410,131 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
             await self.send_to_scheduler.send_pyobj(obj)
             self.is_pause_cond.notify_all()
 
+    async def simulate_gpu_failure(self, obj: SimulateGpuFailureReqInput):
+        self.auto_create_handle_loop()
+        await self.send_to_scheduler.send_pyobj(obj)
+
+    async def simulate_gpu_recovery(self, obj: SimulateGpuRecoveryReqInput):
+        self.auto_create_handle_loop()
+        await self.send_to_scheduler.send_pyobj(obj)
+
+    def _handle_failover_batch(self, failover: FailoverBatchReqInput):
+        """Reconstruct failed requests from their original inputs and re-dispatch."""
+        logger.warning(
+            "Failover batch received: dp_rank=%d, %d requests to re-dispatch",
+            failover.failed_dp_rank,
+            len(failover.snapshots),
+        )
+        from sglang.srt.utils.failover_event_logger import append_failover_event
+
+        snapshot_payload = [
+            {
+                "rid": snap.rid,
+                "pre_failover_output_tokens": len(snap.output_ids),
+                "pre_failover_backed_up_tokens": int(snap.backed_up_tokens or 0),
+            }
+            for snap in failover.snapshots
+        ]
+        append_failover_event(
+            "failover_dispatched",
+            dp_rank=failover.failed_dp_rank,
+            num_requests=len(failover.snapshots),
+            requests=snapshot_payload,
+        )
+
+        for snap in failover.snapshots:
+            state = self.rid_to_state.get(snap.rid)
+            if state is None and not getattr(snap, "origin_input_ids", None):
+                logger.warning(
+                    "Skipping failover for rid=%s: state no longer exists", snap.rid
+                )
+                continue
+
+            orig_req = state.obj if state is not None else snap
+            snapshot_input_ids = list(getattr(snap, "origin_input_ids", None) or [])
+            if not snapshot_input_ids:
+                snapshot_input_ids = list(getattr(orig_req, "input_ids", []) or [])
+            sp = getattr(orig_req, "sampling_params", None)
+            if isinstance(sp, dict):
+                snapshot_orig_max = getattr(snap, "original_max_new_tokens", None)
+                orig_max = int(
+                    snapshot_orig_max
+                    if snapshot_orig_max is not None
+                    else sp.get("max_new_tokens", sp.get("max_tokens", 256)) or 0
+                )
+            else:
+                snapshot_orig_max = getattr(snap, "original_max_new_tokens", None)
+                orig_max = int(
+                    snapshot_orig_max
+                    if snapshot_orig_max is not None
+                    else getattr(sp, "max_new_tokens", 0) or 0
+                )
+            remaining_max = orig_max - len(snap.output_ids)
+            if remaining_max <= 0:
+                logger.info("Skipping req %s: no remaining tokens", snap.rid)
+                self.pending_failover_rids.discard(snap.rid)
+                self.failover_failed_dp_by_rid.pop(snap.rid, None)
+                continue
+
+            # state.obj is a GenerateReqInput; construct TokenizedGenerateReqInput
+            # which is the type the scheduler expects.
+            # Normalize sampling_params: crewai may pass raw dicts.
+            if isinstance(sp, dict):
+                sp = copy.deepcopy(sp)
+                sp["max_new_tokens"] = remaining_max
+                new_sp = self.sampling_params_class(**sp)
+                new_sp.normalize(self.tokenizer)
+                new_sp.verify(self.model_config.vocab_size)
+            else:
+                new_sp = copy.deepcopy(sp)
+                new_sp.max_new_tokens = remaining_max
+
+            # Increment generation to supersede the old request's lease on the
+            # remote backup server (triggers GC of old gen's decode KV pages).
+            prev_state = self.rid_to_state.get(snap.rid)
+            prev_obj = prev_state.obj if prev_state is not None else None
+            prev_gen = getattr(prev_obj, "remote_backup_generation", 0)
+            next_gen = prev_gen + 1
+
+            retried_req = TokenizedGenerateReqInput(
+                rid=getattr(orig_req, "rid", snap.rid),
+                input_text="",
+                input_ids=snapshot_input_ids + list(snap.output_ids),
+                mm_inputs=getattr(orig_req, "mm_inputs", None),
+                sampling_params=new_sp,
+                return_logprob=getattr(orig_req, "return_logprob", False),
+                logprob_start_len=getattr(orig_req, "logprob_start_len", 0),
+                top_logprobs_num=getattr(orig_req, "top_logprobs_num", 0),
+                token_ids_logprob=getattr(orig_req, "token_ids_logprob", []),
+                stream=getattr(orig_req, "stream", False),
+                return_hidden_states=getattr(orig_req, "return_hidden_states", False),
+                return_routed_experts=getattr(orig_req, "return_routed_experts", False),
+                input_embeds=getattr(orig_req, "input_embeds", None),
+                session_params=getattr(orig_req, "session_params", None),
+                lora_id=getattr(orig_req, "lora_id", None),
+                custom_logit_processor=getattr(orig_req, "custom_logit_processor", None),
+                bootstrap_host=getattr(orig_req, "bootstrap_host", None),
+                bootstrap_port=getattr(orig_req, "bootstrap_port", None),
+                bootstrap_room=getattr(orig_req, "bootstrap_room", None),
+                original_prompt_len=len(snapshot_input_ids),
+                failover_prefix_ids=list(snap.output_ids),
+                pre_failover_output_tokens=len(snap.output_ids),
+                pre_failover_backed_up_tokens=snap.backed_up_tokens,
+                failed_dp_rank=failover.failed_dp_rank,
+                remote_backup_generation=next_gen,
+            )
+
+            self.pending_failover_rids.add(snap.rid)
+            self.failover_failed_dp_by_rid[snap.rid] = int(failover.failed_dp_rank)
+            self.send_to_scheduler.send_pyobj(retried_req)
+
+        append_failover_event(
+            "resume_accepted",
+            dp_rank=failover.failed_dp_rank,
+            num_requests=len(failover.snapshots),
+            requests=snapshot_payload,
+        )
+
     async def update_weights_from_disk(
         self,
         obj: UpdateWeightFromDiskReqInput,
@@ -1529,6 +1664,29 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
             self.last_receive_tstamp = real_time()
             self.soft_watchdog.feed()
 
+    def _is_recoverable_failover_abort(
+        self,
+        rid: str,
+        finish_reason: Optional[Dict[str, Any]],
+        output_dp_rank: Optional[int] = None,
+    ) -> bool:
+        if rid not in self.pending_failover_rids:
+            return False
+        if output_dp_rank is None or not isinstance(finish_reason, dict):
+            return False
+        if finish_reason.get("type") != "abort":
+            return False
+        if finish_reason.get("status_code") not in (
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+        ):
+            return False
+
+        failed_dp_rank = self.failover_failed_dp_by_rid.get(rid)
+        if failed_dp_rank is None:
+            return False
+        return int(output_dp_rank) == int(failed_dp_rank)
+
     def _handle_batch_output(
         self,
         recv_obj: Union[
@@ -1538,12 +1696,49 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
         ],
     ):
         for i, rid in enumerate(recv_obj.rids):
+            output_dp_rank = None
+            if getattr(recv_obj, "dp_ranks", None):
+                output_dp_rank = recv_obj.dp_ranks[i]
+
+            failed_dp_rank = self.failover_failed_dp_by_rid.get(rid)
+            if (
+                failed_dp_rank is not None
+                and output_dp_rank is not None
+                and int(output_dp_rank) == int(failed_dp_rank)
+            ):
+                # Drop stale packets from failed replica after failover re-dispatch.
+                continue
+
+            active_dp_rank = self.failover_active_dp_by_rid.get(rid)
+            if (
+                active_dp_rank is not None
+                and output_dp_rank is not None
+                and int(output_dp_rank) != int(active_dp_rank)
+            ):
+                # A failover request must keep a stable serving replica.
+                continue
+
             state = self.rid_to_state.get(rid, None)
             if state is None:
+                completed_failed_dp_rank = self.completed_failover_failed_dp_by_rid.get(rid)
+                if (
+                    completed_failed_dp_rank is not None
+                    and output_dp_rank is not None
+                    and int(output_dp_rank) == int(completed_failed_dp_rank)
+                ):
+                    # Ignore late tail packets from old failed replica.
+                    continue
                 logger.error(
                     f"Received output for {rid=} but the state was deleted in TokenizerManager."
                 )
                 continue
+
+            if rid in self.pending_failover_rids:
+                if output_dp_rank is None:
+                    # Missing rank metadata for a failover request is unsafe; skip this packet.
+                    continue
+                if rid not in self.failover_active_dp_by_rid:
+                    self.failover_active_dp_by_rid[rid] = int(output_dp_rank)
 
             # Build meta_info and return value
             meta_info = {
@@ -1587,6 +1782,13 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
                     meta_info["cached_tokens_details"] = recv_obj.cached_tokens_details[
                         i
                     ]
+
+                if (
+                    hasattr(recv_obj, "failover_details")
+                    and recv_obj.failover_details
+                    and recv_obj.failover_details[i] is not None
+                ):
+                    meta_info["failover_details"] = recv_obj.failover_details[i]
 
             if getattr(recv_obj, "output_hidden_states", None):
                 meta_info["hidden_states"] = recv_obj.output_hidden_states[i]
@@ -1644,7 +1846,14 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
                     "meta_info": meta_info,
                 }
 
-            state.finished = recv_obj.finished_reasons[i] is not None
+            finish_reason = recv_obj.finished_reasons[i]
+            if self._is_recoverable_failover_abort(
+                rid, finish_reason, output_dp_rank
+            ):
+                # Ignore recoverable aborts emitted by the failed replica.
+                continue
+
+            state.finished = finish_reason is not None
 
             # Set first_token_time on the first output batch.
             # This is the single write point for first_token_time.
@@ -1678,6 +1887,10 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
                     )
 
                 del self.rid_to_state[rid]
+                self.pending_failover_rids.discard(rid)
+                self.failover_active_dp_by_rid.pop(rid, None)
+                if rid in self.failover_failed_dp_by_rid:
+                    self.completed_failover_failed_dp_by_rid[rid] = self.failover_failed_dp_by_rid.pop(rid)
 
                 # Mark ongoing LoRA request as finished.
                 if self.server_args.enable_lora and state.obj.lora_path:
@@ -2173,9 +2386,6 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
     def _handle_abort_req(self, recv_obj: AbortReq):
         if is_health_check_generate_req(recv_obj):
             return
-        state = self.rid_to_state[recv_obj.rid]
-        state.finished = True
-        state.time_stats.set_finished_time()
 
         abort_message = recv_obj.abort_message or "Abort in waiting queue"
         finish_reason = {
@@ -2184,6 +2394,38 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
         }
         if recv_obj.finished_reason:
             finish_reason = recv_obj.finished_reason
+
+        output_dp_rank = getattr(recv_obj, "dp_rank", None)
+        if self._is_recoverable_failover_abort(
+            recv_obj.rid, finish_reason, output_dp_rank
+        ):
+            logger.warning(
+                "Ignoring recoverable failover abort from failed dp_rank=%s for rid=%s",
+                output_dp_rank,
+                recv_obj.rid,
+            )
+            return
+
+        state = self.rid_to_state.get(recv_obj.rid)
+        if state is None:
+            completed_failed_dp_rank = self.completed_failover_failed_dp_by_rid.get(
+                recv_obj.rid
+            )
+            if (
+                completed_failed_dp_rank is not None
+                and output_dp_rank is not None
+                and int(output_dp_rank) == int(completed_failed_dp_rank)
+            ):
+                return
+            logger.error(
+                "Received abort for rid=%s but the state was deleted in TokenizerManager.",
+                recv_obj.rid,
+            )
+            return
+
+        state.finished = True
+        state.time_stats.set_finished_time()
+
         meta_info = {
             "id": recv_obj.rid,
             "finish_reason": finish_reason,

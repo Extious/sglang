@@ -1,0 +1,136 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="MoE EP Weights and Flow" id="moe-ep-1">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1280">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="t_title" value="MoE 专家并行：权重分配与计算流程（SGLang 视角）" style="text;html=1;align=center;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#1565c0;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry x="200" y="20" width="1100" height="36" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_sub" value="tp_size = ep_size × moe_dp_size × moe_tp_size  |  路由专家按 EP 均分；专家内线层可再按 moe_tp 切分" style="text;html=1;align=center;fontSize=11;fontColor=#616161;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry x="150" y="52" width="1200" height="24" as="geometry"/>
+        </mxCell>
+
+        <!-- Section 1 header -->
+        <mxCell id="h1" value="一、权重如何分配（Expert Parallel）" style="text;html=1;align=left;fontSize=15;fontStyle=1;fontColor=#37474f;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry x="40" y="88" width="500" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="h1f" value="num_local_routed = (num_experts − num_shared) / ep_size  （每卡持有的路由专家个数）" style="rounded=1;whiteSpace=wrap;fillColor=#eceff1;strokeColor=#78909c;fontSize=11;align=left;spacingLeft=8;" parent="1" vertex="1">
+          <mxGeometry x="40" y="118" width="520" height="36" as="geometry"/>
+        </mxCell>
+
+        <!-- Example: 8 routed experts, ep=4 -->
+        <mxCell id="ex_note" value="示例：8 个路由专家，ep_size=4 → 每 rank 2 个专家；全局 ID 与局部下标：global_id = ep_rank × num_local_routed + local_idx" style="text;html=1;align=left;fontSize=10;fontColor=#455a64;fontStyle=2;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry x="580" y="88" width="880" height="66" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="sw0" value="GPU rank 0&#10;(moe_ep_rank=0)" style="swimlane;startSize=28;fillColor=#e3f2fd;strokeColor=#1565c0;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+          <mxGeometry x="40" y="170" width="200" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="sw0e1" value="Expert E0&#10;w13, w2 (full on this rank)" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#0d47a1;fontSize=10;align=center;" parent="sw0" vertex="1">
+          <mxGeometry x="12" y="40" width="176" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="sw0e2" value="Expert E1" style="rounded=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#0d47a1;fontSize=10;align=center;" parent="sw0" vertex="1">
+          <mxGeometry x="12" y="102" width="176" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="sw0n" value="local_idx: 0, 1" style="text;html=1;fontSize=9;fontColor=#1565c0;" parent="sw0" vertex="1">
+          <mxGeometry x="12" y="164" width="176" height="20" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="sw1" value="GPU rank 1&#10;(moe_ep_rank=1)" style="swimlane;startSize=28;fillColor=#e8f5e9;strokeColor=#2e7d32;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+          <mxGeometry x="260" y="170" width="200" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="sw1e1" value="Expert E2" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#1b5e20;fontSize=10;align=center;" parent="sw1" vertex="1">
+          <mxGeometry x="12" y="40" width="176" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="sw1e2" value="Expert E3" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#1b5e20;fontSize=10;align=center;" parent="sw1" vertex="1">
+          <mxGeometry x="12" y="102" width="176" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="sw1n" value="local_idx: 0, 1" style="text;html=1;fontSize=9;fontColor=#2e7d32;" parent="sw1" vertex="1">
+          <mxGeometry x="12" y="164" width="176" height="20" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="sw2" value="GPU rank 2" style="swimlane;startSize=28;fillColor=#fff3e0;strokeColor=#e65100;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+          <mxGeometry x="480" y="170" width="200" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="sw2e1" value="Expert E4" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#bf360c;fontSize=10;align=center;" parent="sw2" vertex="1">
+          <mxGeometry x="12" y="40" width="176" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="sw2e2" value="Expert E5" style="rounded=1;whiteSpace=wrap;fillColor=#ffe0b2;strokeColor=#bf360c;fontSize=10;align=center;" parent="sw2" vertex="1">
+          <mxGeometry x="12" y="102" width="176" height="52" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="sw3" value="GPU rank 3" style="swimlane;startSize=28;fillColor=#fce4ec;strokeColor=#c2185b;fontStyle=1;fontSize=12;rounded=1;" parent="1" vertex="1">
+          <mxGeometry x="700" y="170" width="200" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="sw3e1" value="Expert E6" style="rounded=1;whiteSpace=wrap;fillColor=#f8bbd0;strokeColor=#880e4f;fontSize=10;align=center;" parent="sw3" vertex="1">
+          <mxGeometry x="12" y="40" width="176" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="sw3e2" value="Expert E7" style="rounded=1;whiteSpace=wrap;fillColor=#f8bbd0;strokeColor=#880e4f;fontSize=10;align=center;" parent="sw3" vertex="1">
+          <mxGeometry x="12" y="102" width="176" height="52" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="shared_box" value="共享专家（若 fused shared experts）：通常每卡各挂一份，计入 num_local_experts" style="rounded=1;whiteSpace=wrap;fillColor=#f3e5f5;strokeColor=#7b1fa2;dashed=1;fontSize=10;align=center;" parent="1" vertex="1">
+          <mxGeometry x="920" y="170" width="320" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="moe_tp_box" value="MoE-TP（moe_tp_size &gt; 1）：同一专家的门控/上投影/下投影在 intermediate 维或 hidden 维再切分到同 EP 组内的多卡，需 all-gather / reduce-scatter 对齐激活（见 FusedMoE 中 intermediate_size_per_partition）" style="rounded=1;whiteSpace=wrap;fillColor=#eceff1;strokeColor=#546e7a;fontSize=10;align=left;spacingLeft=8;" parent="1" vertex="1">
+          <mxGeometry x="920" y="270" width="320" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="h2" value="二、整体计算流程（FusedMoE.forward_impl）— 单列垂直主干，避免箭头交叉" style="text;html=1;align=left;fontSize=15;fontStyle=1;fontColor=#37474f;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry x="40" y="392" width="700" height="28" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="n_in" value="各 TP rank：hidden_states (tokens)" style="rounded=1;whiteSpace=wrap;fillColor=#e1f5fe;strokeColor=#0277bd;fontSize=11;fontStyle=1;align=center;" parent="1" vertex="1">
+          <mxGeometry x="550" y="430" width="400" height="44" as="geometry"/>
+        </mxCell>
+        <mxCell id="n_router" value="Router / Gate → router_logits" style="rounded=1;whiteSpace=wrap;fillColor=#b3e5fc;strokeColor=#01579b;fontSize=11;align=center;" parent="1" vertex="1">
+          <mxGeometry x="550" y="492" width="400" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="n_topk" value="TopK → topk_ids, topk_weights" style="rounded=1;whiteSpace=wrap;fillColor=#81d4fa;strokeColor=#01579b;fontSize=11;align=center;" parent="1" vertex="1">
+          <mxGeometry x="550" y="550" width="400" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="n_disp" value="dispatcher.dispatch()（内部选 A2A 或 Standard，不在此分叉画线）" style="rounded=1;whiteSpace=wrap;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=11;fontStyle=1;align=center;" parent="1" vertex="1">
+          <mxGeometry x="550" y="608" width="400" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="n_core" value="run_moe_core()：quant_method.apply()，本卡本地专家 GEMM" style="rounded=1;whiteSpace=wrap;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=11;fontStyle=1;align=center;" parent="1" vertex="1">
+          <mxGeometry x="550" y="674" width="400" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="n_comb" value="dispatcher.combine()" style="rounded=1;whiteSpace=wrap;fillColor=#a5d6a7;strokeColor=#1b5e20;fontSize=11;align=center;" parent="1" vertex="1">
+          <mxGeometry x="550" y="738" width="400" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="n_out" value="输出 hidden；必要时 tensor_model_parallel_all_reduce（reduce_results 且 ep/tp 需规约时）" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#1b5e20;fontSize=11;fontStyle=1;align=center;" parent="1" vertex="1">
+          <mxGeometry x="550" y="794" width="400" height="52" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="n_note" value="dispatch 实现对照（无连线）：&#10;• A2A：DeepEP / Mooncake / FlashInfer / MoRI / Ascend fuseep — token all-to-all 到持专家权重的 rank。&#10;• Standard：local_expert_mapping 将全局 expert id 映射为本卡局部下标；无 A2A 时依赖后续 kernel 与 TP 通信。&#10;• 常见 ep_size = tp_size 时 _MOE_EP 与 TP 组对齐。" style="rounded=1;whiteSpace=wrap;fillColor=#eceff1;strokeColor=#78909c;fontSize=10;align=left;spacingLeft=10;verticalAlign=top;" parent="1" vertex="1">
+          <mxGeometry x="40" y="870" width="1420" height="88" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#0277bd;" parent="1" source="n_in" target="n_router" edge="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#01579b;" parent="1" source="n_router" target="n_topk" edge="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#f9a825;" parent="1" source="n_topk" target="n_disp" edge="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2e7d32;" parent="1" source="n_disp" target="n_core" edge="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#388e3c;" parent="1" source="n_core" target="n_comb" edge="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#1b5e20;" parent="1" source="n_comb" target="n_out" edge="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="foot" value="与 Qwen3.5-35B-A3B 全模型关系见：qwen3.5-35b-a3b-moe-inference.drawio" style="text;html=1;align=center;fontSize=10;fontColor=#757575;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry x="40" y="980" width="1420" height="24" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

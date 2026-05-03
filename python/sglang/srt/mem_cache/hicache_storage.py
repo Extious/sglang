@@ -51,6 +51,8 @@ class HiCacheStorageConfig:
     tp_size: int
     pp_rank: int
     pp_size: int
+    dp_rank: int
+    dp_size: int
     is_mla_model: bool
     enable_storage_metrics: bool
     is_page_first_layout: bool
@@ -64,6 +66,10 @@ class HiCacheStorageConfig:
 class HiCacheStorageExtraInfo:
     prefix_keys: Optional[List[str]] = (None,)
     extra_info: Optional[dict] = None
+    full_token_ids: Optional[List[int]] = None
+    page_start: int = 0
+    request_id: Optional[str] = None
+    request_generation: int = 0
 
 
 class PoolName(str, Enum):
@@ -214,6 +220,12 @@ class HiCacheStorage(ABC):
         Returns a list of booleans indicating success for each key.
         """
         pass
+
+    def start_request(self, request_id: str, dp_rank: int, generation: int) -> None:
+        """Optional lifecycle hook: called when a request starts. Default no-op."""
+
+    def finish_request(self, request_id: str, dp_rank: int, generation: int, reason: str) -> None:
+        """Optional lifecycle hook: called when a request finishes. Default no-op."""
 
     @abstractmethod
     def get(

@@ -21,6 +21,7 @@ from sglang.srt.entrypoints.openai.serving_base import OpenAIServingBase
 from sglang.srt.entrypoints.openai.usage_processor import UsageProcessor
 from sglang.srt.entrypoints.openai.utils import (
     process_cached_tokens_details_from_ret,
+    process_failover_details_from_ret,
     process_hidden_states_from_ret,
     process_routed_experts_from_ret,
     should_include_usage,
@@ -454,11 +455,13 @@ class OpenAIServingCompletion(OpenAIServingBase):
         cached_tokens_details = process_cached_tokens_details_from_ret(
             first_ret, request
         )
+        failover = process_failover_details_from_ret(first_ret)
         response_sglext = None
-        if routed_experts or cached_tokens_details:
+        if routed_experts or cached_tokens_details or failover:
             response_sglext = SglExt(
                 routed_experts=routed_experts,
                 cached_tokens_details=cached_tokens_details,
+                failover=failover,
             )
 
         for idx, ret_item in enumerate(ret):
@@ -512,7 +515,13 @@ class OpenAIServingCompletion(OpenAIServingBase):
         # Calculate usage
         cache_report = self.tokenizer_manager.server_args.enable_cache_report
         usage = UsageProcessor.calculate_response_usage(
-            ret, n_choices=request.n, enable_cache_report=cache_report
+            ret,
+            n_choices=request.n,
+            enable_cache_report=cache_report,
+            cached_tokens_details=(
+                cached_tokens_details.model_dump() if cached_tokens_details else None
+            ),
+            failover=failover.model_dump() if failover else None,
         )
 
         return CompletionResponse(

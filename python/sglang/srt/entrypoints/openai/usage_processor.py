@@ -19,6 +19,8 @@ class UsageProcessor:
         responses: List[Dict[str, Any]],
         n_choices: int = 1,
         enable_cache_report: bool = False,
+        cached_tokens_details: Optional[Dict[str, Any]] = None,
+        failover: Optional[Dict[str, Any]] = None,
     ) -> UsageInfo:
         completion_tokens = sum(
             r["meta_info"].get("completion_tokens", 0) for r in responses
@@ -46,6 +48,8 @@ class UsageProcessor:
             reasoning_tokens=reasoning_tokens,
             completion_tokens=completion_tokens,
             cached_tokens=cached_details,
+            cached_tokens_details=cached_tokens_details,
+            failover=failover,
         )
 
     @staticmethod
@@ -85,6 +89,8 @@ class UsageProcessor:
         completion_tokens: int,
         reasoning_tokens: Optional[int] = 0,
         cached_tokens: Optional[PromptTokensDetails] = None,
+        cached_tokens_details: Optional[Dict[str, Any]] = None,
+        failover: Optional[Dict[str, Any]] = None,
     ) -> UsageInfo:
         """Calculate token usage information"""
         return UsageInfo(
@@ -93,4 +99,6 @@ class UsageProcessor:
             total_tokens=prompt_tokens + completion_tokens,
             prompt_tokens_details=cached_tokens,
             reasoning_tokens=reasoning_tokens,
+            cached_tokens_details=cached_tokens_details,
+            failover=failover,
         )

@@ -5,6 +5,8 @@ import time
 import warnings
 from typing import TYPE_CHECKING
 
+import torch
+
 from sglang.srt.disaggregation.utils import DisaggregationMode
 from sglang.srt.environ import envs
 from sglang.srt.managers.schedule_batch import ScheduleBatch
@@ -21,6 +23,56 @@ logger = logging.getLogger(__name__)
 
 
 class SchedulerRuntimeCheckerMixin:
+    def _has_pending_hicache_io(self: Scheduler) -> bool:
+        """Skip strict idle checks while async HiCache IO is still draining."""
+        tree_cache = getattr(self, "tree_cache", None)
+        if tree_cache is None:
+            return False
+
+        drain_fn = getattr(tree_cache, "check_hicache_events", None)
+        if callable(drain_fn):
+            drain_fn()
+
+        for dict_name in (
+            "ongoing_prefetch",
+            "ongoing_write_through",
+            "ongoing_backup",
+            "ongoing_load_back",
+        ):
+            d = getattr(tree_cache, dict_name, None)
+            if d is not None and len(d) > 0:
+                return True
+
+        cache_controller = getattr(tree_cache, "cache_controller", None)
+        if cache_controller is None:
+            return False
+
+        for queue_name in (
+            "prefetch_revoke_queue",
+            "ack_backup_queue",
+            "host_mem_release_queue",
+            "prefetch_queue",
+            "prefetch_buffer",
+            "backup_queue",
+        ):
+            q = getattr(cache_controller, queue_name, None)
+            if q is None:
+                continue
+            qsize_fn = getattr(q, "qsize", None)
+            if callable(qsize_fn) and qsize_fn() > 0:
+                return True
+
+        ack_write_queue = getattr(cache_controller, "ack_write_queue", None)
+        if ack_write_queue is not None and len(ack_write_queue) > 0:
+            return True
+
+        for list_name in ("load_queue", "ack_load_queue"):
+            pending = getattr(cache_controller, list_name, None)
+            if pending is not None and len(pending) > 0:
+                return True
+
+        return False
+
     def _session_held_tokens(self: Scheduler) -> int:
         if isinstance(self.tree_cache, SessionAwareCache):
             return self.tree_cache.session_held_tokens()
@@ -188,7 +240,72 @@ class SchedulerRuntimeCheckerMixin:
             self.max_total_num_tokens - protected_size - session_held
         )
         token_msg = f"{self.max_total_num_tokens=}, {available_size=}, {evictable_size=}, {protected_size=}, {session_held=}\n"
+        if memory_leak:
+            token_msg += self._radix_memory_leak_details()
         return memory_leak, token_msg
+
+    def _radix_memory_leak_details(self: Scheduler) -> str:
+        """Return extra ownership info for leaked token pages."""
+        try:
+            free_pages = set(
+                self.token_to_kv_pool_allocator.free_pages.detach().cpu().tolist()
+                + self.token_to_kv_pool_allocator.release_pages.detach().cpu().tolist()
+            )
+            cached_pages = set()
+            stack = [self.tree_cache.root_node]
+            host_only_nodes = 0
+            while stack:
+                node = stack.pop()
+                value = getattr(node, "value", None)
+                if value is None:
+                    host_only_nodes += 1
+                elif len(value) > 0:
+                    cached_pages.update(value.detach().cpu().tolist())
+                stack.extend(getattr(node, "children", {}).values())
+            expected_pages = set(range(1, self.token_to_kv_pool_allocator.size + 1))
+            leaked_pages = expected_pages - free_pages - cached_pages
+
+            if not leaked_pages:
+                return f"leaked_pages=None, host_only_nodes={host_only_nodes}\n"
+
+            # Cap leaked_pages to avoid GPU OOM in the diagnostic itself
+            if len(leaked_pages) > 4096:
+                return (
+                    f"leaked_pages_count={len(leaked_pages)} (capped at 4096 for safety), "
+                    f"host_only_nodes={host_only_nodes}\n"
+                )
+
+            leaked_tensor = torch.tensor(
+                list(leaked_pages),
+                dtype=self.req_to_token_pool.req_to_token.dtype,
+                device="cpu",
+            )
+            req_to_token = self.req_to_token_pool.req_to_token.cpu()
+            owner_mask = torch.isin(req_to_token, leaked_tensor)
+            owner_rows = owner_mask.any(dim=1).nonzero(as_tuple=False).flatten()
+            free_req_slots = set(self.req_to_token_pool.free_slots.detach().cpu().tolist())
+            owners = []
+            for row in owner_rows[:16].detach().cpu().tolist():
+                positions = owner_mask[row].nonzero(as_tuple=False).flatten()
+                owners.append(
+                    {
+                        "req_pool_idx": int(row),
+                        "is_free_slot": row in free_req_slots,
+                        "count": int(positions.numel()),
+                        "first_pos": int(positions[0].item()) if positions.numel() else None,
+                        "last_pos": int(positions[-1].item()) if positions.numel() else None,
+                    }
+                )
+
+            leaked_sample = sorted(leaked_pages)[:64]
+            return (
+                f"leaked_pages_count={len(leaked_pages)}, "
+                f"leaked_pages_sample={leaked_sample}, "
+                f"req_pool_owners={owners}, "
+                f"host_only_nodes={host_only_nodes}\n"
+            )
+        except Exception as e:
+            return f"leaked_pages_detail_error={type(e).__name__}: {e}\n"
 
     def _get_batch_uncached_size(self: Scheduler, batch: ScheduleBatch) -> int:
         ret = 0
@@ -277,7 +394,6 @@ class SchedulerRuntimeCheckerMixin:
             memory_leak, token_msg = self._check_mamba_memory()
         else:
             memory_leak, token_msg = self._check_radix_cache_memory()
-
         if memory_leak:
             msg = "token_to_kv_pool_allocator memory leak detected! " f"{token_msg}"
             raise_error_or_warn(
@@ -359,6 +475,19 @@ class SchedulerRuntimeCheckerMixin:
 
     def self_check_during_idle(self: Scheduler):
         if self.enable_hisparse and self.hisparse_coordinator.has_ongoing_staging():
+            return
+        # Not truly idle while failover retry requests are pending.
+        if len(getattr(self, "retry_queue", [])) > 0:
+            return
+        if self._has_pending_hicache_io():
+            return
+        if getattr(self, "chunked_req", None) is not None:
+            return
+        # Not truly idle while decode/prefill batch is still running.
+        if (
+            getattr(self, "running_batch", None) is not None
+            and not self.running_batch.is_empty()
+        ):
             return
         if self.disaggregation_mode == DisaggregationMode.PREFILL:
             if len(self.disagg_prefill_inflight_queue) > 0:

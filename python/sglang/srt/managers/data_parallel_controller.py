@@ -34,6 +34,8 @@ from sglang.srt.managers.io_struct import (
     BatchTokenizedGenerateReqInput,
     BlockReqInput,
     ProfileReq,
+    SimulateGpuFailureReqInput,
+    SimulateGpuRecoveryReqInput,
     TokenizedEmbeddingReqInput,
     TokenizedGenerateReqInput,
     WatchLoadUpdateReq,
@@ -96,19 +98,21 @@ class DPBudget:
             self.total_requests[load.dp_rank] = load.num_reqs
             self.total_tokens[load.dp_rank] = load.num_tokens
 
-    def dispatch(self, method: LoadBalanceMethod):
+    def dispatch(self, method: LoadBalanceMethod, exclude: set = None):
+        candidates = [i for i in range(self.dp_size) if not exclude or i not in exclude]
+        if not candidates:
+            return None
+
         if method == LoadBalanceMethod.TOTAL_REQUESTS:
-            target_rank = self.total_requests.index(min(self.total_requests))
+            target_rank = min(candidates, key=lambda i: self.total_requests[i])
         elif method == LoadBalanceMethod.TOTAL_TOKENS:
-            # Use total_requests as a tie-breaker when total_tokens are equal
             target_rank = min(
-                range(self.dp_size),
+                candidates,
                 key=lambda i: (self.total_tokens[i], self.total_requests[i]),
             )
         else:
             return None
 
-        # Increment the load of that worker by one as a heuristic
         self.total_requests[target_rank] += 1
         return target_rank
 
@@ -170,6 +174,8 @@ class DataParallelController:
 
         self.init_dispatcher()
 
+        self.failed_dp_ranks: set = set()
+
         self.soft_watchdog = Watchdog.create(
             debug_name="DataParallelController",
             watchdog_timeout=server_args.soft_watchdog_timeout,
@@ -195,6 +201,30 @@ class DataParallelController:
 
     def update_active_ranks(self, ranks: ActiveRanksOutput):
         self.status = ranks.status
+
+    # -------------------------------------------------------------
+    # GPU Failure Simulation
+    # -------------------------------------------------------------
+    def handle_simulate_gpu_failure(self, req: SimulateGpuFailureReqInput):
+        dp_rank = req.dp_rank
+        if dp_rank < 0 or dp_rank >= len(self.workers):
+            logger.error("Invalid dp_rank=%d for GPU failure simulation", dp_rank)
+            return
+        logger.warning("DPC: forwarding GPU failure to dp_rank=%d", dp_rank)
+        self.failed_dp_ranks.add(dp_rank)
+        self.workers[dp_rank].send_pyobj(req)
+
+    # -------------------------------------------------------------
+    # GPU Recovery Simulation
+    # -------------------------------------------------------------
+    def handle_simulate_gpu_recovery(self, req: SimulateGpuRecoveryReqInput):
+        dp_rank = req.dp_rank
+        if dp_rank < 0 or dp_rank >= len(self.workers):
+            logger.error("Invalid dp_rank=%d for GPU recovery", dp_rank)
+            return
+        logger.warning("DPC: forwarding GPU recovery to dp_rank=%d", dp_rank)
+        self.failed_dp_ranks.discard(dp_rank)
+        self.workers[dp_rank].send_pyobj(req)
 
     def dispatching_with_trace(self, req: Req):
         req.time_stats = DPControllerReqTimeStats.new_from_obj(req.time_stats)
@@ -222,6 +252,8 @@ class DataParallelController:
                 (ProfileReq, self.send_to_all_workers),
                 (WatchLoadUpdateReq, self.handle_load_update_req),
                 (ActiveRanksOutput, self.update_active_ranks),
+                (SimulateGpuFailureReqInput, self.handle_simulate_gpu_failure),
+                (SimulateGpuRecoveryReqInput, self.handle_simulate_gpu_recovery),
             ]
         )
         self._request_dispatcher.add_fallback_fn(self.send_control_message)
@@ -523,31 +555,81 @@ class DataParallelController:
         self.max_total_num_tokens = scheduler_info[0]["max_total_num_tokens"]
         self.max_req_input_len = scheduler_info[0]["max_req_input_len"]
 
-    def maybe_external_dp_rank_routing(self, req: Req):
-        if req.routed_dp_rank is not None:
-            logger.debug(f"Direct routing to DP rank {req.routed_dp_rank}")
-            self.workers[req.routed_dp_rank].send_pyobj(req)
+    def _request_excluded_dp_ranks(self, req: Req) -> set:
+        exclude = set(self.failed_dp_ranks)
+        failed_dp_rank = getattr(req, "failed_dp_rank", None)
+        if failed_dp_rank is not None:
+            try:
+                exclude.add(int(failed_dp_rank))
+            except (TypeError, ValueError):
+                logger.warning("Ignoring invalid failed_dp_rank=%r", failed_dp_rank)
+        return exclude
+
+    def _send_to_worker(self, target_worker: Optional[int], req: Req) -> bool:
+        if target_worker is None:
+            logger.error(
+                "No healthy DP worker available for request %s",
+                getattr(req, "rid", "<unknown>"),
+            )
+            return False
+        self.workers[target_worker].send_pyobj(req)
+        return True
+
+    def _first_healthy_worker(self, exclude: set) -> Optional[int]:
+        for rank in range(len(self.workers)):
+            if self.status[rank] and rank not in exclude:
+                return rank
+        return None
+
+    def maybe_external_dp_rank_routing(self, req: Req, exclude: Optional[set] = None):
+        routed_dp_rank = getattr(req, "routed_dp_rank", None)
+        if routed_dp_rank is not None:
+            exclude = exclude or set()
+            if (
+                routed_dp_rank < 0
+                or routed_dp_rank >= len(self.workers)
+                or routed_dp_rank in exclude
+                or not self.status[routed_dp_rank]
+            ):
+                logger.warning(
+                    "Ignoring direct routing to unavailable DP rank %s for request %s",
+                    routed_dp_rank,
+                    getattr(req, "rid", "<unknown>"),
+                )
+                req.routed_dp_rank = None
+                return False
+            logger.debug(f"Direct routing to DP rank {routed_dp_rank}")
+            self.workers[routed_dp_rank].send_pyobj(req)
             return True
         return False
 
     def round_robin_scheduler(self, req: Req):
-        if self.maybe_external_dp_rank_routing(req):
+        exclude = self._request_excluded_dp_ranks(req)
+        if self.maybe_external_dp_rank_routing(req, exclude):
             return
 
-        while True:
-            if self.status[self.round_robin_counter]:
+        for _ in range(len(self.workers)):
+            if (
+                self.status[self.round_robin_counter]
+                and self.round_robin_counter not in exclude
+            ):
                 logger.debug(f"Choose worker {self.round_robin_counter}")
                 self.workers[self.round_robin_counter].send_pyobj(req)
                 self.round_robin_counter = (self.round_robin_counter + 1) % len(
                     self.workers
                 )
-                break
+                return
             self.round_robin_counter = (self.round_robin_counter + 1) % len(
                 self.workers
             )
+        logger.error(
+            "No healthy DP worker available for round-robin request %s",
+            getattr(req, "rid", "<unknown>"),
+        )
 
     def follow_bootstrap_room_scheduler(self, req: Req):
-        if self.maybe_external_dp_rank_routing(req):
+        exclude = self._request_excluded_dp_ranks(req)
+        if self.maybe_external_dp_rank_routing(req, exclude):
             return
 
         # Set default bootstrap_room if in FAKE auto mode and room is None
@@ -565,19 +647,32 @@ class DataParallelController:
             "prefill or decode instances; send to the router instead."
         )
         target_rank = req.bootstrap_room % len(self.workers)
-        self.workers[target_rank].send_pyobj(req)
+        if target_rank in exclude or not self.status[target_rank]:
+            logger.warning(
+                "Bootstrap room targets unavailable DP rank %s for request %s",
+                target_rank,
+                getattr(req, "rid", "<unknown>"),
+            )
+            target_rank = self._first_healthy_worker(exclude)
+        self._send_to_worker(target_rank, req)
 
     def total_requests_scheduler(self, req: Req):
-        if self.maybe_external_dp_rank_routing(req):
+        exclude = self._request_excluded_dp_ranks(req)
+        if self.maybe_external_dp_rank_routing(req, exclude):
             return
-        target_worker = self.dp_budget.dispatch(LoadBalanceMethod.TOTAL_REQUESTS)
-        self.workers[target_worker].send_pyobj(req)
+        target_worker = self.dp_budget.dispatch(
+            LoadBalanceMethod.TOTAL_REQUESTS, exclude=exclude
+        )
+        self._send_to_worker(target_worker, req)
 
     def total_tokens_scheduler(self, req: Req):
-        if self.maybe_external_dp_rank_routing(req):
+        exclude = self._request_excluded_dp_ranks(req)
+        if self.maybe_external_dp_rank_routing(req, exclude):
             return
-        target_worker = self.dp_budget.dispatch(LoadBalanceMethod.TOTAL_TOKENS)
-        self.workers[target_worker].send_pyobj(req)
+        target_worker = self.dp_budget.dispatch(
+            LoadBalanceMethod.TOTAL_TOKENS, exclude=exclude
+        )
+        self._send_to_worker(target_worker, req)
 
     def event_loop(self):
         while True:

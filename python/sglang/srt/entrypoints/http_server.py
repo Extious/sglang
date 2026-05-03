@@ -133,6 +133,8 @@ from sglang.srt.managers.io_struct import (
     SendWeightsToRemoteInstanceReqInput,
     SeparateReasoningReqInput,
     SetInternalStateReq,
+    SimulateGpuFailureReqInput,
+    SimulateGpuRecoveryReqInput,
     SlowDownReqInput,
     UnloadLoRAAdapterReqInput,
     UpdateWeightFromDiskReqInput,
@@ -1372,6 +1374,38 @@ async def continue_generation(obj: ContinueGenerationReqInput, request: Request)
         content={"message": "Generation continued successfully.", "status": "ok"},
         status_code=200,
     )
+
+# -------------------------------------------------------------
+# GPU Failure Simulation
+# -------------------------------------------------------------
+@app.post("/simulate_gpu_failure")
+@auth_level(AuthLevel.ADMIN_OPTIONAL)
+async def simulate_gpu_failure(obj: SimulateGpuFailureReqInput, request: Request):
+    """Simulate GPU failure on a specific DP rank."""
+    try:
+        await _global_state.tokenizer_manager.simulate_gpu_failure(obj)
+        return ORJSONResponse(
+            content={"message": f"GPU failure simulated on dp_rank={obj.dp_rank}.", "status": "ok"},
+            status_code=200,
+        )
+    except Exception as e:
+        return _create_error_response(e)
+
+# -------------------------------------------------------------
+# GPU Recovery Simulation
+# -------------------------------------------------------------
+@app.post("/simulate_gpu_recovery")
+@auth_level(AuthLevel.ADMIN_OPTIONAL)
+async def simulate_gpu_recovery(obj: SimulateGpuRecoveryReqInput, request: Request):
+    """Recover a previously failed DP rank."""
+    try:
+        await _global_state.tokenizer_manager.simulate_gpu_recovery(obj)
+        return ORJSONResponse(
+            content={"message": f"GPU recovery applied on dp_rank={obj.dp_rank}.", "status": "ok"},
+            status_code=200,
+        )
+    except Exception as e:
+        return _create_error_response(e)
 
 
 ##### OpenAI-compatible API endpoints #####

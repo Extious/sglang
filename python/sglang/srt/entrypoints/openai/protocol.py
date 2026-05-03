@@ -107,19 +107,18 @@ class CachedTokensDetails(BaseModel):
 
     device: int = 0  # Tokens from device cache (GPU)
     host: int = 0  # Tokens from host cache (CPU memory)
-    # L3 storage fields are only present when storage backend is enabled
-    storage: Optional[int] = None  # Tokens from L3 storage backend
-    storage_backend: Optional[str] = None  # Type of storage backend used
+    reused_device: Optional[int] = None
+    reused_host: Optional[int] = None
+    # Remote backup storage fields are only present when storage backend is enabled
+    storage: Optional[int] = None
+    storage_query: Optional[int] = None
+    reused_storage: Optional[int] = None
+    storage_backend: Optional[str] = None
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler):
         data = handler(self)
-        # Remove None fields so they don't appear in response when L3 is disabled
-        if self.storage is None:
-            data.pop("storage", None)
-        if self.storage_backend is None:
-            data.pop("storage_backend", None)
-        return data
+        return {k: v for k, v in data.items() if v is not None}
 
 
 class PromptTokensDetails(BaseModel):
@@ -135,6 +134,9 @@ class UsageInfo(BaseModel):
     # Used to return cached tokens info when --enable-cache-report is set
     prompt_tokens_details: Optional[PromptTokensDetails] = None
     reasoning_tokens: Optional[int] = 0
+    # Dump cache and failover overview details
+    cached_tokens_details: Optional[Dict[str, Any]] = None
+    failover: Optional[Dict[str, Any]] = None
 
 
 class StreamOptions(BaseModel):
@@ -331,6 +333,14 @@ class CompletionRequest(BaseModel):
         return v
 
 
+class FailoverDetails(BaseModel):
+    """Failover info for requests retried after GPU failure."""
+
+    is_retried: bool = True
+    pre_failover_output_tokens: int = 0
+    pre_failover_backed_up_tokens: int = 0
+
+
 class SglExt(BaseModel):
     """SGLang extension fields for OpenAI-compatible responses.
 
@@ -340,6 +350,7 @@ class SglExt(BaseModel):
 
     routed_experts: Optional[str] = None
     cached_tokens_details: Optional[CachedTokensDetails] = None
+    failover: Optional[FailoverDetails] = None
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler):

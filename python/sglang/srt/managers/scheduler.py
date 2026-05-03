@@ -23,6 +23,7 @@ from collections import deque
 from contextlib import nullcontext
 from dataclasses import dataclass
 from http import HTTPStatus
+from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Tuple, Union
 
 from sglang.srt.utils.common import suppress_noisy_warnings
@@ -129,6 +130,10 @@ from sglang.srt.managers.io_struct import (
     SendWeightsToRemoteInstanceReqOutput,
     SetInternalStateReq,
     SetInternalStateReqOutput,
+    SimulateGpuFailureReqInput,
+    SimulateGpuRecoveryReqInput,
+    FailoverBatchReqInput,
+    ReqSnapshot,
     SlowDownReqInput,
     SlowDownReqOutput,
     TokenizedEmbeddingReqInput,
@@ -140,6 +145,7 @@ from sglang.srt.managers.io_struct import (
     UpdateWeightsFromIPCReqInput,
     UpdateWeightsFromTensorReqInput,
 )
+from sglang.srt.managers.schedule_batch import record_remote_prefetch_stats
 from sglang.srt.managers.mm_utils import (
     has_shm_features,
     init_mm_embedding_cache,
@@ -755,6 +761,7 @@ class Scheduler(
             enable_mamba_extra_buffer=server_args.enable_mamba_extra_buffer(),
             pp_rank=self.pp_rank,
             pp_size=self.pp_size,
+            dp_rank=self.dp_rank,
             chunked_prefill_size=effective_chunked_prefill_size,
             sliding_window_size=self.sliding_window_size,
         )
@@ -844,6 +851,7 @@ class Scheduler(
 
     def init_running_status(self):
         self.waiting_queue: List[Req] = []
+        self.retry_queue: List[Req] = []
         # The running decoding batch for continuous batching
         self.running_batch: ScheduleBatch = ScheduleBatch(reqs=[], batch_is_full=False)
         # The current forward batch
@@ -858,6 +866,7 @@ class Scheduler(
         self.session_controller = SessionController(self.tree_cache)
         self.forward_sleep_time = None
         self._engine_paused = False
+        self._gpu_failed = False
 
     def init_chunked_prefill(self):
         self.chunked_prefill_size = self.server_args.chunked_prefill_size
@@ -1254,6 +1263,8 @@ class Scheduler(
                 (PauseGenerationReqInput, self.pause_generation),
                 (ContinueGenerationReqInput, self.continue_generation),
                 (DumperControlReqInput, self.handle_dumper_control),
+                (SimulateGpuFailureReqInput, self.handle_simulate_gpu_failure),
+                (SimulateGpuRecoveryReqInput, self.handle_simulate_gpu_recovery),
             ]
         )
 
@@ -1306,8 +1317,9 @@ class Scheduler(
             # Receive requests
             recv_reqs = self.recv_requests()
             self.process_input_requests(recv_reqs)
-            if self._engine_paused:
+            if self._engine_paused or self._gpu_failed:
                 self.cancel_bubble_timer()
+                time.sleep(0.01)
                 continue
 
             # Get the next batch to run
@@ -1343,8 +1355,25 @@ class Scheduler(
             # Receive requests
             recv_reqs = self.recv_requests()
             self.process_input_requests(recv_reqs)
-            if self._engine_paused:
+            if self._engine_paused or self._gpu_failed:
                 continue
+
+            preprocessed_last_batch = False
+            if (
+                self.last_batch
+                and self.result_queue
+                and self.last_batch.forward_mode.is_extend()
+                and any(
+                    getattr(req, "is_failover_retried", False)
+                    for req in self.last_batch.reqs
+                )
+            ):
+                # Failover-retried chunked prefill requests are mutated by
+                # stash_chunked_request() during scheduling. Process the prior
+                # extend batch first so overlap does not leave a stale lock on
+                # the previous prefix chain.
+                pop_and_process()
+                preprocessed_last_batch = True
 
             # Get the next batch to run
             batch = self.get_next_batch_to_run()
@@ -1366,7 +1395,7 @@ class Scheduler(
 
             # Process the last batch
             if self.last_batch:
-                if not disable_overlap_for_batch:
+                if not disable_overlap_for_batch and not preprocessed_last_batch:
                     pop_and_process()
             elif batch is None:
                 # When the server is idle, do self-check and re-init some states
@@ -1725,6 +1754,14 @@ class Scheduler(
         self,
         recv_req: TokenizedGenerateReqInput,
     ):
+        if self._gpu_failed:
+            logger.error(
+                "Rejecting generate request %s on simulated failed dp_rank=%s",
+                getattr(recv_req, "rid", "<unknown>"),
+                self.dp_rank,
+            )
+            return
+
         # Route: normal request / session request / session-not-found
         session_id = (
             recv_req.session_params.id if recv_req.session_params is not None else None
@@ -1776,6 +1813,17 @@ class Scheduler(
                 time_stats=recv_req.time_stats,
             )
             req.tokenizer = self.tokenizer
+            if recv_req.original_prompt_len is not None:
+                req.original_prompt_len = recv_req.original_prompt_len
+            if recv_req.failover_prefix_ids is not None:
+                req.failover_prefix_ids = recv_req.failover_prefix_ids
+                req.is_failover_retried = True
+                req.pre_failover_output_tokens = recv_req.pre_failover_output_tokens or 0
+                req.pre_failover_backed_up_tokens = recv_req.pre_failover_backed_up_tokens or 0
+                req.failover_source_dp_rank = recv_req.failed_dp_rank
+                req.remote_backup_generation = getattr(
+                    recv_req, "remote_backup_generation", 1
+                )
 
             if self.disaggregation_mode != DisaggregationMode.NULL:
                 # Invalid request for disaggregated mode
@@ -1915,23 +1963,34 @@ class Scheduler(
         if self.enable_hicache_storage:
             req.init_next_round_input(self.tree_cache, cow_mamba=False)
             last_host_node = req.last_host_node
+            req.failover_prefetch_pending = False
             if last_host_node.backuped or last_host_node is self.tree_cache.root_node:
                 last_hash = last_host_node.get_last_hash_value()
                 matched_len = len(req.prefix_indices) + req.host_hit_length
                 new_input_tokens = req.fill_ids[matched_len:]
+                prefix_token_ids = req.fill_ids[:matched_len]
 
                 prefix_keys = (
                     last_host_node.get_prefix_hash_values(last_host_node.parent)
                     if self.tree_cache.hicache_storage_pass_prefix_keys
                     else None
                 )
-                self.tree_cache.prefetch_from_storage(
+                lookup_dp_rank = (
+                    req.failover_source_dp_rank
+                    if req.is_failover_retried
+                    else None
+                )
+                prefetch_status = self.tree_cache.prefetch_from_storage(
                     req.rid,
                     last_host_node,
                     new_input_tokens,
                     last_hash,
                     prefix_keys,
+                    prefix_token_ids=prefix_token_ids,
+                    lookup_dp_rank=lookup_dp_rank,
                 )
+                if req.is_failover_retried and prefetch_status == "rate_limited":
+                    req.failover_prefetch_pending = True
 
     def _add_request_to_queue(self, req: Req, is_retracted: bool = False):
         if self.disaggregation_mode == DisaggregationMode.NULL:
@@ -1940,7 +1999,13 @@ class Scheduler(
             if self._abort_on_queued_limit(req):
                 return
             self._prefetch_kvcache(req)
-            self.waiting_queue.append(req)
+            # Notify remote backup that this request is starting (creates lease).
+            if hasattr(self.tree_cache, "notify_remote_request_start"):
+                self.tree_cache.notify_remote_request_start(req)
+            if req.is_failover_retried:
+                self.retry_queue.append(req)
+            else:
+                self.waiting_queue.append(req)
             req.time_stats.set_wait_queue_entry_time()
         elif self.disaggregation_mode == DisaggregationMode.PREFILL:
             self._prefetch_kvcache(req)
@@ -1976,6 +2041,7 @@ class Scheduler(
                     "message": "Using priority is disabled for this server. Please send a new request without a priority.",
                 },
                 rid=req.rid,
+                dp_rank=self.dp_rank,
             )
             req.time_stats.trace_ctx.abort(abort_info=abort_req.finished_reason)
             self.send_to_tokenizer.send_output(abort_req, req)
@@ -2025,6 +2091,7 @@ class Scheduler(
                     "message": message,
                 },
                 rid=req_to_abort.rid,
+                dp_rank=self.dp_rank,
             ),
             req_to_abort,
         )
@@ -2051,6 +2118,7 @@ class Scheduler(
                             "message": "Request waiting timeout reached.",
                         },
                         rid=req.rid,
+                        dp_rank=self.dp_rank,
                     ),
                     req,
                 )
@@ -2065,6 +2133,14 @@ class Scheduler(
         self,
         recv_req: TokenizedEmbeddingReqInput,
     ):
+        if self._gpu_failed:
+            logger.error(
+                "Rejecting embedding request %s on simulated failed dp_rank=%s",
+                getattr(recv_req, "rid", "<unknown>"),
+                self.dp_rank,
+            )
+            return
+
         req = Req(
             recv_req.rid,
             recv_req.input_text,
@@ -2173,6 +2249,52 @@ class Scheduler(
         )
         # todo hisparse, maybe other info to contain for the new batch
         return batch
+
+    def _process_retry_queue(self, adder: PrefillAdder) -> None:
+        retry_remaining = []
+        for idx, req in enumerate(self.retry_queue):
+            if adder.budget_state() != AddReqResult.CONTINUE:
+                retry_remaining.append(req)
+                continue
+
+            if self.enable_hicache_storage:
+                if req.failover_prefetch_pending:
+                    self._prefetch_kvcache(req)
+                    if req.failover_prefetch_pending:
+                        retry_remaining.append(req)
+                        continue
+                prefetch_done = self.tree_cache.check_prefetch_progress(req.rid)
+                if not prefetch_done:
+                    retry_remaining.append(req)
+                    continue
+                record_remote_prefetch_stats(
+                    req,
+                    completed_tokens=self.tree_cache.pop_prefetch_loaded_tokens(
+                        req.rid
+                    ),
+                    expected_tokens=self.tree_cache.pop_storage_query_tokens(req.rid),
+                )
+
+            req.init_next_round_input(self.tree_cache)
+            res = adder.add_one_req(
+                req,
+                has_chunked_req=(self.chunked_req is not None),
+                truncation_align_size=self.truncation_align_size,
+            )
+            if res != AddReqResult.CONTINUE:
+                added = req in adder.can_run_list
+                # A failover-retried request can be truncated into new_chunked_req
+                # and still return OTHER/NO_TOKEN due to exhausted batch budget.
+                # In that case it is already scheduled in can_run_list and must
+                # not stay in retry_queue, otherwise the same Req is admitted
+                # twice in the next round (chunked_req + retry_queue), leaking
+                # one extra prefix lock on the old chunked node.
+                if not added:
+                    retry_remaining.append(req)
+                retry_remaining.extend(self.retry_queue[idx + 1 :])
+                break
+
+        self.retry_queue = retry_remaining
 
     def get_next_batch_to_run(self) -> Optional[ScheduleBatch]:
         self._abort_on_waiting_timeout()
@@ -2338,7 +2460,8 @@ class Scheduler(
             self.running_batch.batch_is_full = False
 
         if (
-            self.running_batch.batch_is_full or len(self.waiting_queue) == 0
+            self.running_batch.batch_is_full
+            or (len(self.waiting_queue) == 0 and len(self.retry_queue) == 0)
         ) and self.chunked_req is None:
             return None
 
@@ -2399,6 +2522,9 @@ class Scheduler(
         if self.enable_lora:
             running_loras = {req.lora_id for req in self.running_batch.reqs}
 
+        # Process retry_queue first (failover requests get priority)
+        self._process_retry_queue(adder)
+
         # Get requests from the waiting queue to a new prefill batch
         for req in self.waiting_queue:
             if self.enable_lora and req.lora_id not in running_loras:
@@ -2438,9 +2564,12 @@ class Scheduler(
                 if not prefetch_done:
                     # skip staging requests that are ongoing prefetch
                     continue
-                # Pop the number of tokens loaded from storage (L3 hits)
-                req.storage_hit_length = self.tree_cache.pop_prefetch_loaded_tokens(
-                    req.rid
+                record_remote_prefetch_stats(
+                    req,
+                    completed_tokens=self.tree_cache.pop_prefetch_loaded_tokens(
+                        req.rid
+                    ),
+                    expected_tokens=self.tree_cache.pop_storage_query_tokens(req.rid),
                 )
 
             req.init_next_round_input(self.tree_cache)
@@ -2588,6 +2717,7 @@ class Scheduler(
                     AbortReq(
                         finished_reason=abort_reason.to_json(),
                         rid=req.rid,
+                        dp_rank=self.dp_rank,
                     ),
                     req,
                 )
@@ -2914,8 +3044,8 @@ class Scheduler(
             and (self.pp_size == 1 or all(x.is_empty() for x in self.running_mbs))
         )
 
-        # Waiting queues: waiting + bootstrapping + preallocation + kv transfer (decode)
-        idle &= len(self.waiting_queue) == 0
+        # Waiting queues: waiting + retry + bootstrapping + preallocation + kv transfer (decode)
+        idle &= len(self.waiting_queue) == 0 and len(self.retry_queue) == 0
 
         if not for_health_check:
             # Grammar queue and prefill inflight queue may not produce batch
@@ -2929,7 +3059,7 @@ class Scheduler(
                 idle &= len(self.disagg_decode_prealloc_queue.queue) == 0
                 idle &= len(self.disagg_decode_transfer_queue.queue) == 0
 
-            # HiCache: in-flight async ops (GPU↔Host↔L3) must drain before
+            # HiCache: in-flight async ops (GPU↔Host↔remote backup) must drain before
             # destructive operations like attach/detach/flush_cache.
             if self.enable_hierarchical_cache:
                 tc = self.tree_cache
@@ -3170,7 +3300,11 @@ class Scheduler(
             if self.enable_hicache_storage:
                 # to release prefetch events associated with the request
                 self.tree_cache.release_aborted_request(req.rid)
-            self.send_to_tokenizer.send_output(AbortReq(rid=req.rid), req)
+            if hasattr(self.tree_cache, "notify_remote_request_finish"):
+                self.tree_cache.notify_remote_request_finish(req, "abort")
+            self.send_to_tokenizer.send_output(
+                AbortReq(rid=req.rid, dp_rank=self.dp_rank), req
+            )
             # For disaggregation decode mode, the request in the waiting queue has KV cache allocated.
             if self.disaggregation_mode == DisaggregationMode.DECODE:
                 if self.enable_hisparse:
@@ -3189,6 +3323,22 @@ class Scheduler(
             ):
                 release_kv_cache(req, self.tree_cache, is_insert=False)
             logger.debug(f"Abort queued request. {req.rid=}")
+
+        # Delete requests in the retry queue
+        to_del = []
+        for i, req in enumerate(self.retry_queue):
+            if recv_req.abort_all or req.rid.startswith(recv_req.rid):
+                to_del.append(i)
+        for i in reversed(to_del):
+            req = self.retry_queue.pop(i)
+            if self.enable_hicache_storage:
+                self.tree_cache.release_aborted_request(req.rid)
+            if hasattr(self.tree_cache, "notify_remote_request_finish"):
+                self.tree_cache.notify_remote_request_finish(req, "abort")
+            self.send_to_tokenizer.send_output(
+                AbortReq(rid=req.rid, dp_rank=self.dp_rank), req
+            )
+            logger.debug(f"Abort retried request. {req.rid=}")
 
         # Delete the requests in the grammar queue
         # Abort method 2: call `set_finish_with_abort`
@@ -3233,7 +3383,8 @@ class Scheduler(
                         assert hasattr(decode_req, "kv_cache_cpu")
                         del decode_req.kv_cache_cpu
                         self.send_to_tokenizer.send_output(
-                            AbortReq(rid=decode_req.rid), decode_req
+                            AbortReq(rid=decode_req.rid, dp_rank=self.dp_rank),
+                            decode_req,
                         )
                     else:
                         remaining_retracted.append(decode_req)
@@ -3309,6 +3460,154 @@ class Scheduler(
 
     def continue_generation(self, recv_req: ContinueGenerationReqInput):
         self._engine_paused = False
+
+    def _collect_failover_reqs(self) -> List[Req]:
+        """Collect every request that should move off a simulated failed rank."""
+        reqs: List[Req] = []
+        seen: set[str] = set()
+
+        def add_req(req: Optional[Req]) -> None:
+            if req is None:
+                return
+            key = getattr(req, "rid", None) or f"obj:{id(req)}"
+            if key in seen:
+                return
+            seen.add(key)
+            reqs.append(req)
+
+        for req in self.waiting_queue:
+            add_req(req)
+        for req in self.retry_queue:
+            add_req(req)
+
+        grammar_queue = getattr(self.grammar_manager, "grammar_queue", None)
+        if grammar_queue is not None:
+            for req in grammar_queue:
+                add_req(req)
+
+        add_req(self.chunked_req)
+
+        for batch in (self.running_batch, self.cur_batch, self.last_batch):
+            if batch is None:
+                continue
+            for req in getattr(batch, "reqs", []):
+                add_req(req)
+
+        if getattr(self, "enable_overlap", False):
+            for pending_batch, _ in getattr(self, "result_queue", []):
+                for req in getattr(pending_batch, "reqs", []):
+                    add_req(req)
+
+        for mb in getattr(self, "running_mbs", []):
+            for req in getattr(mb, "reqs", []):
+                add_req(req)
+
+        return reqs
+
+    def _clear_failed_rank_scheduler_state(self) -> None:
+        """Force the failed rank into a fully cold state."""
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        self.waiting_queue = []
+        self.retry_queue = []
+        self.chunked_req = None
+        self.cur_batch = None
+        self.last_batch = None
+        self.running_batch = ScheduleBatch(reqs=[], batch_is_full=False)
+
+        if getattr(self, "enable_overlap", False) and hasattr(self, "result_queue"):
+            self.result_queue.clear()
+
+        if hasattr(self, "running_mbs"):
+            self.running_mbs = [
+                ScheduleBatch(reqs=[], batch_is_full=False)
+                for _ in range(len(self.running_mbs))
+            ]
+
+        if hasattr(self, "grammar_manager"):
+            self.grammar_manager.grammar_queue = []
+            self.grammar_manager.clear()
+
+        self.tree_cache.reset()
+        self.req_to_token_pool.clear()
+        self.token_to_kv_pool_allocator.clear()
+        self.reset_metrics()
+
+        if self.draft_worker:
+            self.draft_worker.clear_cache_pool()
+
+        self.cancel_bubble_timer()
+        torch.cuda.empty_cache()
+
+    def handle_simulate_gpu_failure(self, recv_req: SimulateGpuFailureReqInput):
+        """Simulate GPU failure by snapshotting requests and force-clearing local state."""
+        from sglang.srt.utils.failover_event_logger import append_failover_event
+
+        logger.warning("Simulating GPU failure on dp_rank=%s", self.dp_rank)
+        if self.enable_hicache_storage and hasattr(self.tree_cache, "check_hicache_events"):
+            self.tree_cache.check_hicache_events()
+        reqs_to_failover = self._collect_failover_reqs()
+        snapshots = [self._snapshot_req(req) for req in reqs_to_failover]
+
+        # Simulated GPU failure should behave like a hard local loss: do not
+        # reuse the generic abort path, because it sends abort outputs and only
+        # partially cleans scheduler state. Instead, drop every local queue/batch
+        # and cold-reset the failed rank so all local GPU/cache state is gone.
+        self._clear_failed_rank_scheduler_state()
+
+        self._gpu_failed = True
+
+        failover = FailoverBatchReqInput(
+            failed_dp_rank=self.dp_rank or 0,
+            snapshots=snapshots,
+        )
+        self.send_to_tokenizer.send_output(failover, recv_req)
+
+        append_failover_event(
+            "gpu_failure_simulated",
+            dp_rank=self.dp_rank,
+            num_requests=len(snapshots),
+            request_rids=[snap.rid for snap in snapshots],
+        )
+        logger.warning(
+            "GPU failure simulated: %d requests captured for failover",
+            len(snapshots),
+        )
+
+    def handle_simulate_gpu_recovery(self, recv_req: SimulateGpuRecoveryReqInput):
+        """Clear simulated GPU failure state."""
+        from sglang.srt.utils.failover_event_logger import append_failover_event
+
+        logger.warning("Recovering GPU on dp_rank=%s", self.dp_rank)
+        self._gpu_failed = False
+        append_failover_event("gpu_recovered", dp_rank=self.dp_rank)
+
+    def _snapshot_req(self, req: Req) -> ReqSnapshot:
+        """Capture request state for failover re-dispatch.
+
+        Only minimal fields are captured; the full original request is retrieved
+        from TokenizerManager.rid_to_state when the batch is re-dispatched.
+        """
+        backed_up = 0
+        if self.enable_hicache_storage and hasattr(
+            self.tree_cache, "count_remote_acked_tokens"
+        ):
+            all_ids = list(req.origin_input_ids) + list(req.output_ids)
+            backed_up = self.tree_cache.count_remote_acked_tokens(all_ids)
+        elif self.enable_hicache_storage and hasattr(
+            self.tree_cache, "count_backed_up_tokens"
+        ):
+            all_ids = list(req.origin_input_ids) + list(req.output_ids)
+            backed_up = self.tree_cache.count_backed_up_tokens(all_ids)
+        return ReqSnapshot(
+            rid=req.rid,
+            output_ids=list(req.output_ids),
+            backed_up_tokens=backed_up,
+            origin_input_ids=list(req.origin_input_ids),
+            sampling_params=req.sampling_params,
+            original_max_new_tokens=getattr(req.sampling_params, "max_new_tokens", None),
+            stream=getattr(req, "stream", False),
+        )
 
     def load_lora_adapter(
         self, recv_req: LoadLoRAAdapterReqInput

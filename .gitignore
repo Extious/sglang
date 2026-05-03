@@ -229,6 +229,9 @@ work_dirs/
 # VSCode
 .vscode
 
+# Cursor
+.cursor
+
 # Autoenv
 .env.leave
 
@@ -272,3 +275,12 @@ sgl-kernel/csrc/**/*_musa/
 *.glb
 *.ply
 *.npz
+
+# benchmark/multi_agent: track full tree (override global *.csv, *.png, *.pdf, *.jsonl, etc.)
+!/benchmark/multi_agent/
+!/benchmark/multi_agent/**
+
+# Python bytecode stays ignored under benchmark/multi_agent (whitelist above would negate __pycache__/)
+benchmark/multi_agent/**/__pycache__/
+benchmark/multi_agent/**/*.py[cod]
+benchmark/multi_agent/**/*$py.class

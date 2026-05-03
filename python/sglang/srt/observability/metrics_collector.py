@@ -1332,7 +1332,7 @@ class TokenizerMetricsCollector:
         # Report cached tokens with detailed source breakdown
         if cached_tokens > 0:
             if cached_tokens_details:
-                # Report by cache source (device/host, and storage if L3 enabled)
+                # Report by cache source (device/host, and storage if remote_backup enabled)
                 def report_cache_source(source: str, value: int):
                     if value > 0:
                         source_labels = {**labels, "cache_source": source}
@@ -1341,7 +1341,7 @@ class TokenizerMetricsCollector:
                 report_cache_source("device", cached_tokens_details.get("device", 0))
                 report_cache_source("host", cached_tokens_details.get("host", 0))
 
-                # Storage fields are only present when L3 storage backend is enabled
+                # Storage fields are only present when remote_backup storage backend is enabled
                 if "storage" in cached_tokens_details:
                     storage_tokens = cached_tokens_details.get("storage", 0)
                     if storage_tokens > 0:

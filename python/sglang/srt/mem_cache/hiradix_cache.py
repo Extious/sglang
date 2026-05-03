@@ -127,6 +127,7 @@ class HiRadixCache(RadixCache):
             pp_rank=self.pp_rank,
             pp_size=self.pp_size,
             enable_storage_metrics=self.enable_storage_metrics,
+            dp_rank=getattr(params, "dp_rank", None),
         )
         self._apply_storage_runtime_config(
             storage_backend=server_args.hicache_storage_backend,
@@ -146,9 +147,11 @@ class HiRadixCache(RadixCache):
         # record the ongoing prefetch requests
         self.ongoing_prefetch = {}
         self.ongoing_backup = {}
-        # track per-request tokens loaded from storage (L3 hits)
+        # track per-request tokens loaded from storage (remote backup hits)
         # key: request_id, value: number of tokens actually loaded from storage
         self.prefetch_loaded_tokens_by_reqid: dict[str, int] = {}
+        # track per-request storage query hit tokens (Remote Match count)
+        self.storage_query_tokens_by_reqid: dict[str, int] = {}
         # todo: dynamically adjust the threshold
         self.write_through_threshold = (
             1 if server_args.hicache_write_policy == "write_through" else 2
@@ -474,6 +477,10 @@ class HiRadixCache(RadixCache):
                 ack_id = operation.id
                 entry = self.ongoing_backup.pop(ack_id, None)
                 if entry is not None:
+                    entry.storage_acked_len = max(
+                        int(getattr(entry, "storage_acked_len", 0) or 0),
+                        min(len(entry.key), int(operation.completed_tokens or 0)),
+                    )
                     entry.release_host()
                 if log_metrics and self.enable_storage_metrics:
                     self.storage_metrics_collector.log_backuped_tokens(
@@ -573,8 +580,13 @@ class HiRadixCache(RadixCache):
         TreeNode.counter = 0
         self.cache_controller.reset()
         self.token_to_kv_pool_host.clear()
+        self.ongoing_write_through = {}
+        self.ongoing_load_back = {}
+        self.ongoing_prefetch = {}
+        self.ongoing_backup = {}
         # Clear per-request tracking dicts
         self.prefetch_loaded_tokens_by_reqid.clear()
+        self.storage_query_tokens_by_reqid.clear()
         self.evictable_host_leaves.clear()
         super().reset()
 
@@ -636,15 +648,22 @@ class HiRadixCache(RadixCache):
             if self.hicache_storage_pass_prefix_keys
             else None
         )
+        prefix_token_ids = node.get_prefix_token_ids(node.parent)
+        full_token_ids = prefix_token_ids + list(node.key)
+        page_start = len(prefix_token_ids) // self.page_size
 
         operation_id = self.cache_controller.write_storage(
-            node.host_value, node.key, node.hash_value, prefix_keys
+            node.host_value,
+            node.key,
+            node.hash_value,
+            prefix_keys,
+            full_token_ids=full_token_ids,
+            page_start=page_start,
         )
         self.ongoing_backup[operation_id] = node
         node.protect_host()
 
     def _inc_hit_count(self, node: TreeNode, chunked=False):
-        # skip the hit count update for chunked requests
         if self.cache_controller.write_policy == "write_back" or chunked:
             return
         node.hit_count += 1
@@ -927,12 +946,12 @@ class HiRadixCache(RadixCache):
             return None
 
         self.ongoing_load_back[last_hit_node.id] = last_hit_node
+        self.inc_lock_ref(last_hit_node)
         offset = 0
         for node in nodes_to_load:
             node.value = device_indices[offset : offset + len(node.host_value)].clone()
             offset += len(node.host_value)
         self.evictable_size_ += len(device_indices)
-        self.inc_lock_ref(last_hit_node)
 
         if self.metrics_collector is not None:
             self.metrics_collector.observe_load_back_duration(
@@ -989,6 +1008,8 @@ class HiRadixCache(RadixCache):
         Combine prefetch revoke, backup ack, and host mem release checks
         to minimize TP synchronization and Python overhead.
         """
+        if not self.enable_storage:
+            return
         cc = self.cache_controller
 
         qsizes = torch.tensor(
@@ -1114,12 +1135,16 @@ class HiRadixCache(RadixCache):
         del self.ongoing_prefetch[req_id]
         self.cache_controller.prefetch_tokens_occupied -= len(token_ids)
 
-        # Track tokens actually loaded from storage for this request (L3 hits)
-        loaded_from_storage = min_completed_tokens - matched_length
-        self.prefetch_loaded_tokens_by_reqid[req_id] = loaded_from_storage
+        # Track completed storage IO for this request. Some of these tokens may
+        # match existing host radix nodes; keep the completed count for response
+        # accounting and compute actual reuse later from host_hit_length.
+        self.prefetch_loaded_tokens_by_reqid[req_id] = min_completed_tokens
+        self.storage_query_tokens_by_reqid[req_id] = getattr(
+            operation, "storage_query_count", 0
+        )
 
         if self.enable_storage_metrics:
-            self.storage_metrics_collector.log_prefetched_tokens(loaded_from_storage)
+            self.storage_metrics_collector.log_prefetched_tokens(min_completed_tokens)
 
         return True
 
@@ -1139,6 +1164,54 @@ class HiRadixCache(RadixCache):
         This should be called after check_prefetch_progress() returns True.
         """
         return self.prefetch_loaded_tokens_by_reqid.pop(req_id, 0)
+
+    def pop_storage_query_tokens(self, req_id: str) -> int:
+        """Pop and return the storage query hit token count for a request."""
+        return self.storage_query_tokens_by_reqid.pop(req_id, 0)
+
+    def count_backed_up_tokens(self, token_ids: list) -> int:
+        """Count tokens along the radix tree path that have been backed up to host."""
+        key = RadixKey(token_ids=token_ids, extra_key=None)
+        key, _ = self.maybe_bigram_convert(key)
+        if len(key) == 0:
+            return 0
+        node = self.root_node
+        child_key = self.get_child_key_fn(key)
+        total = 0
+        while len(key) > 0 and child_key in node.children:
+            child = node.children[child_key]
+            prefix_len = self.key_match_fn(child.key, key)
+            if child.backuped:
+                total += min(prefix_len, len(child.key))
+            if prefix_len < len(child.key):
+                break
+            node = child
+            key = key[prefix_len:]
+            if len(key):
+                child_key = self.get_child_key_fn(key)
+        return total
+
+    def count_remote_acked_tokens(self, token_ids: list) -> int:
+        """Count tokens along the radix tree path that were acked by remote storage."""
+        key = RadixKey(token_ids=token_ids, extra_key=None)
+        key, _ = self.maybe_bigram_convert(key)
+        if len(key) == 0:
+            return 0
+        node = self.root_node
+        child_key = self.get_child_key_fn(key)
+        total = 0
+        while len(key) > 0 and child_key in node.children:
+            child = node.children[child_key]
+            prefix_len = self.key_match_fn(child.key, key)
+            if child.storage_acked_len > 0:
+                total += min(prefix_len, child.storage_acked_len)
+            if prefix_len < len(child.key):
+                break
+            node = child
+            key = key[prefix_len:]
+            if len(key):
+                child_key = self.get_child_key_fn(key)
+        return total
 
     def match_prefix(self, params: MatchPrefixParams):
         key = params.key
@@ -1185,7 +1258,9 @@ class HiRadixCache(RadixCache):
         new_input_tokens: List[int],
         last_hash: Optional[str] = None,
         prefix_keys: Optional[List[str]] = None,
-    ):
+        prefix_token_ids: Optional[List[int]] = None,
+        lookup_dp_rank: Optional[int] = None,
+    ) -> str:
         new_input_tokens = (
             convert_to_bigram_key(new_input_tokens)
             if self.is_eagle
@@ -1196,12 +1271,13 @@ class HiRadixCache(RadixCache):
             len(new_input_tokens) % self.page_size
         )
         new_input_tokens = new_input_tokens[:prefetch_length]
+        rate_limited = self.cache_controller.prefetch_rate_limited()
         if (
             not self.enable_storage
             or prefetch_length < self.prefetch_threshold
-            or self.cache_controller.prefetch_rate_limited()
+            or rate_limited
         ):
-            return
+            return "rate_limited" if rate_limited else "skipped"
 
         last_host_node.protect_host()
         host_indices = self.cache_controller.mem_pool_host.alloc(prefetch_length)
@@ -1211,9 +1287,15 @@ class HiRadixCache(RadixCache):
         if host_indices is None:
             last_host_node.release_host()
             # no sufficient host memory for prefetch
-            return
+            return "skipped"
         operation = self.cache_controller.prefetch(
-            req_id, host_indices, new_input_tokens, last_hash, prefix_keys
+            req_id,
+            host_indices,
+            new_input_tokens,
+            last_hash,
+            prefix_keys,
+            prefix_token_ids=prefix_token_ids,
+            lookup_dp_rank=lookup_dp_rank,
         )
         self.ongoing_prefetch[req_id] = (
             last_host_node,
@@ -1222,6 +1304,7 @@ class HiRadixCache(RadixCache):
             operation,
         )
         self.cache_controller.prefetch_tokens_occupied += len(new_input_tokens)
+        return "dispatched"
 
     def _insert_helper_host(
         self, node: TreeNode, key: RadixKey, host_value, hash_value
@@ -1255,6 +1338,7 @@ class HiRadixCache(RadixCache):
             new_node.key = key
             new_node.value = None
             new_node.host_value = host_value.clone()
+            new_node.storage_acked_len = len(key)
             new_node.hash_value = hash_value
             node.children[child_key] = new_node
             self._update_host_leaf_status(new_node)
@@ -1297,6 +1381,7 @@ class HiRadixCache(RadixCache):
         new_node.lock_ref = child.lock_ref
         new_node.key = child.key[:split_len]
         new_node.hit_count = child.hit_count
+        new_node.storage_acked_len = min(split_len, child.storage_acked_len)
 
         # split value and host value if exists
         if child.evicted:
@@ -1313,6 +1398,7 @@ class HiRadixCache(RadixCache):
         )
         child.parent = new_node
         child.key = child.key[split_len:]
+        child.storage_acked_len = max(0, child.storage_acked_len - split_len)
         new_node.parent.children[self.get_child_key_fn(key)] = new_node
 
         return new_node
@@ -1404,6 +1490,7 @@ class HiRadixCache(RadixCache):
     def release_aborted_request(self, rid: str):
         # Clean up storage hit tracking for aborted request
         self.prefetch_loaded_tokens_by_reqid.pop(rid, None)
+        self.storage_query_tokens_by_reqid.pop(rid, None)
 
         if rid not in self.ongoing_prefetch:
             return
@@ -1419,3 +1506,39 @@ class HiRadixCache(RadixCache):
         del self.ongoing_prefetch[rid]
         self.cache_controller.append_host_mem_release(host_indices[:completed_tokens])
         self.cache_controller.prefetch_tokens_occupied -= len(token_ids)
+
+    # ------------------------------------------------------------------
+    # Remote backup lifecycle hooks
+    # ------------------------------------------------------------------
+
+    def notify_remote_request_start(self, req) -> None:
+        """Notify remote backup storage that a request is starting (creates lease).
+
+        Called when a request is first enqueued so the server can protect its
+        decode KV pages from premature eviction.
+        """
+        if not self.enable_storage:
+            return
+        if getattr(req, "remote_backup_lease_active", False):
+            return  # Already registered (idempotent guard)
+        req.remote_backup_lease_active = True
+        dp_rank = getattr(self.cache_controller, "dp_rank", 0) or 0
+        self.cache_controller.notify_request_start(
+            req.rid, dp_rank, req.remote_backup_generation
+        )
+
+    def notify_remote_request_finish(self, req, reason: str = "normal") -> None:
+        """Notify remote backup storage that a request is done (enqueues GC).
+
+        ``reason`` must be one of: "normal", "abort", "failover_old",
+        "failover_supersede".
+        """
+        if not self.enable_storage:
+            return
+        if not getattr(req, "remote_backup_lease_active", False):
+            return  # Not registered; nothing to clean up
+        req.remote_backup_lease_active = False
+        dp_rank = getattr(self.cache_controller, "dp_rank", 0) or 0
+        self.cache_controller.notify_request_finish(
+            req.rid, dp_rank, req.remote_backup_generation, reason
+        )

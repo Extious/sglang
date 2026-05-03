@@ -90,6 +90,87 @@ from sglang.srt.server_args import ServerArgs, get_global_server_args
 from sglang.srt.utils import flatten_nested_list
 from sglang.srt.utils.cuda_ipc_transport_utils import CudaIpcTensorTransportProxy
 
+
+def _int_attr(obj: Any, name: str, default: int = 0) -> int:
+    return int(getattr(obj, name, default) or 0)
+
+
+def apply_cache_source_breakdown(req: Any) -> None:
+    """Populate per-source cache counters on a request."""
+    prefix_indices = getattr(req, "prefix_indices", None)
+    prefix_len = len(prefix_indices) if prefix_indices is not None else 0
+    host_total = _int_attr(req, "host_hit_length")
+    storage_completed = _int_attr(req, "storage_hit_length")
+    storage_reused = min(host_total, storage_completed)
+    host_portion = max(0, host_total - storage_reused)
+    device_portion = max(0, prefix_len - host_total)
+
+    req.cached_tokens_device = device_portion
+    req.cached_tokens_host = host_portion
+    req.cached_tokens_storage = storage_completed
+    req.reused_tokens_device = device_portion
+    req.reused_tokens_host = host_portion
+    req.reused_tokens_storage = storage_reused
+
+
+def record_remote_prefetch_stats(
+    req: Any, *, completed_tokens: int, expected_tokens: int
+) -> None:
+    """Preserve remote prefetch counters across scheduler admission retries."""
+    completed = max(0, int(completed_tokens or 0))
+    expected = max(0, int(expected_tokens or 0))
+    changed = False
+
+    if completed > _int_attr(req, "storage_hit_length"):
+        req.storage_hit_length = completed
+        changed = True
+    if expected > _int_attr(req, "storage_query_tokens"):
+        req.storage_query_tokens = expected
+        changed = True
+
+    if changed:
+        req._cache_breakdown_computed = False
+
+
+def build_cached_tokens_details(
+    req: Any,
+    *,
+    enable_hicache_storage: bool,
+    storage_backend_type: str = "none",
+) -> Optional[dict]:
+    device = _int_attr(req, "cached_tokens_device")
+    host = _int_attr(req, "cached_tokens_host")
+    storage = _int_attr(req, "cached_tokens_storage")
+    storage_query = _int_attr(req, "storage_query_tokens")
+
+    has_detailed_cache = device > 0 or host > 0 or storage > 0
+    has_storage_query = enable_hicache_storage and storage_query > 0
+    if has_detailed_cache or has_storage_query:
+        details = {
+            "device": device,
+            "host": host,
+            "reused_device": _int_attr(req, "reused_tokens_device"),
+            "reused_host": _int_attr(req, "reused_tokens_host"),
+        }
+        if enable_hicache_storage:
+            details["storage"] = storage
+            details["storage_query"] = storage_query
+            details["reused_storage"] = _int_attr(req, "reused_tokens_storage")
+            details["storage_backend"] = storage_backend_type
+        return details
+
+    cached_tokens = _int_attr(req, "cached_tokens")
+    if cached_tokens > 0:
+        return {
+            "device": cached_tokens,
+            "host": 0,
+            "reused_device": cached_tokens,
+            "reused_host": 0,
+        }
+
+    return None
+
+
 if TYPE_CHECKING:
     from typing import Any, Dict
 
@@ -604,6 +685,10 @@ class Req(ReqDllmMixin):
             else origin_input_ids  # Before image padding
         )
         self.origin_input_ids = origin_input_ids
+        # Original prompt length for correct usage reporting after failover
+        self.original_prompt_len: Optional[int] = None
+        # Output tokens generated before failover (prepended to final output)
+        self.failover_prefix_ids: Optional[List[int]] = None
         # Each decode stage's output ids
         self.output_ids = []
         # fill_ids = origin_input_ids + output_ids. Updated if chunked.
@@ -715,7 +800,7 @@ class Req(ReqDllmMixin):
         self.last_node: Any = None
         self.last_host_node: Any = None
         self.host_hit_length = 0
-        # Tokens loaded from storage backend (L3) during prefetch for this request
+        # Tokens loaded from storage backend (remote backup) during prefetch for this request
         self.storage_hit_length = 0
         # The node to lock until for swa radix tree lock ref
         self.swa_uuid_for_lock: Optional[int] = None
@@ -812,10 +897,26 @@ class Req(ReqDllmMixin):
         # Detailed breakdown of cached tokens by source (for HiCache)
         self.cached_tokens_device = 0  # Tokens from device cache (GPU)
         self.cached_tokens_host = 0  # Tokens from host cache (CPU memory)
-        self.cached_tokens_storage = 0  # Tokens from L3 storage backend
+        self.cached_tokens_storage = 0  # Tokens from remote backup storage backend
+        self.storage_query_tokens = 0  # Remote Match: storage query hit tokens
+        self.reused_tokens_device = 0  # Reuse L1: tokens reused from GPU
+        self.reused_tokens_host = 0  # Reuse L2: tokens reused from CPU host
+        self.reused_tokens_storage = 0  # Reuse L3: tokens reused from remote storage
         self._cache_breakdown_computed = (
             False  # Track if breakdown was already computed
         )
+        self._kv_released = False  # Guard against duplicate release_kv_cache calls
+
+        # Remote backup lease tracking (for request-aware retention)
+        self.remote_backup_generation: int = 0
+        self.remote_backup_lease_active: bool = False
+
+        # Failover info (only meaningful for failover-retried requests)
+        self.is_failover_retried = False
+        self.pre_failover_output_tokens = 0
+        self.pre_failover_backed_up_tokens = 0
+        self.failover_source_dp_rank: Optional[int] = None
+        self.failover_prefetch_pending = False
 
         # The number of verification forward passes in the speculative decoding.
         # This is used to compute the average acceptance length per request.
@@ -1654,24 +1755,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
                 # Only compute once on FIRST chunk - subsequent chunks in chunked prefill
                 # would incorrectly count previously computed tokens as cache hits.
                 if not req._cache_breakdown_computed:
-                    # At this point, prefix_indices has been extended with host data
-                    # via init_load_back in schedule_policy, so:
-                    # - len(prefix_indices) = device_original + host_loaded
-                    # - host_hit_length = total tokens from host cache (including storage-prefetched)
-                    # - storage_hit_length = tokens loaded from storage backend (L3 hits)
-                    # - device_portion = len(prefix_indices) - host_hit_length
-                    #
-                    # Storage hits are now tracked via scheduler after prefetch completes.
-                    # storage_hit_length is set by scheduler.pop_prefetch_loaded_tokens()
-                    host_total = req.host_hit_length
-                    # Clamp storage to host_total to handle edge cases
-                    storage_portion = min(host_total, req.storage_hit_length)
-                    host_portion = host_total - storage_portion
-                    device_portion = max(0, len(req.prefix_indices) - host_total)
-
-                    req.cached_tokens_device = device_portion
-                    req.cached_tokens_host = host_portion
-                    req.cached_tokens_storage = storage_portion
+                    apply_cache_source_breakdown(req)
                     req._cache_breakdown_computed = True
 
                 req.already_computed = seq_len

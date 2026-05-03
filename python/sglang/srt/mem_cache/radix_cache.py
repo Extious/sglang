@@ -137,6 +137,8 @@ class TreeNode:
         self.host_ref_counter = 0
         # store the host indices of KV cache
         self.host_value: Optional[torch.Tensor] = None
+        # store the number of tokens durably acked by remote storage
+        self.storage_acked_len = 0
         # store hash values of each pages
         self.hash_value: Optional[List[str]] = None
         # priority for priority-aware eviction
@@ -176,6 +178,11 @@ class TreeNode:
             return []
 
         return node.get_prefix_hash_values(node.parent) + node.hash_value
+
+    def get_prefix_token_ids(self, node: "TreeNode") -> List[int]:
+        if node is None or node.key is None:
+            return []
+        return node.get_prefix_token_ids(node.parent) + list(node.key)
 
     def __lt__(self, other: "TreeNode"):
         return self.last_access_time < other.last_access_time
@@ -700,9 +707,11 @@ class RadixCache(BasePrefixCache):
         new_node.lock_ref = child.lock_ref
         new_node.key = child.key[:split_len]
         new_node.value = child.value[:split_len].clone()
+        new_node.storage_acked_len = min(split_len, child.storage_acked_len)
         child.parent = new_node
         child.key = child.key[split_len:]
         child.value = child.value[split_len:].clone()
+        child.storage_acked_len = max(0, child.storage_acked_len - split_len)
         new_node.parent.children[self.get_child_key_fn(key)] = new_node
 
         # Split hash_value if it was already computed, otherwise leave as None

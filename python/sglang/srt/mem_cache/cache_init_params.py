@@ -30,6 +30,8 @@ class CacheInitParams:
     pp_rank: int = 0
     pp_size: int = 1
 
+    dp_rank: Optional[int] = None
+
     chunked_prefill_size: Optional[int] = None
 
     sliding_window_size: Optional[int] = None

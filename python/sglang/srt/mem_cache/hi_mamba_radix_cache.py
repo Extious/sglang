@@ -237,7 +237,7 @@ class HiMambaRadixCache(MambaRadixCache):
         self.ongoing_load_back = {}
         self.ongoing_prefetch = {}
         self.ongoing_backup = {}
-        # track per-request tokens loaded from storage (L3 hits)
+        # track per-request tokens loaded from storage (remote backup hits)
         # key: request_id, value: number of tokens actually loaded from storage
         self.prefetch_loaded_tokens_by_reqid: dict[str, int] = {}
 
@@ -1277,7 +1277,7 @@ class HiMambaRadixCache(MambaRadixCache):
             node = node.parent
         return DecLockRefResult(delta=delta)
 
-    # ---- L3 Support ----
+    # ---- Remote Backup Support ----
 
     def shutdown(self):
         try:
@@ -1654,6 +1654,8 @@ class HiMambaRadixCache(MambaRadixCache):
             return False
 
     def drain_storage_control_queues(self):
+        if not self.enable_storage:
+            return
         cc = self.cache_controller
 
         qsizes = torch.tensor(
@@ -1757,6 +1759,8 @@ class HiMambaRadixCache(MambaRadixCache):
         new_input_tokens: List[int],
         last_hash: Optional[str] = None,
         prefix_keys: Optional[List[str]] = None,
+        prefix_token_ids: Optional[List[int]] = None,
+        lookup_dp_rank: Optional[int] = None,
     ):
         prefetch_length = len(new_input_tokens) - (
             len(new_input_tokens) % self.page_size

@@ -1289,6 +1289,10 @@ class Req(ReqDllmMixin):
         # Increment retraction count before resetting other state. We should not reset this
         # since we are tracking the total number of retractions for each request.
         self.retraction_count += 1
+        # The same Req object is reused after retract. Allow the next lifecycle
+        # to release its KV/lock state again instead of being short-circuited by
+        # the previous release guard.
+        self._kv_released = False
 
         self.prefix_indices = torch.empty((0,), dtype=torch.int64)
         self.routed_experts = None

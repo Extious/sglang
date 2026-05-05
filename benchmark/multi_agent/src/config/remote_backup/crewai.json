@@ -1,6 +1,6 @@
 {
     "job_limit": 8,
-    "app_workers": 4,
+    "app_workers": 8,
     "worker_start_stagger_s": 1,
     "topics_csv": "",
     "default_year": 2025,

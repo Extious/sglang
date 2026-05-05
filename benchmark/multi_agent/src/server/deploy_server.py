@@ -49,6 +49,9 @@ DEFAULT_PLATFORMS = {
         "server_port_base": 28000,
         "dist_init_port_offset": 100,
         "tool_call_parser": "qwen",
+        "reasoning_parser": "",
+        "context_length": 0,
+        "chat_template": "",
         "enable_cache_report": True,
         "enable_hicache": True,
         "hicache_size_gb": 16,
@@ -76,6 +79,9 @@ DEFAULT_PLATFORMS = {
         "server_port_base": 34000,
         "dist_init_port_offset": 100,
         "tool_call_parser": "qwen",
+        "reasoning_parser": "",
+        "context_length": 0,
+        "chat_template": "",
         "enable_cache_report": True,
         "enable_hicache": True,
         "hicache_size_gb": 40,
@@ -219,6 +225,13 @@ def load_config(argv: list[str]) -> dict[str, Any]:
     parser.add_argument("--hicache-size-gb", dest="hicache_size_gb", type=int, default=None)
     parser.add_argument("--hicache-ratio", dest="hicache_ratio", type=float, default=None)
     parser.add_argument("--tool-call-parser", dest="tool_call_parser", default=None)
+    parser.add_argument("--reasoning-parser", dest="reasoning_parser", default=None,
+                        help="SGLang --reasoning-parser (e.g. qwen3 for Qwen3.5)")
+    parser.add_argument("--context-length", dest="context_length", type=int, default=None,
+                        help="SGLang --context-length override (tokens). 0/empty = model default")
+    parser.add_argument("--chat-template", dest="chat_template", default=None,
+                        help="Path to a Jinja chat template (overrides the model's built-in). "
+                             "Relative paths are resolved against the benchmark src root.")
     parser.add_argument("--enable-cache-report", dest="enable_cache_report",
                         action="store_true", default=None)
     parser.add_argument("--disable-cache-report", dest="disable_cache_report",
@@ -429,6 +442,22 @@ def build_launch_cmd(
         "--enable-metrics",
         "--tool-call-parser", cfg["tool_call_parser"],
     ]
+    if cfg.get("reasoning_parser"):
+        cmd.extend(["--reasoning-parser", str(cfg["reasoning_parser"])])
+    ctx_len = int(cfg.get("context_length", 0) or 0)
+    if ctx_len > 0:
+        cmd.extend(["--context-length", str(ctx_len)])
+    chat_tmpl = cfg.get("chat_template", "") or ""
+    if chat_tmpl:
+        # Resolve relative paths against the benchmark src root so configs can
+        # reference templates shipped with the experiment.
+        chat_tmpl_path = chat_tmpl
+        if not os.path.isabs(chat_tmpl_path):
+            src_root = Path(__file__).resolve().parents[1]
+            candidate = (src_root / chat_tmpl_path).resolve()
+            if candidate.exists():
+                chat_tmpl_path = str(candidate)
+        cmd.extend(["--chat-template", chat_tmpl_path])
     if total_nodes > 1:
         cmd.extend(["--dist-init-addr", dist_init_addr])
     if cfg.get("enable_cache_report"):

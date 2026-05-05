@@ -1,12 +1,12 @@
 {
   "name": "baseline",
   "description": "SGLang server without any KV backup — baseline fault-tolerance measurement.",
-  "platform": "tianhe",
+  "platform": "gpuhome",
   "kv_backup": "none",
   "server": {
-    "model_path": "/HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/.cache/huggingface/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218",
+    "model_path": "Qwen/Qwen3-8B",
     "dp_size": 2,
-    "load_balance_method": "total_tokens",
+    "load_balance_method": "round_robin",
     "pp_size": 1,
     "tp_size": 1,
     "nnodes": 1,

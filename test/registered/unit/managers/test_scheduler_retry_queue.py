@@ -11,7 +11,9 @@ from sglang.test.test_utils import CustomTestCase, maybe_stub_sgl_kernel
 
 maybe_stub_sgl_kernel()
 
+from sglang.srt.mem_cache.common import release_kv_cache
 from sglang.srt.managers.io_struct import SimulateGpuFailureReqInput
+from sglang.srt.managers.schedule_batch import Req
 from sglang.srt.managers.schedule_policy import AddReqResult
 from sglang.srt.managers.scheduler import Scheduler
 from sglang.srt.disaggregation.utils import DisaggregationMode
@@ -190,6 +192,85 @@ class TestSchedulerRetryQueue(CustomTestCase):
 
         self.scheduler.check_memory.assert_not_called()
         self.scheduler.check_tree_cache.assert_not_called()
+
+    @patch("sglang.srt.mem_cache.common.get_global_server_args")
+    def test_retracted_req_can_release_kv_cache_again_after_reuse(
+        self, mock_get_global_server_args
+    ):
+        req = SimpleNamespace(
+            retraction_count=0,
+            prefix_indices=torch.tensor([1], dtype=torch.int64),
+            routed_experts=None,
+            last_node="old-node",
+            swa_uuid_for_lock=None,
+            extend_input_len=1,
+            is_retracted=False,
+            retracted_stain=False,
+            input_token_logprobs=None,
+            temp_input_top_logprobs_val=None,
+            temp_input_top_logprobs_idx=None,
+            extend_logprob_start_len=0,
+            is_chunked=0,
+            mamba_pool_idx=None,
+            mamba_ping_pong_track_buffer=None,
+            mamba_next_track_idx=None,
+            mamba_last_track_seqlen=None,
+            mamba_branching_seqlen=None,
+            already_computed=0,
+            kv_allocated_len=1,
+            kv_committed_len=1,
+            kv_committed_freed=False,
+            kv_overallocated_freed=False,
+            swa_evicted_seqlen=0,
+            extend_batch_idx=0,
+            decode_batch_idx=0,
+            input_embeds=None,
+            output_ids=[],
+            _kv_released=True,
+            req_pool_idx=0,
+            cache_protected_len=0,
+            origin_input_ids=[11],
+            pop_overallocated_kv_cache=MagicMock(return_value=(1, 1)),
+        )
+
+        Req.reset_for_retract(req)
+
+        req.req_pool_idx = 0
+        req.last_node = "reused-node"
+        req.pop_overallocated_kv_cache = MagicMock(return_value=(1, 1))
+        tree_cache = SimpleNamespace(
+            supports_mamba=MagicMock(return_value=False),
+            cache_finished_req=MagicMock(),
+            req_to_token_pool=SimpleNamespace(
+                req_to_token=torch.tensor([[1]], dtype=torch.int64),
+                free=MagicMock(),
+            ),
+            token_to_kv_pool_allocator=SimpleNamespace(free=MagicMock()),
+        )
+        mock_get_global_server_args.return_value = SimpleNamespace(
+            page_size=1,
+            speculative_algorithm=None,
+        )
+
+        release_kv_cache(req, tree_cache, is_insert=False)
+
+        tree_cache.cache_finished_req.assert_called_once_with(req, is_insert=False)
+        tree_cache.req_to_token_pool.free.assert_called_once_with(req)
+
+    def test_radix_memory_leak_details_accepts_list_backed_values(self):
+        self.scheduler.token_to_kv_pool_allocator = SimpleNamespace(
+            free_pages=torch.empty((0,), dtype=torch.int64),
+            release_pages=torch.empty((0,), dtype=torch.int64),
+            size=2,
+        )
+        self.scheduler.tree_cache = SimpleNamespace(
+            root_node=SimpleNamespace(value=[1, 2], children={})
+        )
+
+        detail = self.scheduler._radix_memory_leak_details()
+
+        self.assertIn("leaked_pages=None", detail)
+        self.assertNotIn("leaked_pages_detail_error", detail)
 
     @patch("sglang.srt.managers.scheduler_output_processor_mixin.release_kv_cache")
     def test_finished_failover_retry_is_inserted_into_cache(self, mock_release_kv_cache):

@@ -28,6 +28,15 @@ class ServerConfig:
     remote_backup_buffer_size_gb: float = 0.0
     # SGLang --load-balance-method (e.g. total_tokens); empty = server default (auto)
     load_balance_method: str = ""
+    # SGLang --reasoning-parser (e.g. qwen3 for Qwen3.5-*); empty = no override
+    reasoning_parser: str = ""
+    # SGLang --context-length override; <=0 = use model derived
+    context_length: int = 0
+    # SGLang --chat-template (path to a Jinja template). Used to override the
+    # built-in template, e.g. relax Qwen3.5's "system at beginning" check that
+    # breaks multi-agent (CrewAI) workflows. May be relative to the benchmark
+    # src root.
+    chat_template: str = ""
 
     @classmethod
     def from_dict(cls, d: dict) -> ServerConfig:
@@ -49,6 +58,9 @@ class ServerConfig:
             remote_backup_port_base=int(hs.get("remote_backup_port_base", 0)),
             remote_backup_buffer_size_gb=float(hs.get("remote_backup_buffer_size_gb", 0.0)),
             load_balance_method=str(d.get("load_balance_method", "")),
+            reasoning_parser=str(d.get("reasoning_parser", "")),
+            context_length=int(d.get("context_length", 0) or 0),
+            chat_template=str(d.get("chat_template", "")),
         )
 
     def build_deploy_flags(
@@ -96,6 +108,12 @@ class ServerConfig:
                               str(self.remote_backup_buffer_size_gb)])
         if self.load_balance_method:
             flags.extend(["--load-balance-method", self.load_balance_method])
+        if self.reasoning_parser:
+            flags.extend(["--reasoning-parser", self.reasoning_parser])
+        if self.context_length and self.context_length > 0:
+            flags.extend(["--context-length", str(self.context_length)])
+        if self.chat_template:
+            flags.extend(["--chat-template", self.chat_template])
         return flags
 
     def topology_tag(self) -> str:

@@ -247,6 +247,20 @@ class SchedulerRuntimeCheckerMixin:
     def _radix_memory_leak_details(self: Scheduler) -> str:
         """Return extra ownership info for leaked token pages."""
         try:
+            def _flatten_page_values(value) -> List[int]:
+                if value is None:
+                    return []
+                if isinstance(value, torch.Tensor):
+                    return value.detach().cpu().tolist()
+                if isinstance(value, (list, tuple)):
+                    pages = []
+                    for item in value:
+                        pages.extend(_flatten_page_values(item))
+                    return pages
+                if hasattr(value, "tolist"):
+                    return _flatten_page_values(value.tolist())
+                return [int(value)]
+
             free_pages = set(
                 self.token_to_kv_pool_allocator.free_pages.detach().cpu().tolist()
                 + self.token_to_kv_pool_allocator.release_pages.detach().cpu().tolist()
@@ -259,8 +273,10 @@ class SchedulerRuntimeCheckerMixin:
                 value = getattr(node, "value", None)
                 if value is None:
                     host_only_nodes += 1
-                elif len(value) > 0:
-                    cached_pages.update(value.detach().cpu().tolist())
+                else:
+                    page_values = _flatten_page_values(value)
+                    if page_values:
+                        cached_pages.update(page_values)
                 stack.extend(getattr(node, "children", {}).values())
             expected_pages = set(range(1, self.token_to_kv_pool_allocator.size + 1))
             leaked_pages = expected_pages - free_pages - cached_pages

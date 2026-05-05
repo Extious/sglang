@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=remote_backup_test
-#SBATCH --partition=long
+#SBATCH --partition=short
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:rtx4090:2
+#SBATCH --gres=gpu:a100:2
 #SBATCH --exclude=gpu[10-13]
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=120G
+#SBATCH --mem=300G
 #SBATCH --time=04:00:00
 #SBATCH --output=/dev/null
 #SBATCH --error=/dev/null

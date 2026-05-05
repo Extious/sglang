@@ -240,6 +240,10 @@ class HiMambaRadixCache(MambaRadixCache):
         # track per-request tokens loaded from storage (remote backup hits)
         # key: request_id, value: number of tokens actually loaded from storage
         self.prefetch_loaded_tokens_by_reqid: dict[str, int] = {}
+        # track per-request storage query hit tokens (Remote Match count); mirrors
+        # HiRadixCache so scheduler.record_remote_prefetch_stats works on hybrid
+        # mamba models too.
+        self.storage_query_tokens_by_reqid: dict[str, int] = {}
 
         self.write_through_threshold = (
             1 if server_args.hicache_write_policy == "write_through" else 2
@@ -266,6 +270,7 @@ class HiMambaRadixCache(MambaRadixCache):
         self.ongoing_prefetch = {}
         self.ongoing_backup = {}
         self.prefetch_loaded_tokens_by_reqid.clear()
+        self.storage_query_tokens_by_reqid.clear()
         self.evictable_full_device_leaves.clear()
         self.evictable_full_host_leaves.clear()
         self.mamba_host_lru_list = HostLRUList()
@@ -1734,6 +1739,10 @@ class HiMambaRadixCache(MambaRadixCache):
     def pop_prefetch_loaded_tokens(self, req_id: str) -> int:
         return self.prefetch_loaded_tokens_by_reqid.pop(req_id, 0)
 
+    def pop_storage_query_tokens(self, req_id: str) -> int:
+        """Pop and return the storage query hit token count for a request."""
+        return self.storage_query_tokens_by_reqid.pop(req_id, 0)
+
     def write_backup_storage(self, node: TreeNode):
         prefix_keys = (
             node.get_prefix_hash_values(node.parent)
@@ -1888,6 +1897,9 @@ class HiMambaRadixCache(MambaRadixCache):
 
         loaded_from_storage = min_completed_tokens - matched_length
         self.prefetch_loaded_tokens_by_reqid[req_id] = loaded_from_storage
+        self.storage_query_tokens_by_reqid[req_id] = getattr(
+            operation, "storage_query_count", 0
+        )
 
         if self.enable_storage_metrics:
             self.storage_metrics_collector.log_prefetched_tokens(loaded_from_storage)
@@ -1959,6 +1971,7 @@ class HiMambaRadixCache(MambaRadixCache):
 
     def release_aborted_request(self, rid: str):
         self.prefetch_loaded_tokens_by_reqid.pop(rid, None)
+        self.storage_query_tokens_by_reqid.pop(rid, None)
 
         if rid not in self.ongoing_prefetch:
             return

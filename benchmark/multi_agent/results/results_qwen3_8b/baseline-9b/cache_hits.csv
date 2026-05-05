@@ -1,0 +1,9 @@
+job_id,task_label,agent_role,rid,l1_match,l2_match,remote_match,remote_prefetch,reused_device,reused_host,reused_storage,is_failover_retried,pre_failover_output_tokens,pre_failover_backed_up_tokens
+1,Phase 1 / Planning,Planning Coordinator,,0,0,0,0,0,0,0,,,
+5,Phase 1 / Planning,Planning Coordinator,,0,0,0,0,0,0,0,,,
+3,Phase 1 / Planning,Planning Coordinator,,0,0,0,0,0,0,0,,,
+2,Phase 1 / Planning,Planning Coordinator,,0,0,0,0,0,0,0,,,
+4,Phase 1 / Planning,Planning Coordinator,,0,0,0,0,0,0,0,,,
+6,Phase 1 / Planning,Planning Coordinator,,0,0,0,0,0,0,0,,,
+8,Phase 1 / Planning,Planning Coordinator,,0,0,0,0,0,0,0,,,
+7,Phase 1 / Planning,Planning Coordinator,,0,0,0,0,0,0,0,,,

@@ -219,6 +219,65 @@ class HybridCacheController(BaseHiCacheController):
             self.host_mem_release_queue.queue.clear()
             self.prefetch_tokens_occupied = 0
 
+    @staticmethod
+    def _record_pool_transfers_stream(
+        pool_transfers: Optional[list[PoolTransfer]],
+        stream,
+    ) -> None:
+        """Keep CUDA tensors inside ``pool_transfers`` alive on ``stream`` until
+        the kernel finishes. The aligned-copies built by ``_aligned_pool_transfers``
+        are local to start_writing/start_loading; without record_stream the caching
+        allocator can recycle their memory before the async transfer completes,
+        producing 'illegal memory access' on a later sync (e.g. .tolist())."""
+        if not pool_transfers:
+            return
+        for transfer in pool_transfers:
+            t_host = transfer.host_indices
+            if t_host is not None and t_host.is_cuda:
+                t_host.record_stream(stream)
+            t_dev = transfer.device_indices
+            if t_dev is not None and t_dev.is_cuda:
+                t_dev.record_stream(stream)
+
+    def _aligned_pool_transfers(
+        self,
+        pool_transfers: Optional[list[PoolTransfer]],
+    ) -> Optional[list[PoolTransfer]]:
+        """Return a shallow-copy of pool_transfers whose host/device indices live
+        on the device required by the active io_backend, without mutating the
+        originals. The originals must remain on their allocator's native device
+        (CPU for host pools) because callers later free them back via
+        ``host_pool.free(transfer.host_indices)``; pool-host ``free`` impls
+        (e.g. ``MambaPoolHost.free``) do ``torch.cat`` directly with no device
+        coercion, so passing a CUDA tensor there silently corrupts the free
+        list and triggers async ``illegal memory access`` later.
+        """
+        if not pool_transfers:
+            return pool_transfers
+
+        aligned: list[PoolTransfer] = []
+        for transfer in pool_transfers:
+            t_host = transfer.host_indices
+            t_dev = transfer.device_indices
+            if self.io_backend == "kernel":
+                if t_host is not None and not t_host.is_cuda:
+                    t_host = t_host.to(self.device, non_blocking=True)
+            elif self.io_backend in ("direct", "kernel_ascend"):
+                if t_dev is not None and t_dev.is_cuda:
+                    t_dev = t_dev.cpu()
+            if t_host is transfer.host_indices and t_dev is transfer.device_indices:
+                aligned.append(transfer)
+            else:
+                aligned.append(
+                    PoolTransfer(
+                        name=transfer.name,
+                        host_indices=t_host,
+                        device_indices=t_dev,
+                        keys=transfer.keys,
+                    )
+                )
+        return aligned
+
     def write(
         self,
         device_indices: torch.Tensor,
@@ -253,6 +312,7 @@ class HybridCacheController(BaseHiCacheController):
             return
         op = CacheOperation.merge_ops(self.write_queue)
         host_indices, device_indices = self.move_indices(op)
+        aligned_pool_transfers = self._aligned_pool_transfers(op.pool_transfers)
         self.write_queue.clear()
         start_event = device_module.Event()
         finish_event = device_module.Event()
@@ -264,13 +324,16 @@ class HybridCacheController(BaseHiCacheController):
                 host_indices,
                 device_indices,
                 self.io_backend,
-                pool_transfers=op.pool_transfers,
+                pool_transfers=aligned_pool_transfers,
             )
             finish_event.record()
             if host_indices.is_cuda:
                 host_indices.record_stream(self.write_stream)
             if device_indices.is_cuda:
                 device_indices.record_stream(self.write_stream)
+            self._record_pool_transfers_stream(
+                aligned_pool_transfers, self.write_stream
+            )
         self.ack_write_queue.append(HiCacheAck(start_event, finish_event, op.node_ids))
 
     def load(
@@ -313,6 +376,7 @@ class HybridCacheController(BaseHiCacheController):
         producer_id = self.layer_done_counter.update_producer()
         op = CacheOperation.merge_ops(self.load_queue)
         host_indices, device_indices = self.move_indices(op)
+        aligned_pool_transfers = self._aligned_pool_transfers(op.pool_transfers)
         self.load_queue.clear()
         producer_event = self.layer_done_counter.events[producer_id]
         producer_event.start_event.record()
@@ -325,13 +389,16 @@ class HybridCacheController(BaseHiCacheController):
                     device_indices,
                     i,
                     self.io_backend,
-                    pool_transfers=op.pool_transfers,
+                    pool_transfers=aligned_pool_transfers,
                 )
                 producer_event.complete(i)
             if host_indices.is_cuda:
                 host_indices.record_stream(self.load_stream)
             if device_indices.is_cuda:
                 device_indices.record_stream(self.load_stream)
+            self._record_pool_transfers_stream(
+                aligned_pool_transfers, self.load_stream
+            )
         self.ack_load_queue.append(
             HiCacheAck(
                 producer_event.start_event,

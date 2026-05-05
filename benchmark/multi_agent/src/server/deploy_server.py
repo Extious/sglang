@@ -51,6 +51,7 @@ DEFAULT_PLATFORMS = {
         "tool_call_parser": "qwen",
         "reasoning_parser": "",
         "context_length": 0,
+        "json_model_override_args": "{}",
         "chat_template": "",
         "enable_cache_report": True,
         "enable_hicache": True,
@@ -81,6 +82,7 @@ DEFAULT_PLATFORMS = {
         "tool_call_parser": "qwen",
         "reasoning_parser": "",
         "context_length": 0,
+        "json_model_override_args": "{}",
         "chat_template": "",
         "enable_cache_report": True,
         "enable_hicache": True,
@@ -229,6 +231,12 @@ def load_config(argv: list[str]) -> dict[str, Any]:
                         help="SGLang --reasoning-parser (e.g. qwen3 for Qwen3.5)")
     parser.add_argument("--context-length", dest="context_length", type=int, default=None,
                         help="SGLang --context-length override (tokens). 0/empty = model default")
+    parser.add_argument(
+        "--json-model-override-args",
+        dest="json_model_override_args",
+        default=None,
+        help="Raw JSON string forwarded to SGLang --json-model-override-args.",
+    )
     parser.add_argument("--chat-template", dest="chat_template", default=None,
                         help="Path to a Jinja chat template (overrides the model's built-in). "
                              "Relative paths are resolved against the benchmark src root.")
@@ -447,6 +455,9 @@ def build_launch_cmd(
     ctx_len = int(cfg.get("context_length", 0) or 0)
     if ctx_len > 0:
         cmd.extend(["--context-length", str(ctx_len)])
+    model_override_args = str(cfg.get("json_model_override_args", "") or "").strip()
+    if model_override_args and model_override_args != "{}":
+        cmd.extend(["--json-model-override-args", model_override_args])
     chat_tmpl = cfg.get("chat_template", "") or ""
     if chat_tmpl:
         # Resolve relative paths against the benchmark src root so configs can

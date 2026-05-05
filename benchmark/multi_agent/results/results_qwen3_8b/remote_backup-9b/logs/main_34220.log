@@ -1,8 +1,0 @@
-[2026-05-05 11:02:26] ============================================================
-[2026-05-05 11:02:26] EXPERIMENT  topology=DP2_PP1_TP1_N1  kv_backup=remote_backup
-[2026-05-05 11:02:26]   result_dir: /home/comp/zhanzhao/sglang/benchmark/multi_agent/results/results_qwen3_8b/remote_backup-9b
-[2026-05-05 11:02:26]   log_dir:    /home/comp/zhanzhao/sglang/benchmark/multi_agent/logs
-[2026-05-05 11:02:26] Step 1: Start SGLang server subprocess...
-[2026-05-05 11:02:26]   Server PID: 1276841
-
-Interrupted -- cleaning up...

@@ -1,0 +1,14 @@
+[2026-05-05 14:25:24] ============================================================
+[2026-05-05 14:25:24] EXPERIMENT  topology=DP2_PP1_TP1_N1  kv_backup=none
+[2026-05-05 14:25:24]   result_dir: /XYFS01/HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/sglang/benchmark/multi_agent/results/results_qwen3_8b/baseline-9b
+[2026-05-05 14:25:24]   log_dir:    /XYFS01/HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/sglang/benchmark/multi_agent/logs/logs_qwen3_8b
+[2026-05-05 14:25:24] Step 1: Start SGLang server subprocess...
+[2026-05-05 14:25:24]   Server PID: 4066223
+[2026-05-05 14:29:43]   Server ready at http://an47:28000
+[2026-05-05 14:29:43] Step 2: Start injector and client subprocesses...
+[2026-05-05 14:29:43]   Injector PID: 4067039
+[2026-05-05 14:29:43]   Client PID: 4067042
+[2026-05-05 14:34:03]   Client exited (rc=0)
+[2026-05-05 14:34:03] Step 3: Generate plots...
+Saved plot to /XYFS01/HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/sglang/benchmark/multi_agent/results/results_qwen3_8b/baseline-9b/figures/trace_log_profile.png
+[2026-05-05 14:34:08] Experiment complete. Results in /XYFS01/HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/sglang/benchmark/multi_agent/results/results_qwen3_8b/baseline-9b

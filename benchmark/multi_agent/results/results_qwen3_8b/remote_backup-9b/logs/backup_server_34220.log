@@ -1,3 +1,0 @@
-2026-05-05 11:02:46,581 INFO __main__: Starting Remote Backup KV Cache Server: port=30000, buffer_size_gb=120.0, page_size=1
-2026-05-05 11:02:46,582 INFO remote_backup_server: RemoteBackupServer listening on port 30000 (buffer 120.0 GB, page_size=1, request_aware=True)
-2026-05-05 11:02:46,582 INFO __main__: Remote Backup KV Cache Server is running. Press Ctrl+C to stop.

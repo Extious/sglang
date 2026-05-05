@@ -4,7 +4,7 @@
   "platform": "gpuhome",
   "kv_backup": "remote_backup",
   "server": {
-    "model_path": "Qwen/Qwen3.5-9B",
+    "model_path": "/HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/.cache/modelscope/hub/models/Qwen/Qwen3___5-9B",
     "load_balance_method": "round_robin",
     "dp_size": 2,
     "pp_size": 1,

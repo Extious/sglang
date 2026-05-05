@@ -32,6 +32,8 @@ class ServerConfig:
     reasoning_parser: str = ""
     # SGLang --context-length override; <=0 = use model derived
     context_length: int = 0
+    # Raw JSON string forwarded to SGLang --json-model-override-args, e.g. YaRN.
+    json_model_override_args: str = ""
     # SGLang --chat-template (path to a Jinja template). Used to override the
     # built-in template, e.g. relax Qwen3.5's "system at beginning" check that
     # breaks multi-agent (CrewAI) workflows. May be relative to the benchmark
@@ -60,6 +62,7 @@ class ServerConfig:
             load_balance_method=str(d.get("load_balance_method", "")),
             reasoning_parser=str(d.get("reasoning_parser", "")),
             context_length=int(d.get("context_length", 0) or 0),
+            json_model_override_args=str(d.get("json_model_override_args", "")),
             chat_template=str(d.get("chat_template", "")),
         )
 
@@ -112,6 +115,10 @@ class ServerConfig:
             flags.extend(["--reasoning-parser", self.reasoning_parser])
         if self.context_length and self.context_length > 0:
             flags.extend(["--context-length", str(self.context_length)])
+        if self.json_model_override_args and self.json_model_override_args != "{}":
+            flags.extend(
+                ["--json-model-override-args", self.json_model_override_args]
+            )
         if self.chat_template:
             flags.extend(["--chat-template", self.chat_template])
         return flags

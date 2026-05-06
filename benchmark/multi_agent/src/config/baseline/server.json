@@ -1,11 +1,11 @@
 {
   "name": "baseline",
   "description": "SGLang server without any KV backup — baseline fault-tolerance measurement.",
-  "platform": "gpuhome",
+  "platform": "daai",
   "kv_backup": "none",
   "server": {
     "model_path": "Qwen/Qwen3-8B",
-    "dp_size": 2,
+    "dp_size": 4,
     "load_balance_method": "round_robin",
     "pp_size": 1,
     "tp_size": 1,

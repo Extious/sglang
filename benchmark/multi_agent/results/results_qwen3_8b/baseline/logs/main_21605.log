@@ -1,0 +1,8 @@
+[2026-05-05 23:21:52] ============================================================
+[2026-05-05 23:21:52] EXPERIMENT  topology=DP4_PP1_TP1_N1  kv_backup=none
+[2026-05-05 23:21:52]   result_dir: /home/comp/25482351/sglang/benchmark/multi_agent/results/results_qwen3_8b/baseline
+[2026-05-05 23:21:52]   log_dir:    /home/comp/25482351/sglang/benchmark/multi_agent/logs
+[2026-05-05 23:21:52] Step 1: Start SGLang server subprocess...
+[2026-05-05 23:21:52]   Server PID: 577892
+
+Interrupted -- cleaning up...

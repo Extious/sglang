@@ -1,0 +1,4 @@
+[2026-05-06 15:06:48] Using free dist-init port 28100
+[2026-05-06 15:06:48] [DEBUG] kv_backup='remote_backup', remote_backup_port_base=30000, remote_backup_buffer_size_gb=300.0, hicache_storage_backend='remote_backup'
+[2026-05-06 15:06:48] Remote backup server launching directly at 127.0.0.1:30000 ...
+[2026-05-06 15:10:49] ERROR: Remote backup server failed to respond at 127.0.0.1:30000

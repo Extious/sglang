@@ -1,7 +1,7 @@
 {
-    "job_limit": 8,
-    "app_workers": 8,
-    "worker_start_stagger_s": 1,
+    "job_limit": 24,
+    "app_workers": 24,
+    "worker_start_stagger_s": 0.1,
     "topics_csv": "",
     "default_year": 2025,
     "short_max_tokens": 1024,

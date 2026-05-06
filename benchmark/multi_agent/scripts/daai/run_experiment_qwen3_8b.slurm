@@ -2,10 +2,11 @@
 #SBATCH --job-name=crewai_exp_8b_daai_dp2
 #SBATCH --partition=short
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:a100:2
+#SBATCH --gres=gpu:a100:4
+#SBATCH --exclude=hkbugpudgx01
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=300G
+#SBATCH --mem=600G
 #SBATCH --time=24:00:00
 #SBATCH --output=/dev/null
 #SBATCH --error=/dev/null

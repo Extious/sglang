@@ -1,0 +1,12 @@
+[2026-05-05 23:21:53] Using free dist-init port 28100
+[2026-05-05 23:21:53] [DEBUG] kv_backup='none', remote_backup_port_base=35000, remote_backup_buffer_size_gb=32.0, hicache_storage_backend=''
+[2026-05-05 23:21:53] Deploying SGLang server (DP=4 PP=1 TP=1 nodes=1)
+[2026-05-05 23:21:53]   kv_backup:       none
+[2026-05-05 23:21:53]   nnodes:          1
+[2026-05-05 23:21:53]   nodes:           ['hkbugpusrv08']
+[2026-05-05 23:21:53] Starting node_rank=0 on hkbugpusrv08
+[2026-05-05 23:21:54]   Caching model to local disk: /tmp/sglang-model-cache/Qwen3-8B
+[2026-05-05 23:23:38] [node 0] launch cmd: '/home/comp/25482351/sglang/.venv/bin/python' '-m' 'sglang.launch_server' '--model-path' '/tmp/sglang-model-cache/Qwen3-8B' '--dp-size' '4' '--host' '0.0.0.0' '--port' '28000' '--nnodes' '1' '--node-rank' '0' '--tp' '1' '--pp-size' '1' '--disable-overlap-schedule' '--attention-backend' 'triton' '--sampling-backend' 'pytorch' '--enable-metrics' '--tool-call-parser' 'qwen' '--enable-cache-report' '--enable-hierarchical-cache' '--hicache-size' '60' '--load-balance-method' 'round_robin'
+[2026-05-05 23:23:38] [node 0] Launching server on hkbugpusrv08...
+srun: Job step aborted: Waiting up to 32 seconds for job step to finish.
+[2026-05-05T23:29:44.739] error: *** STEP 21605.1 ON hkbugpusrv08 CANCELLED AT 2026-05-05T23:29:44 DUE to SIGNAL Terminated ***

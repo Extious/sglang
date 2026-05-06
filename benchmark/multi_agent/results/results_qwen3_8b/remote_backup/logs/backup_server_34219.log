@@ -1,8 +1,0 @@
-2026-05-05 10:57:13,599 INFO __main__: Starting Remote Backup KV Cache Server: port=30000, buffer_size_gb=120.0, page_size=1
-2026-05-05 10:57:13,600 INFO remote_backup_server: RemoteBackupServer listening on port 30000 (buffer 120.0 GB, page_size=1, request_aware=True)
-2026-05-05 10:57:13,600 INFO __main__: Remote Backup KV Cache Server is running. Press Ctrl+C to stop.
-2026-05-05 10:59:52,678 INFO remote_backup_server: REMOTE_BACKUP backup_put dp_rank=0 page_start=0 pages=6 ok=6/6 seq_tokens=6 bytes=884736 inactive_pages=6 active_pages=0 buffer_mb=0.8
-2026-05-05 10:59:52,974 INFO remote_backup_server: REMOTE_BACKUP backup_put dp_rank=1 page_start=0 pages=6 ok=6/6 seq_tokens=6 bytes=884736 inactive_pages=12 active_pages=0 buffer_mb=1.7
-2026-05-05 10:59:53,049 INFO remote_backup_server: REMOTE_BACKUP backup_put dp_rank=0 page_start=6 pages=7 ok=7/7 seq_tokens=13 bytes=1032192 inactive_pages=19 active_pages=0 buffer_mb=2.7
-2026-05-05 10:59:53,050 INFO remote_backup_server: REMOTE_BACKUP backup_put dp_rank=1 page_start=6 pages=7 ok=7/7 seq_tokens=13 bytes=1032192 inactive_pages=26 active_pages=0 buffer_mb=3.7
-2026-05-05 10:59:54,566 INFO remote_backup_server: REMOTE_BACKUP backup_put dp_rank=0 page_start=0 pages=1 ok=1/1 seq_tokens=1 bytes=147456 inactive_pages=27 active_pages=0 buffer_mb=3.8

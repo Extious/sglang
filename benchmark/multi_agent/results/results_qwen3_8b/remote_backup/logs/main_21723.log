@@ -1,0 +1,7 @@
+[2026-05-06 15:06:44] ============================================================
+[2026-05-06 15:06:44] EXPERIMENT  topology=DP4_PP1_TP1_N1  kv_backup=remote_backup
+[2026-05-06 15:06:44]   result_dir: /home/comp/25482351/sglang/benchmark/multi_agent/results/results_qwen3_8b/remote_backup
+[2026-05-06 15:06:44]   log_dir:    /home/comp/25482351/sglang/benchmark/multi_agent/logs
+[2026-05-06 15:06:44] Step 1: Start SGLang server subprocess...
+[2026-05-06 15:06:44]   Server PID: 588408
+[2026-05-06 15:10:51] ERROR: subprocess exited early while waiting for server_ready (rc=1)

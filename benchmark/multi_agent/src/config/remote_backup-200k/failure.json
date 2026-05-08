@@ -1,7 +1,7 @@
 {
     "inject_after_task": "40",
     "recover_after_task": "45",
-    "delay": 45,
+    "delay": 60,
     "dp_rank": "0",
     "pp_rank": "0",
     "tp_rank": "0"

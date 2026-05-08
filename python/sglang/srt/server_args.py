@@ -355,6 +355,9 @@ class ServerArgs:
     abort_on_priority_when_disabled: bool = False
     schedule_low_priority_values_first: bool = False
     priority_scheduling_preemption_threshold: int = 10
+    # If enabled, retry_queue and waiting_queue share the same admission priority.
+    # Otherwise retry_queue is processed first (legacy behavior).
+    retry_queue_same_priority_as_waiting: bool = False
     schedule_conservativeness: float = 1.0
     page_size: Optional[int] = None
     swa_full_tokens_ratio: float = 0.8
@@ -4013,6 +4016,15 @@ class ServerArgs:
             type=int,
             default=ServerArgs.priority_scheduling_preemption_threshold,
             help="Minimum difference in priorities for an incoming request to have to preempt running request(s).",
+        )
+        parser.add_argument(
+            "--retry-queue-same-priority-as-waiting",
+            action="store_true",
+            default=ServerArgs.retry_queue_same_priority_as_waiting,
+            help=(
+                "Treat failover retry_queue requests with the same priority policy as "
+                "waiting_queue requests instead of processing retry_queue first."
+            ),
         )
         parser.add_argument(
             "--schedule-conservativeness",

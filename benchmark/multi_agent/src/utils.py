@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import NamedTuple, Optional
 
-from client.config import CrewAIClientConfig
+from client.config import CrewAIClientConfig, FixedClientConfig
 from failure.config import FaultInjectionConfig
 from paths import PathConfig  # pyright: ignore[reportMissingImports]
 from server.config import ServerConfig
@@ -16,6 +16,8 @@ class ExperimentConfig(NamedTuple):
     server: ServerConfig
     fault_injection: FaultInjectionConfig
     crewai: CrewAIClientConfig
+    fixed: FixedClientConfig
+    client_mode: str
     kv_backup: str
     run_server_slurm: Path
     log_dir: Path
@@ -63,6 +65,12 @@ def build_experiment_config(
     p.add_argument("--long-max-tokens", type=int, default=0)
     p.add_argument("--ignore-eos", type=int, default=-1)
     p.add_argument("--worker-start-stagger-s", type=float, default=-1.0)
+    p.add_argument("--client-mode", default="", choices=["crewai", "fixed"])
+    p.add_argument("--fixed-input-len", type=int, default=0)
+    p.add_argument("--fixed-output-len", type=int, default=0)
+    p.add_argument("--fixed-num-requests", type=int, default=0)
+    p.add_argument("--fixed-app-workers", type=int, default=0)
+    p.add_argument("--fixed-seed", type=int, default=-1)
     p.add_argument("--inject-after-job", default="")
     p.add_argument("--inject-after-task", default="")
     p.add_argument("--timeline-after-start-s", default="")
@@ -105,8 +113,8 @@ def build_experiment_config(
     srv_json["hicache_storage"] = top.get("hicache_storage", {})
     # load fault injection config
     fi_json = load_json("failure.json")
-    # load crewai config
-    crewai_json = load_json("crewai.json")
+    # load client config
+    client_json = load_json("client.json")
 
     # build server config
     srv = ServerConfig.from_dict(srv_json)
@@ -151,7 +159,7 @@ def build_experiment_config(
         fi.recover_after_task = args.recover_after_task
 
     # build crewai config
-    crewai = CrewAIClientConfig.from_dict(crewai_json, default_csv=_default_jobs_csv())
+    crewai = CrewAIClientConfig.from_dict(client_json, default_csv=_default_jobs_csv())
     if crewai.extra_instructions_path and not crewai.extra_instructions_path.is_absolute():
         crewai.extra_instructions_path = (cfg_dir / crewai.extra_instructions_path).resolve()
     if args.job_limit > 0:
@@ -168,6 +176,22 @@ def build_experiment_config(
         crewai.ignore_eos = args.ignore_eos
     if args.worker_start_stagger_s >= 0:
         crewai.worker_start_stagger_s = args.worker_start_stagger_s
+    if args.client_mode:
+        crewai.client_mode = args.client_mode
+    if crewai.client_mode not in {"crewai", "fixed"}:
+        crewai.client_mode = "crewai"
+
+    fixed = FixedClientConfig.from_dict(client_json)
+    if args.fixed_input_len > 0:
+        fixed.input_len = args.fixed_input_len
+    if args.fixed_output_len > 0:
+        fixed.output_len = args.fixed_output_len
+    if args.fixed_num_requests > 0:
+        fixed.num_requests = args.fixed_num_requests
+    if args.fixed_app_workers > 0:
+        fixed.app_workers = args.fixed_app_workers
+    if args.fixed_seed >= 0:
+        fixed.seed = args.fixed_seed
 
     # build kv backup
     # TODO: only remote backup is supported now
@@ -180,6 +204,8 @@ def build_experiment_config(
         server=srv,
         fault_injection=fi,
         crewai=crewai,
+        fixed=fixed,
+        client_mode=crewai.client_mode,
         kv_backup=str(kv_backup),
         run_server_slurm=paths.deploy_script,
         log_dir=paths.log_dir,

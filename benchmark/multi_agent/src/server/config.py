@@ -34,6 +34,8 @@ class ServerConfig:
     context_length: int = 0
     # Raw JSON string forwarded to SGLang --json-model-override-args, e.g. YaRN.
     json_model_override_args: str = ""
+    # If true, retry_queue and waiting_queue use the same scheduling priority.
+    retry_queue_same_priority_as_waiting: bool = False
     # SGLang --chat-template (path to a Jinja template). Used to override the
     # built-in template, e.g. relax Qwen3.5's "system at beginning" check that
     # breaks multi-agent (CrewAI) workflows. May be relative to the benchmark
@@ -63,6 +65,9 @@ class ServerConfig:
             reasoning_parser=str(d.get("reasoning_parser", "")),
             context_length=int(d.get("context_length", 0) or 0),
             json_model_override_args=str(d.get("json_model_override_args", "")),
+            retry_queue_same_priority_as_waiting=bool(
+                d.get("retry_queue_same_priority_as_waiting", False)
+            ),
             chat_template=str(d.get("chat_template", "")),
         )
 
@@ -121,6 +126,8 @@ class ServerConfig:
             )
         if self.chat_template:
             flags.extend(["--chat-template", self.chat_template])
+        if self.retry_queue_same_priority_as_waiting:
+            flags.extend(["--retry-queue-same-priority-as-waiting"])
         return flags
 
     def topology_tag(self) -> str:

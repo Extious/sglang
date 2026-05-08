@@ -1,0 +1,14 @@
+[2026-05-06 17:20:03] ============================================================
+[2026-05-06 17:20:03] EXPERIMENT  topology=DP2_PP1_TP1_N1  kv_backup=remote_backup
+[2026-05-06 17:20:03]   result_dir: /home/comp/zhanzhao/sglang/benchmark/multi_agent/results/results_qwen3_8b/remote_backup
+[2026-05-06 17:20:03]   log_dir:    /home/comp/zhanzhao/sglang/benchmark/multi_agent/logs
+[2026-05-06 17:20:03] Step 1: Start SGLang server subprocess...
+[2026-05-06 17:20:03]   Server PID: 516279
+[2026-05-06 17:21:27]   Server ready at http://gpu20:28000
+[2026-05-06 17:21:27] Step 2: Start injector and client subprocesses...
+[2026-05-06 17:21:27]   Injector PID: 516725
+[2026-05-06 17:21:27]   Client PID: 516728
+[2026-05-06 17:37:05]   Client exited (rc=0)
+[2026-05-06 17:37:06] Step 3: Generate plots...
+Saved plot to /home/comp/zhanzhao/sglang/benchmark/multi_agent/results/results_qwen3_8b/remote_backup/figures/trace_log_profile.png
+[2026-05-06 17:37:09] Experiment complete. Results in /home/comp/zhanzhao/sglang/benchmark/multi_agent/results/results_qwen3_8b/remote_backup

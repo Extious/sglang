@@ -10,7 +10,7 @@
     "pp_size": 1,
     "tp_size": 1,
     "nnodes": 1,
-    "hicache_size_gb": 60,
+    "hicache_size_gb": 40,
     "tool_call_parser": "qwen",
     "enable_cache_report": true,
     "enable_hicache": true,

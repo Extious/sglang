@@ -2,7 +2,7 @@
 #SBATCH --job-name=remote_backup_test
 #SBATCH --partition=short
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:a100:2
+#SBATCH --gres=gpu:l40s:2
 #SBATCH --exclude=gpu[10-13]
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8

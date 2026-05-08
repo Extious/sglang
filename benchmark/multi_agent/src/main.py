@@ -12,7 +12,12 @@ import threading
 import time
 from pathlib import Path
 
-from client.config import CrewAIClientConfig, CrewAIRunnerConfig
+from client.config import (
+    CrewAIClientConfig,
+    CrewAIRunnerConfig,
+    FixedClientConfig,
+    FixedRunnerConfig,
+)
 from failure.config import FaultInjectionConfig, FaultInjectorConfig
 from process_logs import (
     copy_process_logs,
@@ -42,6 +47,8 @@ class ExperimentPipeline:
         server_cfg: ServerConfig,
         fi_cfg: FaultInjectionConfig,
         crewai_cfg: CrewAIClientConfig,
+        fixed_cfg: FixedClientConfig,
+        client_mode: str,
         kv_backup: str,
         log_dir: Path,
         output_dir: Path,
@@ -52,6 +59,8 @@ class ExperimentPipeline:
         self.server_cfg = server_cfg
         self.fi_cfg = fi_cfg
         self.crewai_cfg = crewai_cfg
+        self.fixed_cfg = fixed_cfg
+        self.client_mode = client_mode
         self.kv_backup = kv_backup
         self.log_dir = log_dir
         run_dir_name = Path(deploy_config_name).name if deploy_config_name else timestamp
@@ -139,6 +148,8 @@ class ExperimentPipeline:
         fi_cfg = self.fi_cfg
         # crewai config
         crewai_cfg = self.crewai_cfg
+        # fixed client config
+        fixed_cfg = self.fixed_cfg
         # output directory
         out = self.output_dir
         # log directory
@@ -261,30 +272,47 @@ class ExperimentPipeline:
                 log("ERROR: malformed injector_ready control event")
                 return 1
 
-            worker_cfg = CrewAIRunnerConfig(
-                server_url=head_url,
-                model_path=srv_cfg.model_path,
-                jobs_csv=Path(crewai_cfg.jobs_csv).resolve(),
-                job_limit=int(crewai_cfg.job_limit),
-                app_workers=int(crewai_cfg.app_workers),
-                default_year=crewai_cfg.default_year,
-                short_max_tokens=int(crewai_cfg.short_max_tokens),
-                long_max_tokens=int(crewai_cfg.long_max_tokens),
-                enable_stream=bool(crewai_cfg.enable_stream),
-                ignore_eos=int(crewai_cfg.ignore_eos),
-                worker_start_stagger_s=float(crewai_cfg.worker_start_stagger_s),
-                agent_dp_rank_map=dict(crewai_cfg.agent_dp_rank_map or {}),
-                extra_instructions_path=crewai_cfg.extra_instructions_path,
-                output_dir=out.resolve(),
-                control_url=control_url,
-            )
-            client_flags = worker_cfg.build_worker_flags()
+            if self.client_mode == "fixed":
+                worker_cfg = FixedRunnerConfig(
+                    server_url=head_url,
+                    model_path=srv_cfg.model_path,
+                    input_len=int(fixed_cfg.input_len),
+                    output_len=int(fixed_cfg.output_len),
+                    num_requests=int(fixed_cfg.num_requests),
+                    app_workers=int(fixed_cfg.app_workers),
+                    seed=int(fixed_cfg.seed),
+                    ignore_eos=int(fixed_cfg.ignore_eos),
+                    output_dir=out.resolve(),
+                    control_url=control_url,
+                )
+                client_flags = worker_cfg.build_worker_flags()
+                client_module = "client.fixed_worker"
+            else:
+                worker_cfg = CrewAIRunnerConfig(
+                    server_url=head_url,
+                    model_path=srv_cfg.model_path,
+                    jobs_csv=Path(crewai_cfg.jobs_csv).resolve(),
+                    job_limit=int(crewai_cfg.job_limit),
+                    app_workers=int(crewai_cfg.app_workers),
+                    default_year=crewai_cfg.default_year,
+                    short_max_tokens=int(crewai_cfg.short_max_tokens),
+                    long_max_tokens=int(crewai_cfg.long_max_tokens),
+                    enable_stream=bool(crewai_cfg.enable_stream),
+                    ignore_eos=int(crewai_cfg.ignore_eos),
+                    worker_start_stagger_s=float(crewai_cfg.worker_start_stagger_s),
+                    agent_dp_rank_map=dict(crewai_cfg.agent_dp_rank_map or {}),
+                    extra_instructions_path=crewai_cfg.extra_instructions_path,
+                    output_dir=out.resolve(),
+                    control_url=control_url,
+                )
+                client_flags = worker_cfg.build_worker_flags()
+                client_module = "client.crewai_worker"
 
             # Launch client subprocess
             cli_log = get_process_log_path(log_dir, "client")
             cli_log.write_bytes(b"")
             self._client_proc = subprocess.Popen(
-                [py, "-m", "client.crewai_worker"] + client_flags,
+                [py, "-m", client_module] + client_flags,
                 stdout=cli_log.open("ab"),
                 stderr=subprocess.STDOUT,
                 cwd=str(src_root),
@@ -406,6 +434,8 @@ def main() -> int:
             server_cfg=cfg.server,
             fi_cfg=cfg.fault_injection,
             crewai_cfg=cfg.crewai,
+            fixed_cfg=cfg.fixed,
+            client_mode=cfg.client_mode,
             kv_backup=cfg.kv_backup,
             log_dir=log_dir,
             output_dir=output_dir,

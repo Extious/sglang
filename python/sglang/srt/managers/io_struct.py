@@ -713,6 +713,10 @@ class TokenizedGenerateReqInput(BaseReq):
     pre_failover_backed_up_tokens: Optional[int] = None
     # Source DP rank of the failed worker for failover-aware prefetch
     failed_dp_rank: Optional[int] = None
+    # Host-backup checkpoint metadata exported by failed worker.
+    host_backup_metadata: Optional[List[Dict[str, Any]]] = None
+    # KV backup strategy used by the source worker ("remote_backup"/"host_backup"/"none").
+    kv_backup_strategy: Optional[str] = None
     # Remote backup lease generation (incremented on each failover retry)
     remote_backup_generation: int = 0
 
@@ -1984,6 +1988,8 @@ class ReqSnapshot:
     sampling_params: Optional[Any] = None
     original_max_new_tokens: Optional[int] = None
     stream: bool = False
+    host_backup_metadata: Optional[List[Dict[str, Any]]] = None
+    kv_backup_strategy: Optional[str] = None
 
 
 @dataclass

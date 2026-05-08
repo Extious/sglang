@@ -1,0 +1,25 @@
+{
+  "name": "host_backup-insert64",
+  "description": "SGLang server with host backup and periodic decode radix insertion every 64 tokens.",
+  "platform": "daai",
+  "kv_backup": "host",
+  "server": {
+    "model_path": "Qwen/Qwen3-8B",
+    "load_balance_method": "round_robin",
+    "dp_size": 4,
+    "pp_size": 1,
+    "tp_size": 1,
+    "nnodes": 1,
+    "hicache_size_gb": 60,
+    "tool_call_parser": "qwen",
+    "enable_cache_report": true,
+    "enable_hicache": true,
+    "hicache_ratio": 1.1,
+    "insert_step": 64,
+    "quantization": ""
+  },
+  "hicache_storage": {
+    "backend": "",
+    "prefetch_policy": ""
+  }
+}

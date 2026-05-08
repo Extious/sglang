@@ -461,6 +461,21 @@ class SchedulerOutputProcessorMixin:
 
             req.check_finished(new_accepted_len)
 
+            insert_step = self.server_args.hicache_insert_step
+            if (
+                batch.spec_algorithm.is_none()
+                and not req.finished()
+                and self.enable_hierarchical_cache
+                and insert_step > 0
+            ):
+                curr_len = len(req.origin_input_ids) + len(req.output_ids)
+                if req.decode_last_insert_len == 0:
+                    req.decode_last_insert_len = len(req.origin_input_ids)
+                if curr_len - req.decode_last_insert_len >= insert_step:
+                    req.fill_ids = req.origin_input_ids + req.output_ids
+                    self.tree_cache.cache_unfinished_req(req)
+                    req.decode_last_insert_len = len(req.fill_ids)
+
             if (
                 self.server_args.disaggregation_decode_enable_offload_kvcache
                 and not req.finished()

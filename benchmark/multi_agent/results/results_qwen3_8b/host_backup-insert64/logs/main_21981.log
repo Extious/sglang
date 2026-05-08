@@ -1,0 +1,14 @@
+[2026-05-07 13:54:37] ============================================================
+[2026-05-07 13:54:37] EXPERIMENT  topology=DP4_PP1_TP1_N1  kv_backup=host
+[2026-05-07 13:54:37]   result_dir: /home/comp/25482351/sglang/benchmark/multi_agent/results/results_qwen3_8b/host_backup-insert64
+[2026-05-07 13:54:37]   log_dir:    /home/comp/25482351/sglang/benchmark/multi_agent/logs
+[2026-05-07 13:54:37] Step 1: Start SGLang server subprocess...
+[2026-05-07 13:54:37]   Server PID: 604697
+[2026-05-07 13:58:12]   Server ready at http://hkbugpusrv08:28000
+[2026-05-07 13:58:12] Step 2: Start injector and client subprocesses...
+[2026-05-07 13:58:12]   Injector PID: 605810
+[2026-05-07 13:58:12]   Client PID: 605813
+[2026-05-07 14:06:54]   Client exited (rc=0)
+[2026-05-07 14:06:54] Step 3: Generate plots...
+Saved plot to /home/comp/25482351/sglang/benchmark/multi_agent/results/results_qwen3_8b/host_backup-insert64/figures/trace_log_profile.png
+[2026-05-07 14:07:03] Experiment complete. Results in /home/comp/25482351/sglang/benchmark/multi_agent/results/results_qwen3_8b/host_backup-insert64

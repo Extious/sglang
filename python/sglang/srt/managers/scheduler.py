@@ -1821,6 +1821,8 @@ class Scheduler(
                 req.pre_failover_output_tokens = recv_req.pre_failover_output_tokens or 0
                 req.pre_failover_backed_up_tokens = recv_req.pre_failover_backed_up_tokens or 0
                 req.failover_source_dp_rank = recv_req.failed_dp_rank
+                req.host_backup_metadata = getattr(recv_req, "host_backup_metadata", None)
+                req.kv_backup_strategy = getattr(recv_req, "kv_backup_strategy", "none")
                 req.remote_backup_generation = getattr(
                     recv_req, "remote_backup_generation", 1
                 )
@@ -1961,6 +1963,18 @@ class Scheduler(
 
     def _prefetch_kvcache(self, req: Req):
         if self.enable_hicache_storage:
+            if (
+                req.is_failover_retried
+                and getattr(req, "kv_backup_strategy", "none") in ("host", "host_backup")
+                and hasattr(self.tree_cache, "import_host_checkpoints")
+            ):
+                if req.host_backup_metadata:
+                    self.tree_cache.import_host_checkpoints(req.host_backup_metadata)
+                    req.host_backup_metadata = None
+                req.init_next_round_input(self.tree_cache, cow_mamba=False)
+                req.failover_prefetch_pending = False
+                return
+
             req.init_next_round_input(self.tree_cache, cow_mamba=False)
             last_host_node = req.last_host_node
             req.failover_prefetch_pending = False
@@ -2256,6 +2270,15 @@ class Scheduler(
             if adder.budget_state() != AddReqResult.CONTINUE:
                 retry_remaining.append(req)
                 continue
+
+            if (
+                req.is_failover_retried
+                and getattr(req, "kv_backup_strategy", "none") in ("host", "host_backup")
+                and req.host_backup_metadata
+                and hasattr(self.tree_cache, "import_host_checkpoints")
+            ):
+                self.tree_cache.import_host_checkpoints(req.host_backup_metadata)
+                req.host_backup_metadata = None
 
             if self.enable_hicache_storage:
                 if req.failover_prefetch_pending:
@@ -3506,6 +3529,20 @@ class Scheduler(
 
     def _clear_failed_rank_scheduler_state(self) -> None:
         """Force the failed rank into a fully cold state."""
+        self._clear_failed_rank_scheduler_state_impl(keep_host_checkpoints=False)
+
+    def _clear_failed_rank_scheduler_state_gpu_only(self) -> None:
+        """Clear GPU-side scheduler state but preserve host checkpoints."""
+        self._clear_failed_rank_scheduler_state_impl(keep_host_checkpoints=True)
+
+    def _clear_failed_rank_scheduler_state_impl(
+        self, keep_host_checkpoints: bool
+    ) -> None:
+        """Reset scheduler state after simulated GPU failure.
+
+        When ``keep_host_checkpoints`` is True, keep host-backed radix nodes to
+        support host_backup failure-time pull.
+        """
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         self.waiting_queue = []
@@ -3528,7 +3565,10 @@ class Scheduler(
             self.grammar_manager.grammar_queue = []
             self.grammar_manager.clear()
 
-        self.tree_cache.reset()
+        if keep_host_checkpoints and hasattr(self.tree_cache, "reset_device_state_keep_host"):
+            self.tree_cache.reset_device_state_keep_host()
+        else:
+            self.tree_cache.reset()
         self.req_to_token_pool.clear()
         self.token_to_kv_pool_allocator.clear()
         self.reset_metrics()
@@ -3544,7 +3584,9 @@ class Scheduler(
         from sglang.srt.utils.failover_event_logger import append_failover_event
 
         logger.warning("Simulating GPU failure on dp_rank=%s", self.dp_rank)
-        if self.enable_hicache_storage and hasattr(self.tree_cache, "check_hicache_events"):
+        if self.enable_hierarchical_cache and hasattr(
+            self.tree_cache, "check_hicache_events"
+        ):
             self.tree_cache.check_hicache_events()
         reqs_to_failover = self._collect_failover_reqs()
         snapshots = [self._snapshot_req(req) for req in reqs_to_failover]
@@ -3553,7 +3595,13 @@ class Scheduler(
         # reuse the generic abort path, because it sends abort outputs and only
         # partially cleans scheduler state. Instead, drop every local queue/batch
         # and cold-reset the failed rank so all local GPU/cache state is gone.
-        self._clear_failed_rank_scheduler_state()
+        if getattr(self.server_args, "kv_backup_strategy", "none") in (
+            "host",
+            "host_backup",
+        ):
+            self._clear_failed_rank_scheduler_state_gpu_only()
+        else:
+            self._clear_failed_rank_scheduler_state()
 
         self._gpu_failed = True
 
@@ -3579,6 +3627,9 @@ class Scheduler(
         from sglang.srt.utils.failover_event_logger import append_failover_event
 
         logger.warning("Recovering GPU on dp_rank=%s", self.dp_rank)
+        if hasattr(self.tree_cache, "invalidate_imported_generation"):
+            # generation=-1 means invalidate all imported generations for this owner.
+            self.tree_cache.invalidate_imported_generation(recv_req.dp_rank, -1)
         self._gpu_failed = False
         append_failover_event("gpu_recovered", dp_rank=self.dp_rank)
 
@@ -3589,16 +3640,27 @@ class Scheduler(
         from TokenizerManager.rid_to_state when the batch is re-dispatched.
         """
         backed_up = 0
+        kv_backup_strategy = getattr(self.server_args, "kv_backup_strategy", "none")
+        host_backup_metadata = None
         if self.enable_hicache_storage and hasattr(
             self.tree_cache, "count_remote_acked_tokens"
         ):
             all_ids = list(req.origin_input_ids) + list(req.output_ids)
             backed_up = self.tree_cache.count_remote_acked_tokens(all_ids)
-        elif self.enable_hicache_storage and hasattr(
-            self.tree_cache, "count_backed_up_tokens"
-        ):
+        elif hasattr(self.tree_cache, "count_backed_up_tokens"):
             all_ids = list(req.origin_input_ids) + list(req.output_ids)
             backed_up = self.tree_cache.count_backed_up_tokens(all_ids)
+        if (
+            kv_backup_strategy in ("host", "host_backup")
+            and hasattr(self.tree_cache, "export_failure_checkpoints")
+        ):
+            try:
+                host_backup_metadata = self.tree_cache.export_failure_checkpoints(req)
+            except Exception as e:
+                logger.warning(
+                    "Failed to export host-backup checkpoints for rid=%s: %s", req.rid, e
+                )
+                host_backup_metadata = None
         return ReqSnapshot(
             rid=req.rid,
             output_ids=list(req.output_ids),
@@ -3607,6 +3669,8 @@ class Scheduler(
             sampling_params=req.sampling_params,
             original_max_new_tokens=getattr(req.sampling_params, "max_new_tokens", None),
             stream=getattr(req, "stream", False),
+            host_backup_metadata=host_backup_metadata,
+            kv_backup_strategy=kv_backup_strategy,
         )
 
     def load_lora_adapter(

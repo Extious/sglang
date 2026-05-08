@@ -564,6 +564,8 @@ class ServerArgs:
     hicache_storage_backend: Optional[str] = None
     hicache_storage_prefetch_policy: str = "best_effort"
     hicache_storage_backend_extra_config: Optional[str] = None
+    hicache_insert_step: int = 0
+    kv_backup_strategy: str = "none"
 
     # Hierarchical sparse attention
     enable_hisparse: bool = False
@@ -3405,6 +3407,20 @@ class ServerArgs:
                 "and cannot be used at the same time. Please use only one of them."
             )
 
+        if self.kv_backup_strategy == "host":
+            self.kv_backup_strategy = "host_backup"
+        if self.kv_backup_strategy == "device":
+            self.kv_backup_strategy = "none"
+
+        if self.hicache_insert_step < 0:
+            raise ValueError("--insert-step must be >= 0.")
+        if self.hicache_insert_step > 0 and not self.enable_hierarchical_cache:
+            logger.warning(
+                "--insert-step is set but --enable-hierarchical-cache is disabled; "
+                "decode periodic insert is disabled."
+            )
+            self.hicache_insert_step = 0
+
         if self.disaggregation_decode_enable_offload_kvcache:
             if self.disaggregation_mode != "decode":
                 raise ValueError(
@@ -5190,6 +5206,22 @@ class ServerArgs:
             type=str,
             default=ServerArgs.hicache_storage_backend_extra_config,
             help="A dictionary in JSON string format, or a string starting with a leading '@' and a config file in JSON/YAML/TOML format, containing extra configuration for the storage backend.",
+        )
+        parser.add_argument(
+            "--insert-step",
+            dest="hicache_insert_step",
+            type=int,
+            default=ServerArgs.hicache_insert_step,
+            help="Enable decode-time periodic cache_unfinished_req insertion every N decoded tokens. "
+            "Only effective when > 0.",
+        )
+        parser.add_argument(
+            "--kv-backup-strategy",
+            type=str,
+            choices=["none", "remote_backup", "host", "host_backup", "device"],
+            default=ServerArgs.kv_backup_strategy,
+            help="KV backup strategy selector for failover routing. "
+            "Use remote_backup for storage-backed path, host/host_backup for host-only path.",
         )
 
         # Hierarchical sparse attention

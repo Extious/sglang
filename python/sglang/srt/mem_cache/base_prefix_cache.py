@@ -253,6 +253,24 @@ class BasePrefixCache(ABC, PrefixCacheTrait):
         """
         raise NotImplementedError()
 
+    def export_failure_checkpoints(self, req: Req) -> Any:
+        """Export failover-time checkpoint metadata for host backup pull."""
+        return None
+
+    def import_host_checkpoints(self, metadata_batch: Any) -> Any:
+        """Import host checkpoint metadata on survivor workers."""
+        return None
+
+    def reset_device_state_keep_host(self) -> None:
+        """Drop GPU-side cache state while preserving host checkpoints."""
+        self.reset()
+
+    def invalidate_imported_generation(
+        self, owner_dp_rank: int, generation: int
+    ) -> None:
+        """Invalidate imported host-only checkpoints for owner generation."""
+        return
+
     def take_events(self):
         return []
 

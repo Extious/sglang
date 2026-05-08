@@ -806,6 +806,9 @@ class Req(ReqDllmMixin):
         self.swa_uuid_for_lock: Optional[int] = None
         # The prefix length that is inserted into the tree cache
         self.cache_protected_len: int = 0
+        # Last sequence length checkpointed via decode-time periodic radix insertion.
+        # 0 means disabled / not checkpointed yet.
+        self.decode_last_insert_len: int = 0
 
         # Whether or not if it is chunked. It increments whenever
         # it is chunked, and decrement whenever chunked request is
@@ -917,6 +920,8 @@ class Req(ReqDllmMixin):
         self.pre_failover_backed_up_tokens = 0
         self.failover_source_dp_rank: Optional[int] = None
         self.failover_prefetch_pending = False
+        self.host_backup_metadata: Optional[List[Dict[str, Any]]] = None
+        self.kv_backup_strategy: str = "none"
 
         # The number of verification forward passes in the speculative decoding.
         # This is used to compute the average acceptance length per request.

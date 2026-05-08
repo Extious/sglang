@@ -7,8 +7,9 @@ import logging
 import os
 import threading
 import time
+from dataclasses import dataclass
 from queue import Empty
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import torch
 
@@ -50,6 +51,17 @@ if TYPE_CHECKING:
     from sglang.srt.server_args import ServerArgs
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class FailureCheckpointMetadata:
+    owner_dp_rank: int
+    generation: int
+    rid: str
+    extra_key: Optional[str]
+    checkpoint_len: int
+    prefix_token_ids: List[int]
+    pages: List[torch.Tensor]
 
 
 class HiRadixCache(RadixCache):
@@ -152,6 +164,10 @@ class HiRadixCache(RadixCache):
         self.prefetch_loaded_tokens_by_reqid: dict[str, int] = {}
         # track per-request storage query hit tokens (Remote Match count)
         self.storage_query_tokens_by_reqid: dict[str, int] = {}
+        # Track imported host-only checkpoint keys by (owner_dp_rank, generation)
+        self.imported_host_keys_by_owner_gen: Dict[
+            Tuple[int, int], List[Tuple[Optional[str], List[int]]]
+        ] = {}
         # todo: dynamically adjust the threshold
         self.write_through_threshold = (
             1 if server_args.hicache_write_policy == "write_through" else 2
@@ -587,8 +603,32 @@ class HiRadixCache(RadixCache):
         # Clear per-request tracking dicts
         self.prefetch_loaded_tokens_by_reqid.clear()
         self.storage_query_tokens_by_reqid.clear()
+        self.imported_host_keys_by_owner_gen.clear()
         self.evictable_host_leaves.clear()
         super().reset()
+
+    def reset_device_state_keep_host(self):
+        """Reset device-side state only, preserving host checkpoints."""
+        self.cache_controller.reset()
+        self.ongoing_write_through = {}
+        self.ongoing_load_back = {}
+        self.ongoing_prefetch = {}
+        self.ongoing_backup = {}
+        self.prefetch_loaded_tokens_by_reqid.clear()
+        self.storage_query_tokens_by_reqid.clear()
+
+        def _drop_device_state(node: TreeNode):
+            if node is not self.root_node:
+                node.value = None
+                node.lock_ref = 0
+            for child in list(node.children.values()):
+                _drop_device_state(child)
+
+        _drop_device_state(self.root_node)
+        self.root_node.lock_ref = 1
+        self.evictable_size_ = 0
+        self.protected_size_ = 0
+        self.evictable_leaves.clear()
 
     def get_height(self, node: TreeNode):
         height = 0
@@ -1212,6 +1252,180 @@ class HiRadixCache(RadixCache):
             if len(key):
                 child_key = self.get_child_key_fn(key)
         return total
+
+    def _collect_host_backed_prefix_indices(
+        self, token_ids: List[int], extra_key: Optional[str]
+    ) -> torch.Tensor:
+        key = RadixKey(token_ids=token_ids, extra_key=extra_key)
+        key, _ = self.maybe_bigram_convert(key)
+        if len(key) == 0:
+            return torch.empty((0,), dtype=torch.int64)
+
+        node = self.root_node
+        child_key = self.get_child_key_fn(key)
+        values: List[torch.Tensor] = []
+        while len(key) > 0 and child_key in node.children:
+            child = node.children[child_key]
+            prefix_len = self.key_match_fn(child.key, key)
+            if not child.backuped:
+                break
+            take_len = min(prefix_len, len(child.host_value))
+            if take_len <= 0:
+                break
+            values.append(child.host_value[:take_len])
+            if prefix_len < len(child.key):
+                break
+            node = child
+            key = key[prefix_len:]
+            if len(key):
+                child_key = self.get_child_key_fn(key)
+        if not values:
+            return torch.empty((0,), dtype=torch.int64)
+        return torch.cat(values)
+
+    def export_failure_checkpoints(self, req) -> List[Dict[str, Any]]:
+        all_ids = list(req.origin_input_ids) + list(req.output_ids)
+        host_indices = self._collect_host_backed_prefix_indices(all_ids, req.extra_key)
+        checkpoint_len = (len(host_indices) // self.page_size) * self.page_size
+        if checkpoint_len <= 0:
+            return []
+
+        host_indices = host_indices[:checkpoint_len]
+        token_prefix = all_ids[:checkpoint_len]
+        pages: List[torch.Tensor] = []
+        for i in range(0, checkpoint_len, self.page_size):
+            page_index = int(host_indices[i].item())
+            pages.append(
+                self.cache_controller.mem_pool_host.get_data_page(
+                    page_index, flat=True
+                ).clone()
+            )
+
+        metadata = FailureCheckpointMetadata(
+            owner_dp_rank=int(getattr(self.cache_controller, "dp_rank", 0) or 0),
+            generation=int(getattr(req, "remote_backup_generation", 0)),
+            rid=req.rid,
+            extra_key=req.extra_key,
+            checkpoint_len=checkpoint_len,
+            prefix_token_ids=token_prefix,
+            pages=pages,
+        )
+        return [metadata.__dict__]
+
+    def import_host_checkpoints(self, metadata_batch) -> int:
+        if not metadata_batch:
+            return 0
+        imported_tokens = 0
+        for raw_meta in metadata_batch:
+            if not raw_meta:
+                continue
+            meta = FailureCheckpointMetadata(**raw_meta)
+            if (
+                meta.checkpoint_len <= 0
+                or meta.checkpoint_len % self.page_size != 0
+                or len(meta.prefix_token_ids) < meta.checkpoint_len
+            ):
+                continue
+
+            required_pages = meta.checkpoint_len // self.page_size
+            if len(meta.pages) < required_pages:
+                continue
+
+            host_indices = self.cache_controller.mem_pool_host.alloc(meta.checkpoint_len)
+            if host_indices is None:
+                self.evict_host(meta.checkpoint_len)
+                host_indices = self.cache_controller.mem_pool_host.alloc(
+                    meta.checkpoint_len
+                )
+            if host_indices is None:
+                logger.warning(
+                    "import_host_checkpoints: insufficient host memory for %d tokens",
+                    meta.checkpoint_len,
+                )
+                continue
+
+            for page_i in range(required_pages):
+                dst_index = int(host_indices[page_i * self.page_size].item())
+                self.cache_controller.mem_pool_host.set_from_flat_data_page(
+                    dst_index, meta.pages[page_i]
+                )
+
+            matched_length = self._insert_helper_host(
+                self.root_node,
+                RadixKey(
+                    token_ids=meta.prefix_token_ids[: meta.checkpoint_len],
+                    extra_key=meta.extra_key,
+                ),
+                host_indices,
+                [None] * required_pages,
+            )
+            if matched_length > 0:
+                self.cache_controller.mem_pool_host.free(host_indices[:matched_length])
+
+            imported_tokens += max(0, meta.checkpoint_len - matched_length)
+            self.imported_host_keys_by_owner_gen.setdefault(
+                (meta.owner_dp_rank, meta.generation), []
+            ).append((meta.extra_key, meta.prefix_token_ids[: meta.checkpoint_len]))
+        return imported_tokens
+
+    def _delete_host_only_prefix(
+        self, prefix_token_ids: List[int], extra_key: Optional[str]
+    ) -> bool:
+        key = RadixKey(token_ids=prefix_token_ids, extra_key=extra_key)
+        key, _ = self.maybe_bigram_convert(key)
+        if len(key) == 0:
+            return False
+        node = self.root_node
+        child_key = self.get_child_key_fn(key)
+        while len(key) > 0 and child_key in node.children:
+            child = node.children[child_key]
+            prefix_len = self.key_match_fn(child.key, key)
+            if prefix_len < len(child.key):
+                return False
+            node = child
+            key = key[prefix_len:]
+            if len(key):
+                child_key = self.get_child_key_fn(key)
+        if len(key) != 0:
+            return False
+
+        deleted = False
+        while node is not self.root_node:
+            if (
+                len(node.children) > 0
+                or not node.evicted
+                or node.host_ref_counter > 0
+                or node.lock_ref > 0
+            ):
+                break
+            parent = node.parent
+            if node.backuped:
+                self.cache_controller.evict_host(node.host_value)
+                node.host_value = None
+            if node in self.evictable_host_leaves:
+                self.evictable_host_leaves.remove(node)
+            k = self.get_child_key_fn(node.key)
+            parent.children.pop(k, None)
+            self._update_host_leaf_status(parent)
+            node = parent
+            deleted = True
+        return deleted
+
+    def invalidate_imported_generation(
+        self, owner_dp_rank: int, generation: int
+    ) -> None:
+        keys_to_drop: List[Tuple[int, int]] = []
+        for key, imported in list(self.imported_host_keys_by_owner_gen.items()):
+            owner, gen = key
+            if owner != owner_dp_rank:
+                continue
+            if generation >= 0 and gen != generation:
+                continue
+            for extra_key, prefix_ids in imported:
+                self._delete_host_only_prefix(prefix_ids, extra_key)
+            keys_to_drop.append(key)
+        for key in keys_to_drop:
+            self.imported_host_keys_by_owner_gen.pop(key, None)
 
     def match_prefix(self, params: MatchPrefixParams):
         key = params.key

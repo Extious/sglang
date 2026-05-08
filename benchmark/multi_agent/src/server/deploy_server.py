@@ -57,6 +57,7 @@ DEFAULT_PLATFORMS = {
         "enable_hicache": True,
         "hicache_size_gb": 16,
         "hicache_ratio": 2.0,
+        "insert_step": 0,
         "kv_backup": "none",
         "hicache_storage_backend": "",
         "hicache_storage_prefetch_policy": "",
@@ -88,6 +89,7 @@ DEFAULT_PLATFORMS = {
         "enable_hicache": True,
         "hicache_size_gb": 40,
         "hicache_ratio": 2.0,
+        "insert_step": 0,
         "kv_backup": "none",
         "hicache_storage_backend": "",
         "hicache_storage_prefetch_policy": "",
@@ -226,6 +228,7 @@ def load_config(argv: list[str]) -> dict[str, Any]:
     parser.add_argument("--nnodes", dest="nnodes", type=int, default=None)
     parser.add_argument("--hicache-size-gb", dest="hicache_size_gb", type=int, default=None)
     parser.add_argument("--hicache-ratio", dest="hicache_ratio", type=float, default=None)
+    parser.add_argument("--insert-step", dest="insert_step", type=int, default=None)
     parser.add_argument("--tool-call-parser", dest="tool_call_parser", default=None)
     parser.add_argument("--reasoning-parser", dest="reasoning_parser", default=None,
                         help="SGLang --reasoning-parser (e.g. qwen3 for Qwen3.5)")
@@ -479,10 +482,16 @@ def build_launch_cmd(
             cmd.extend(["--hicache-size", str(cfg["hicache_size_gb"])])
         elif cfg.get("hicache_ratio"):
             cmd.extend(["--hicache-ratio", str(cfg["hicache_ratio"])])
+        if cfg.get("insert_step", 0) > 0:
+            cmd.extend(["--insert-step", str(cfg["insert_step"])])
     if cfg.get("quantization"):
         cmd.extend(["--quantization", cfg["quantization"]])
-    backend = cfg.get("hicache_storage_backend", "") or cfg.get("kv_backup", "")
-    if backend in ("host", "device", "remote_backup"):
+    if cfg.get("kv_backup"):
+        cmd.extend(["--kv-backup-strategy", str(cfg["kv_backup"])])
+    backend = cfg.get("hicache_storage_backend", "")
+    if not backend and cfg.get("kv_backup", "") == "remote_backup":
+        backend = "remote_backup"
+    if backend in ("file", "mooncake", "hf3fs", "nixl", "aibrix", "dynamic", "eic", "remote_backup"):
         cmd.extend(["--hicache-storage-backend", backend])
     if cfg.get("hicache_storage_prefetch_policy"):
         cmd.extend(["--hicache-storage-prefetch-policy",
@@ -944,6 +953,7 @@ def main() -> int:
                 "enable_hicache": os.environ.get("EFF_ENABLE_HICACHE", "0") == "1",
                 "hicache_size_gb": int(os.environ.get("EFF_HICACHE_SIZE", "0")),
                 "hicache_ratio": float(os.environ.get("EFF_HICACHE_RATIO", "2.0")),
+                "insert_step": int(os.environ.get("EFF_INSERT_STEP", "0")),
                 "kv_backup": os.environ.get("EFF_KV_BACKUP", "none"),
                 "remote_backup_port_base": int(os.environ.get("EFF_REMOTE_BACKUP_PORT_BASE", "30000")),
                 "remote_backup_buffer_size_gb": float(os.environ.get("EFF_REMOTE_BACKUP_BUFFER_SIZE_GB", "32.0")),

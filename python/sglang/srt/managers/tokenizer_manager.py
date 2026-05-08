@@ -1521,6 +1521,8 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
                 pre_failover_output_tokens=len(snap.output_ids),
                 pre_failover_backed_up_tokens=snap.backed_up_tokens,
                 failed_dp_rank=failover.failed_dp_rank,
+                host_backup_metadata=getattr(snap, "host_backup_metadata", None),
+                kv_backup_strategy=getattr(snap, "kv_backup_strategy", None),
                 remote_backup_generation=next_gen,
             )
 

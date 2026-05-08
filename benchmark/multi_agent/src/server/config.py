@@ -22,6 +22,7 @@ class ServerConfig:
     enable_cache_report: bool = False
     enable_hicache: bool = False
     hicache_ratio: float = 0.0
+    insert_step: int = 0
     hicache_storage_backend: str = ""
     hicache_storage_prefetch_policy: str = ""
     remote_backup_port_base: int = 0
@@ -55,6 +56,7 @@ class ServerConfig:
             enable_cache_report=bool(d.get("enable_cache_report", False)),
             enable_hicache=bool(d.get("enable_hicache", False)),
             hicache_ratio=float(d.get("hicache_ratio", 0.0)),
+            insert_step=int(d.get("insert_step", 0) or 0),
             hicache_storage_backend=str(hs.get("backend", "")),
             hicache_storage_prefetch_policy=str(hs.get("prefetch_policy", "")),
             remote_backup_port_base=int(hs.get("remote_backup_port_base", 0)),
@@ -104,6 +106,8 @@ class ServerConfig:
             flags.extend(["--hicache-storage-backend", self.hicache_storage_backend])
         if self.hicache_storage_prefetch_policy:
             flags.extend(["--hicache-storage-prefetch-policy", self.hicache_storage_prefetch_policy])
+        if self.insert_step > 0:
+            flags.extend(["--insert-step", str(self.insert_step)])
         if kv_backup == "remote_backup" and self.remote_backup_port_base > 0:
             flags.extend(["--remote-backup-port-base", str(self.remote_backup_port_base)])
             if self.remote_backup_buffer_size_gb > 0:

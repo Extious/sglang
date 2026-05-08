@@ -52,6 +52,7 @@ DEFAULT_PLATFORMS = {
         "reasoning_parser": "",
         "context_length": 0,
         "json_model_override_args": "{}",
+        "retry_queue_same_priority_as_waiting": False,
         "chat_template": "",
         "enable_cache_report": True,
         "enable_hicache": True,
@@ -84,6 +85,7 @@ DEFAULT_PLATFORMS = {
         "reasoning_parser": "",
         "context_length": 0,
         "json_model_override_args": "{}",
+        "retry_queue_same_priority_as_waiting": False,
         "chat_template": "",
         "enable_cache_report": True,
         "enable_hicache": True,
@@ -239,6 +241,13 @@ def load_config(argv: list[str]) -> dict[str, Any]:
         dest="json_model_override_args",
         default=None,
         help="Raw JSON string forwarded to SGLang --json-model-override-args.",
+    )
+    parser.add_argument(
+        "--retry-queue-same-priority-as-waiting",
+        dest="retry_queue_same_priority_as_waiting",
+        action="store_true",
+        default=None,
+        help="Use same scheduling priority for retry_queue and waiting_queue.",
     )
     parser.add_argument("--chat-template", dest="chat_template", default=None,
                         help="Path to a Jinja chat template (overrides the model's built-in). "
@@ -461,6 +470,8 @@ def build_launch_cmd(
     model_override_args = str(cfg.get("json_model_override_args", "") or "").strip()
     if model_override_args and model_override_args != "{}":
         cmd.extend(["--json-model-override-args", model_override_args])
+    if cfg.get("retry_queue_same_priority_as_waiting"):
+        cmd.append("--retry-queue-same-priority-as-waiting")
     chat_tmpl = cfg.get("chat_template", "") or ""
     if chat_tmpl:
         # Resolve relative paths against the benchmark src root so configs can

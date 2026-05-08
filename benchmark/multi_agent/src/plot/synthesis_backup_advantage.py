@@ -69,6 +69,30 @@ class JobRecord:
     completion_time_s: float
 
 
+@dataclass(frozen=True)
+class LatencyVariant:
+    code: str
+    description: str
+    iqr_multiplier: float | None
+    scatter_only: bool = False
+
+
+@dataclass(frozen=True)
+class LatencyDrawValues:
+    box_values: list[float]
+    scatter_values: list[float]
+    summary_values: list[float]
+    display_values: list[float]
+
+
+LATENCY_VARIANTS = (
+    LatencyVariant("A", "Variant A: 3.0 x IQR filter", 3.0),
+    LatencyVariant("B", "Variant B: 2.0 x IQR filter", 2.0),
+    LatencyVariant("C", "Variant C: 1.5 x IQR for scatter only", 1.5, scatter_only=True),
+    LatencyVariant("D", "Variant D: no filtering", None),
+)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -210,16 +234,17 @@ def strategy_style(strategy: str) -> dict[str, str]:
 def draw_box_with_points(
     axis: plt.Axes,
     position: float,
-    values: list[float],
+    box_values: list[float],
+    point_values: list[float],
     color: str,
     marker: str,
     seed: int,
 ) -> None:
-    if not values:
+    if not box_values:
         return
 
     axis.boxplot(
-        [values],
+        [box_values],
         positions=[position],
         widths=0.28,
         patch_artist=True,
@@ -231,11 +256,14 @@ def draw_box_with_points(
         capprops={"color": color, "linewidth": 1.0},
     )
 
+    if not point_values:
+        return
+
     rng = np.random.default_rng(seed)
-    jitter = rng.uniform(-0.05, 0.05, size=len(values))
+    jitter = rng.uniform(-0.05, 0.05, size=len(point_values))
     axis.scatter(
-        np.full(len(values), position) + jitter,
-        values,
+        np.full(len(point_values), position) + jitter,
+        point_values,
         s=26,
         marker=marker,
         facecolor=color,
@@ -266,14 +294,45 @@ def annotate_group_counts(
     )
 
 
+def filter_latency_outliers(values: list[float], iqr_multiplier: float = 1.5) -> list[float]:
+    if len(values) < 4:
+        return list(values)
+
+    q1, q3 = np.percentile(values, [25, 75])
+    iqr = q3 - q1
+    lower = q1 - iqr_multiplier * iqr
+    upper = q3 + iqr_multiplier * iqr
+    return [value for value in values if lower <= value <= upper]
+
+
+def get_latency_draw_values(values: list[float], variant: LatencyVariant) -> LatencyDrawValues:
+    raw_values = list(values)
+    if variant.iqr_multiplier is None:
+        return LatencyDrawValues(raw_values, raw_values, raw_values, raw_values)
+
+    filtered_values = filter_latency_outliers(raw_values, iqr_multiplier=variant.iqr_multiplier)
+    if variant.scatter_only:
+        display_values = filtered_values if filtered_values else raw_values
+        return LatencyDrawValues(raw_values, filtered_values, raw_values, display_values)
+
+    return LatencyDrawValues(filtered_values, filtered_values, filtered_values, filtered_values)
+
+
 def collect_values(
     grouped: dict[tuple[str, str, str], list[object]],
     context: str,
     exposure: str,
     strategy: str,
     value_fn: Callable[[object], float],
+    filter_outliers: bool = False,
+    iqr_multiplier: float = 1.5,
 ) -> list[float]:
-    return [value_fn(record) for record in grouped.get((context, exposure, strategy), [])]
+    values = [value_fn(record) for record in grouped.get((context, exposure, strategy), [])]
+    return (
+        filter_latency_outliers(values, iqr_multiplier=iqr_multiplier)
+        if filter_outliers
+        else values
+    )
 
 
 def draw_latency_panel(
@@ -282,6 +341,7 @@ def draw_latency_panel(
     value_fn: Callable[[object], float],
     ylabel: str,
     improvement_label: str,
+    variant: LatencyVariant,
 ) -> None:
     x_centers = np.arange(len(CONTEXT_ORDER) * len(EXPOSURE_ORDER), dtype=float)
     offset = 0.18
@@ -295,18 +355,20 @@ def draw_latency_panel(
         [(c, e) for c in CONTEXT_ORDER for e in EXPOSURE_ORDER]
     ):
         for strategy, signed_offset in [("Baseline", -offset), ("Remote Backup", offset)]:
-            values = collect_values(grouped, context, exposure, strategy, value_fn)
+            raw_values = collect_values(grouped, context, exposure, strategy, value_fn)
+            values = get_latency_draw_values(raw_values, variant)
             style = strategy_style(strategy)
             draw_box_with_points(
                 axis,
                 x_centers[group_index] + signed_offset,
-                values,
+                values.box_values,
+                values.scatter_values,
                 style["color"],
                 style["marker"],
                 seed=1000 + group_index * 10 + (0 if strategy == "Baseline" else 1),
             )
-            if values:
-                group_maxima.append(max(values))
+            if values.display_values:
+                group_maxima.append(max(values.display_values))
 
     y_max = max(group_maxima) if group_maxima else 1.0
     count_y = y_max * 1.02
@@ -314,18 +376,25 @@ def draw_latency_panel(
         [(c, e) for c in CONTEXT_ORDER for e in EXPOSURE_ORDER]
     ):
         for strategy, signed_offset in [("Baseline", -offset), ("Remote Backup", offset)]:
-            values = collect_values(grouped, context, exposure, strategy, value_fn)
+            raw_values = collect_values(grouped, context, exposure, strategy, value_fn)
+            values = get_latency_draw_values(raw_values, variant)
             annotate_group_counts(
                 axis,
                 x_centers[group_index] + signed_offset,
-                values,
+                values.summary_values,
                 count_y,
                 strategy_style(strategy)["color"],
             )
 
     for group_index, context in zip([1, 3], CONTEXT_ORDER):
-        baseline_values = collect_values(grouped, context, "Failure-affected", "Baseline", value_fn)
-        backup_values = collect_values(grouped, context, "Failure-affected", "Remote Backup", value_fn)
+        baseline_values = get_latency_draw_values(
+            collect_values(grouped, context, "Failure-affected", "Baseline", value_fn),
+            variant,
+        ).summary_values
+        backup_values = get_latency_draw_values(
+            collect_values(grouped, context, "Failure-affected", "Remote Backup", value_fn),
+            variant,
+        ).summary_values
         if baseline_values and backup_values:
             baseline_median = statistics.median(baseline_values)
             backup_median = statistics.median(backup_values)
@@ -491,19 +560,25 @@ def create_figures(
     grouped_synthesis = group_records(list(synthesis_records))
     grouped_jobs = group_records(list(job_records))
 
-    fig, axis = plt.subplots(1, 1, figsize=(7.5, 4.8), constrained_layout=True)
-    draw_latency_panel(
-        axis,
-        grouped_synthesis,
-        value_fn=lambda record: record.completion_time_s,
-        ylabel="Synthesis Completion Time (s)",
-        improvement_label="median synthesis latency",
-    )
-    axis.set_title(
-        "Remote backup reduces synthesis latency\nwhen failures directly disrupt synthesis",
-        pad=10,
-    )
-    save_figure(fig, output_prefix.parent / f"{output_prefix.name}_synthesis_latency")
+    for variant in LATENCY_VARIANTS:
+        fig, axis = plt.subplots(1, 1, figsize=(7.5, 4.8), constrained_layout=True)
+        draw_latency_panel(
+            axis,
+            grouped_synthesis,
+            value_fn=lambda record: record.completion_time_s,
+            ylabel="Synthesis Completion Time (s)",
+            improvement_label="median synthesis latency",
+            variant=variant,
+        )
+        axis.set_title(
+            "Remote backup reduces synthesis latency\n"
+            "when failures directly disrupt synthesis",
+            pad=10,
+        )
+        save_figure(
+            fig,
+            output_prefix.parent / f"{output_prefix.name}_synthesis_latency_{variant.code}",
+        )
 
     fig, axis = plt.subplots(1, 1, figsize=(6.9, 4.8), constrained_layout=True)
     draw_prefill_panel(axis, grouped_synthesis)
@@ -513,19 +588,25 @@ def create_figures(
     )
     save_figure(fig, output_prefix.parent / f"{output_prefix.name}_synthesis_prefill")
 
-    fig, axis = plt.subplots(1, 1, figsize=(7.5, 4.8), constrained_layout=True)
-    draw_latency_panel(
-        axis,
-        grouped_jobs,
-        value_fn=lambda record: record.completion_time_s,
-        ylabel="Job Completion Time (s)",
-        improvement_label="median job time",
-    )
-    axis.set_title(
-        "Remote backup also lowers end-to-end job time\nfor failure-affected runs",
-        pad=10,
-    )
-    save_figure(fig, output_prefix.parent / f"{output_prefix.name}_job_latency")
+    for variant in LATENCY_VARIANTS:
+        fig, axis = plt.subplots(1, 1, figsize=(7.5, 4.8), constrained_layout=True)
+        draw_latency_panel(
+            axis,
+            grouped_jobs,
+            value_fn=lambda record: record.completion_time_s,
+            ylabel="Job Completion Time (s)",
+            improvement_label="median job time",
+            variant=variant,
+        )
+        axis.set_title(
+            "Remote backup also lowers end-to-end job time\n"
+            "for failure-affected runs",
+            pad=10,
+        )
+        save_figure(
+            fig,
+            output_prefix.parent / f"{output_prefix.name}_job_latency_{variant.code}",
+        )
 
 
 def main() -> None:

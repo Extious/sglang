@@ -329,6 +329,9 @@ class Scheduler(
         self.schedule_low_priority_values_first = (
             server_args.schedule_low_priority_values_first
         )
+        self.retry_queue_same_priority_as_waiting = (
+            server_args.retry_queue_same_priority_as_waiting
+        )
         self.priority_scheduling_preemption_threshold = (
             server_args.priority_scheduling_preemption_threshold
         )
@@ -2503,6 +2506,11 @@ class Scheduler(
             self.running_batch.batch_is_full = True
             return None
 
+        if self.retry_queue_same_priority_as_waiting and self.retry_queue:
+            # Make retry requests participate in the same waiting-queue policy.
+            self.waiting_queue.extend(self.retry_queue)
+            self.retry_queue = []
+
         # Get priority queue
         self.policy.calc_priority(self.waiting_queue, self.running_batch)
 
@@ -2545,8 +2553,9 @@ class Scheduler(
         if self.enable_lora:
             running_loras = {req.lora_id for req in self.running_batch.reqs}
 
-        # Process retry_queue first (failover requests get priority)
-        self._process_retry_queue(adder)
+        # Legacy behavior: process retry_queue first (failover requests get priority).
+        if not self.retry_queue_same_priority_as_waiting:
+            self._process_retry_queue(adder)
 
         # Get requests from the waiting queue to a new prefill batch
         for req in self.waiting_queue:

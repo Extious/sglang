@@ -1,7 +1,7 @@
 # Copyright 2023-2024 SGLang Team
 # Licensed under the Apache License, Version 2.0.
 
-"""CrewAI client configuration — mirrors failure/config.py layout."""
+"""Client workload configuration dataclasses."""
 
 from __future__ import annotations
 
@@ -13,8 +13,9 @@ from typing import Optional
 
 @dataclass
 class CrewAIClientConfig:
-    """Corresponds to config/<name>/crewai.json."""
+    """Corresponds to config/<name>/client.json -> crewai section."""
 
+    client_mode: str = "crewai"
     jobs_csv: Path = Path("topics.csv")
     job_limit: int = 6
     app_workers: int = 2
@@ -29,19 +30,48 @@ class CrewAIClientConfig:
 
     @classmethod
     def from_dict(cls, d: dict, default_csv: Path = Path("topics.csv")) -> CrewAIClientConfig:
-        _extra = (d.get("extra_instructions_file") or "").strip()
+        raw = d.get("crewai", {})
+        section = raw if isinstance(raw, dict) and raw else d
+        _extra = (section.get("extra_instructions_file") or "").strip()
         return cls(
-            jobs_csv=Path(d.get("topics_csv") or default_csv),
-            job_limit=int(d.get("job_limit", 6)),
-            app_workers=int(d.get("app_workers", 2)),
-            default_year=str(d.get("default_year", 2025)),
-            short_max_tokens=int(d.get("short_max_tokens", 1024)),
-            long_max_tokens=int(d.get("long_max_tokens", 2048)),
-            enable_stream=bool(d.get("enable_stream", False)),
-            ignore_eos=int(d.get("ignore_eos", 1)),
-            worker_start_stagger_s=float(d.get("worker_start_stagger_s", 0)),
-            agent_dp_rank_map=dict(d.get("agent_dp_rank_map", {})),
+            client_mode=str(d.get("client_mode", "crewai") or "crewai"),
+            jobs_csv=Path(section.get("topics_csv") or default_csv),
+            job_limit=int(section.get("job_limit", 6)),
+            app_workers=int(section.get("app_workers", 2)),
+            default_year=str(section.get("default_year", 2025)),
+            short_max_tokens=int(section.get("short_max_tokens", 1024)),
+            long_max_tokens=int(section.get("long_max_tokens", 2048)),
+            enable_stream=bool(section.get("enable_stream", False)),
+            ignore_eos=int(section.get("ignore_eos", 1)),
+            worker_start_stagger_s=float(section.get("worker_start_stagger_s", 0)),
+            agent_dp_rank_map=dict(section.get("agent_dp_rank_map", {})),
             extra_instructions_path=Path(_extra) if _extra else None,
+        )
+
+
+@dataclass
+class FixedClientConfig:
+    """Fixed-length, non-agent client config from client.json -> fixed."""
+
+    input_len: int = 1024
+    output_len: int = 128
+    num_requests: int = 64
+    app_workers: int = 4
+    seed: int = 1
+    ignore_eos: int = 1
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "FixedClientConfig":
+        fixed = d.get("fixed", {})
+        if not isinstance(fixed, dict):
+            fixed = {}
+        return cls(
+            input_len=int(fixed.get("input_len", 1024)),
+            output_len=int(fixed.get("output_len", 128)),
+            num_requests=int(fixed.get("num_requests", 64)),
+            app_workers=int(fixed.get("app_workers", 4)),
+            seed=int(fixed.get("seed", 1)),
+            ignore_eos=int(fixed.get("ignore_eos", d.get("ignore_eos", 1))),
         )
 
 
@@ -92,6 +122,38 @@ class CrewAIRunnerConfig:
             flags.extend(["--control-url", self.control_url])
         if self.extra_instructions_path:
             flags.extend(["--extra-instructions-file", str(self.extra_instructions_path)])
+        return flags
+
+
+@dataclass
+class FixedRunnerConfig:
+    """Runtime parameters for the fixed-length workload runner."""
+
+    server_url: str
+    model_path: str
+    input_len: int = 1024
+    output_len: int = 128
+    num_requests: int = 64
+    app_workers: int = 4
+    seed: int = 1
+    ignore_eos: int = 1
+    output_dir: Path = Path(".")
+    control_url: str = ""
+
+    def build_worker_flags(self) -> list[str]:
+        flags = [
+            "--server-url", self.server_url,
+            "--model-path", self.model_path,
+            "--input-len", str(self.input_len),
+            "--output-len", str(self.output_len),
+            "--num-requests", str(self.num_requests),
+            "--app-workers", str(self.app_workers),
+            "--seed", str(self.seed),
+            "--ignore-eos", str(self.ignore_eos),
+            "--output-dir", str(self.output_dir),
+        ]
+        if self.control_url:
+            flags.extend(["--control-url", self.control_url])
         return flags
 
 

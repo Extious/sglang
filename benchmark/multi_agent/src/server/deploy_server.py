@@ -725,25 +725,30 @@ def deploy(cfg: dict[str, Any]) -> int:
     log_dir = Path(cfg.get("log_dir", f"logs/{cfg.get('name', 'server')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"))
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    server_port = cfg.get("server_port_base", 28000)
+    server_port_base = int(cfg.get("server_port_base", 28000))
+    remote_backup_port_base = int(cfg.get("remote_backup_port_base", 30000))
     dist_init_port_offset = cfg.get("dist_init_port_offset", 100)
 
-    # DAAI: find a free port for dist-init dynamically (before spawning srun children)
-    dist_init_addr = f"{node_list[0]}:{server_port + dist_init_port_offset}"
+    server_port = server_port_base
+    dist_init_port = server_port_base + dist_init_port_offset
     if cfg.get("dist_free_port_daai") and slurm_env["SLURM_JOB_NODELIST"]:
-        dist_start = server_port + dist_init_port_offset
-        dist_end = cfg.get("remote_backup_port_base", 35000) - 1
-        free_port = find_free_port(node_list[0], dist_start, dist_end)
-        dist_init_addr = f"{node_list[0]}:{free_port}"
-        log(f"Using free dist-init port {free_port}")
+        dist_start = server_port_base + dist_init_port_offset
+        dist_end = remote_backup_port_base - 1
+        dist_init_port = find_free_port(node_list[0], dist_start, dist_end)
+        log(f"Using free dist-init port {dist_init_port}")
+    dist_init_addr = f"{node_list[0]}:{dist_init_port}"
 
     # Remote backup URL (head node hosts the backup server)
     remote_backup_url = ""
-    backup_port = cfg.get("remote_backup_port_base", 30000)
+    backup_port = remote_backup_port_base
     log(f"[DEBUG] kv_backup='{cfg.get('kv_backup', 'none')}', "
         f"remote_backup_port_base={cfg.get('remote_backup_port_base', 'N/A')}, "
         f"remote_backup_buffer_size_gb={cfg.get('remote_backup_buffer_size_gb', 'N/A')}, "
         f"hicache_storage_backend='{cfg.get('hicache_storage_backend', '')}'")
+    log(
+        f"[DEBUG] resolved ports: server_port={server_port}, "
+        f"dist_init_addr={dist_init_addr}, backup_port={backup_port}"
+    )
     if cfg.get("kv_backup", "") == "remote_backup":
         # Resolve venv_dir and repo_root early (needed for backup server launch)
         _repo_root = Path(__file__).resolve().parents[4]

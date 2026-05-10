@@ -15,6 +15,7 @@ class ServerConfig:
     pp_size: int = 1
     tp_size: int = 1
     nnodes: int = 1
+    server_port_base: int = 28000
     hicache_size_gb: int = 0
     quantization: str = ""
     model_path: str = ""
@@ -50,6 +51,7 @@ class ServerConfig:
             pp_size=int(d.get("pp_size", 1)),
             tp_size=int(d.get("tp_size", 1)),
             nnodes=int(d.get("nnodes", 1)),
+            server_port_base=int(d.get("server_port_base", 28000)),
             hicache_size_gb=int(d.get("hicache_size_gb", 0)),
             quantization=str(d.get("quantization", "")),
             model_path=str(d.get("model_path", "")),
@@ -84,7 +86,7 @@ class ServerConfig:
             "--pp-size", str(self.pp_size),
             "--tp-size", str(self.tp_size),
             "--model-path", model_path or "Qwen/Qwen3-8B",
-            "--server-port-base", str(server_port),
+            "--server-port-base", str(self.server_port_base or server_port),
             "--kv-backup", kv_backup,
         ]
         # Match deploy_server.py: explicit --hicache-size only when GB > 0; else --hicache-ratio.

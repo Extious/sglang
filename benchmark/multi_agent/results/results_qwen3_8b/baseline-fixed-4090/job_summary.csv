@@ -1,0 +1,13 @@
+job_id,job,year,worker_id,status,job_completion_time_s,llm_calls,prefill_cached_tokens,total_tokens,error
+1,request_1,,1,completed,24.086,1,0,11000,
+2,request_2,,2,completed,24.019,1,0,11000,
+3,request_3,,3,completed,24.083,1,5,11000,
+4,request_4,,4,completed,24.016,1,5,11000,
+5,request_5,,4,completed,40.75,1,5,11000,
+6,request_6,,1,completed,40.743,1,5,11000,
+7,request_7,,2,completed,23.957,1,5,11000,
+8,request_8,,3,completed,40.683,1,5,11000,
+9,request_9,,1,completed,23.891,1,5,11000,
+10,request_10,,2,completed,40.743,1,5,11000,
+11,request_11,,4,completed,47.907,1,5,11000,
+12,request_12,,3,completed,47.907,1,4,11000,

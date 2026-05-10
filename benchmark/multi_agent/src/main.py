@@ -178,7 +178,7 @@ class ExperimentPipeline:
             log("Step 1: Start SGLang server subprocess...")
             server_flags = srv_cfg.build_deploy_flags(
                 model_path=srv_cfg.model_path,
-                server_port=28000,
+                server_port=srv_cfg.server_port_base,
                 kv_backup=self.kv_backup,
                 venv_dir=str(self._venv),
             )

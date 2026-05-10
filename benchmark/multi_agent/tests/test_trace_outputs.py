@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import sys
 import types
 from pathlib import Path
@@ -94,6 +95,8 @@ def test_pipeline_uses_config_named_result_dir_and_clears_existing(tmp_path):
         server_cfg=SimpleNamespace(),
         fi_cfg=SimpleNamespace(),
         crewai_cfg=SimpleNamespace(),
+        fixed_cfg=SimpleNamespace(),
+        client_mode="crewai",
         kv_backup="remote_backup",
         log_dir=tmp_path / "logs",
         output_dir=tmp_path / "results",
@@ -146,6 +149,8 @@ def test_pipeline_generates_profiles_from_summary_csvs(tmp_path):
         server_cfg=SimpleNamespace(),
         fi_cfg=SimpleNamespace(),
         crewai_cfg=SimpleNamespace(),
+        fixed_cfg=SimpleNamespace(),
+        client_mode="crewai",
         kv_backup="remote",
         log_dir=tmp_path / "logs",
         output_dir=tmp_path / "results",
@@ -275,6 +280,8 @@ def test_pipeline_copies_logs_after_child_processes_exit(tmp_path, monkeypatch):
             agent_dp_rank_map={},
             extra_instructions_path=None,
         ),
+        fixed_cfg=SimpleNamespace(),
+        client_mode="crewai",
         kv_backup="remote_backup",
         log_dir=tmp_path / "logs",
         output_dir=tmp_path / "results",
@@ -374,3 +381,318 @@ def test_cache_hit_final_row_uses_real_task_rid():
             "pre_failover_backed_up_tokens": "",
         }
     ]
+
+
+def test_fixed_worker_payload_uses_top_level_sglang_fields():
+    from client.fixed_worker import _build_completion_payload
+
+    payload = _build_completion_payload(
+        model_path="test-model",
+        prompt="hello",
+        output_len=32,
+        ignore_eos=True,
+    )
+
+    assert payload["return_cached_tokens_details"] is True
+    assert payload["ignore_eos"] is True
+    assert "extra_body" not in payload
+
+
+def test_fixed_worker_cache_row_includes_cache_and_failover_details():
+    from client.fixed_worker import _cache_row_from_response
+
+    row = _cache_row_from_response(
+        job_id="8",
+        rid="rid-8",
+        response_body={
+            "usage": {
+                "cached_tokens_details": {
+                    "device": 5,
+                    "host": 7,
+                    "storage_query": 2048,
+                    "storage": 1024,
+                    "reused_device": 1,
+                    "reused_host": 2,
+                    "reused_storage": 3,
+                },
+                "failover": {
+                    "is_retried": True,
+                    "pre_failover_output_tokens": 321,
+                    "pre_failover_backed_up_tokens": 256,
+                },
+            }
+        },
+        usage={},
+    )
+
+    assert row == {
+        "job_id": "8",
+        "task_label": "fixed_request",
+        "agent_role": "fixed_client",
+        "rid": "rid-8",
+        "l1_match": 5,
+        "l2_match": 7,
+        "remote_match": 2048,
+        "remote_prefetch": 1024,
+        "reused_device": 1,
+        "reused_host": 2,
+        "reused_storage": 3,
+        "is_failover_retried": "True",
+        "pre_failover_output_tokens": "321",
+        "pre_failover_backed_up_tokens": "256",
+    }
+
+
+def test_fixed_worker_prepare_request_builds_payload_bytes():
+    from client.fixed_worker import _prepare_request
+
+    class FakePromptBuilder:
+        def build(self, request_index: int) -> str:
+            return f"prompt-{request_index}"
+
+    prepared = _prepare_request(
+        req_idx=3,
+        prompt_builder=FakePromptBuilder(),
+        model_path="test-model",
+        output_len=64,
+        ignore_eos=True,
+    )
+
+    assert prepared.req_idx == 3
+    assert prepared.job_id == "4"
+    assert prepared.prompt == "prompt-3"
+    assert json.loads(prepared.body.decode("utf-8")) == {
+        "model": "test-model",
+        "prompt": "prompt-3",
+        "temperature": 0.0,
+        "max_tokens": 64,
+        "stream": False,
+        "ignore_eos": True,
+        "return_cached_tokens_details": True,
+    }
+
+
+def test_fixed_worker_fill_ready_queue_prebuilds_all_requests():
+    import queue
+
+    from client.fixed_worker import _fill_ready_queue
+
+    class FakePromptBuilder:
+        def __init__(self) -> None:
+            self.built: list[int] = []
+
+        def build(self, request_index: int) -> str:
+            self.built.append(request_index)
+            return f"prompt-{request_index}"
+
+    pending: queue.Queue[int] = queue.Queue()
+    for req_idx in (0, 1, 2):
+        pending.put(req_idx)
+    ready: queue.Queue = queue.Queue()
+    builder = FakePromptBuilder()
+
+    _fill_ready_queue(
+        pending_queue=pending,
+        ready_queue=ready,
+        prompt_builder=builder,
+        model_path="test-model",
+        output_len=32,
+        ignore_eos=False,
+    )
+
+    assert builder.built == [0, 1, 2]
+    prepared = [ready.get_nowait(), ready.get_nowait(), ready.get_nowait()]
+    assert [item.req_idx for item in prepared] == [0, 1, 2]
+    assert [item.job_id for item in prepared] == ["1", "2", "3"]
+    assert [item.prompt for item in prepared] == ["prompt-0", "prompt-1", "prompt-2"]
+
+
+def test_fixed_worker_can_send_next_request_while_control_events_are_draining(
+    tmp_path, monkeypatch
+):
+    from client import fixed_worker
+
+    class FakePromptBuilder:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def build(self, request_index: int) -> str:
+            return f"prompt-{request_index}"
+
+    class FakeResponse:
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return self._payload
+
+    completion_count = {"value": 0}
+    first_control_started = threading.Event()
+    allow_control_finish = threading.Event()
+    second_completion_seen = threading.Event()
+    result: dict[str, int] = {}
+    errors: list[BaseException] = []
+
+    class FakeOpener:
+        def open(self, req, timeout=0):
+            if not req.full_url.endswith("/completions"):
+                raise AssertionError(f"unexpected request URL: {req.full_url}")
+            completion_count["value"] += 1
+            if completion_count["value"] == 2:
+                second_completion_seen.set()
+            return FakeResponse(
+                json.dumps(
+                    {"id": f"rid-{completion_count['value']}", "usage": {}}
+                ).encode("utf-8")
+            )
+
+    def fake_post_control_event(control_url: str, event_type: str, payload: dict):
+        assert control_url == "http://127.0.0.1:40000"
+        if event_type == "task_completed" and payload["job_id"] == "1":
+            first_control_started.set()
+            allow_control_finish.wait(timeout=1.0)
+
+    monkeypatch.setattr(fixed_worker, "PromptBuilder", FakePromptBuilder)
+    monkeypatch.setattr(
+        fixed_worker.urllib.request,
+        "build_opener",
+        lambda *_args, **_kwargs: FakeOpener(),
+    )
+    monkeypatch.setattr(fixed_worker, "_post_control_event", fake_post_control_event)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "fixed_worker.py",
+            "--server-url",
+            "http://127.0.0.1:28000",
+            "--model-path",
+            "model",
+            "--num-requests",
+            "2",
+            "--app-workers",
+            "1",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--control-url",
+            "http://127.0.0.1:40000",
+        ],
+    )
+
+    def run_worker() -> None:
+        try:
+            result["code"] = fixed_worker.main()
+        except BaseException as exc:  # pragma: no cover - surfaced via assertion
+            errors.append(exc)
+        finally:
+            allow_control_finish.set()
+
+    worker_thread = threading.Thread(target=run_worker, daemon=True)
+    worker_thread.start()
+
+    assert first_control_started.wait(timeout=1.0)
+    assert second_completion_seen.wait(timeout=0.2)
+
+    allow_control_finish.set()
+    worker_thread.join(timeout=1.0)
+
+    assert not errors
+    assert not worker_thread.is_alive()
+    assert completion_count["value"] == 2
+    assert result["code"] == 0
+
+
+def test_fixed_worker_prepares_initial_wave_in_parallel(tmp_path, monkeypatch):
+    from client import fixed_worker
+
+    class FakePromptBuilder:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+    class FakeResponse:
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return self._payload
+
+    completion_count = {"value": 0}
+    active_prepares = {"value": 0}
+    max_active_prepares = {"value": 0}
+    prepare_lock = threading.Lock()
+
+    class FakeOpener:
+        def open(self, req, timeout=0):
+            if req.full_url.endswith("/completions"):
+                completion_count["value"] += 1
+                return FakeResponse(
+                    json.dumps(
+                        {"id": f"rid-{completion_count['value']}", "usage": {}}
+                    ).encode("utf-8")
+                )
+            raise AssertionError(f"unexpected request URL: {req.full_url}")
+
+    def fake_prepare_request(**kwargs):
+        with prepare_lock:
+            active_prepares["value"] += 1
+            max_active_prepares["value"] = max(
+                max_active_prepares["value"], active_prepares["value"]
+            )
+        try:
+            threading.Event().wait(0.05)
+            req_idx = int(kwargs["req_idx"])
+            return fixed_worker.PreparedRequest(
+                req_idx=req_idx,
+                job_id=str(req_idx + 1),
+                prompt=f"prompt-{req_idx}",
+                body=json.dumps(
+                    {
+                        "model": kwargs["model_path"],
+                        "prompt": f"prompt-{req_idx}",
+                    }
+                ).encode("utf-8"),
+            )
+        finally:
+            with prepare_lock:
+                active_prepares["value"] -= 1
+
+    monkeypatch.setattr(fixed_worker, "PromptBuilder", FakePromptBuilder)
+    monkeypatch.setattr(fixed_worker, "_prepare_request", fake_prepare_request)
+    monkeypatch.setattr(
+        fixed_worker.urllib.request,
+        "build_opener",
+        lambda *_args, **_kwargs: FakeOpener(),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "fixed_worker.py",
+            "--server-url",
+            "http://127.0.0.1:28000",
+            "--model-path",
+            "model",
+            "--num-requests",
+            "2",
+            "--app-workers",
+            "2",
+            "--output-dir",
+            str(tmp_path / "out"),
+        ],
+    )
+
+    assert fixed_worker.main() == 0
+    assert completion_count["value"] == 2
+    assert max_active_prepares["value"] >= 2

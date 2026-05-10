@@ -528,6 +528,7 @@ class FaultInjector:
 
         while True:
             last_line = self._tail_new_events(last_line)
+            self._tick_triggers()
             time.sleep(1.0)
 
     def monitor_until(
@@ -540,6 +541,7 @@ class FaultInjector:
         start = time.time()
         if not self.events_file:
             while not should_stop() and time.time() - start < timeout_s:
+                self._tick_triggers()
                 time.sleep(poll_s)
             for t in self._fault_threads:
                 t.join(timeout=600)
@@ -550,10 +552,12 @@ class FaultInjector:
         self.log_msg(f"Monitoring {self.events_file}, triggers: {[t.name for t in self._triggers]}")
         while time.time() - start < timeout_s:
             last_line = self._tail_new_events(last_line)
+            self._tick_triggers()
             if should_stop():
                 break
             time.sleep(poll_s)
         last_line = self._tail_new_events(last_line)
+        self._tick_triggers()
         for t in self._fault_threads:
             t.join(timeout=600)
         for trigger in self._triggers:
@@ -626,12 +630,19 @@ class FaultInjector:
         self._on_event(rec)
 
     def _on_event(self, rec: dict) -> None:
-        ev = rec.get("event", "")
-        ctx = TriggerContext(
-            job_count=0, task_count=0, event=ev, rec=rec,
+        self._dispatch_to_triggers(self._make_trigger_context(rec.get("event", ""), rec))
+
+    def _make_trigger_context(self, event: str, rec: dict) -> TriggerContext:
+        return TriggerContext(
+            job_count=0,
+            task_count=0,
+            event=event,
+            rec=rec,
             elapsed_wall_s=time.time() - self._start_time,
         )
-        self._dispatch_to_triggers(ctx)
+
+    def _tick_triggers(self) -> None:
+        self._dispatch_to_triggers(self._make_trigger_context("", {}))
 
     def _dispatch_to_triggers(self, ctx: TriggerContext) -> None:
         for trigger in self._triggers:

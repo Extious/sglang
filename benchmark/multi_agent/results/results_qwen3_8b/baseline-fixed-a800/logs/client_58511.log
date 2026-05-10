@@ -1,0 +1,9 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/XYFS01/HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/sglang/benchmark/multi_agent/src/client/fixed_worker.py", line 575, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/XYFS01/HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/sglang/benchmark/multi_agent/src/client/fixed_worker.py", line 565, in main
+    raise RuntimeError(f"Failed to prepare fixed workload requests: {producer_errors[0]}")
+RuntimeError: Failed to prepare fixed workload requests: cannot import name 'AutoTokenizer' from 'transformers' (/XYFS01/HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/sglang/.venv/lib/python3.12/site-packages/transformers/__init__.py)

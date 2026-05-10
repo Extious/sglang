@@ -1,0 +1,25 @@
+{
+  "name": "baseline-fixed",
+  "description": "SGLang server without any KV backup — baseline fault-tolerance measurement.",
+  "platform": "gpuhome",
+  "kv_backup": "none",
+  "server": {
+    "model_path": "Qwen/Qwen3-8B",
+    "load_balance_method": "round_robin",
+    "retry_queue_same_priority_as_waiting": true,
+    "dp_size": 2,
+    "pp_size": 1,
+    "tp_size": 1,
+    "nnodes": 1,
+    "hicache_size_gb": 20,
+    "tool_call_parser": "qwen",
+    "enable_cache_report": true,
+    "enable_hicache": true,
+    "hicache_ratio": 1.1,
+    "quantization": ""
+  },
+  "hicache_storage": {
+    "backend": "",
+    "prefetch_policy": ""
+  }
+}

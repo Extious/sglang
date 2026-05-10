@@ -1,0 +1,27 @@
+{
+  "name": "remote_backup-fixed",
+  "description": "SGLang server with remote host backup for automatic KV cache failover.",
+  "platform": "gpuhome",
+  "kv_backup": "remote_backup",
+  "server": {
+      "model_path": "Qwen/Qwen3-8B",
+      "load_balance_method": "round_robin",
+      "retry_queue_same_priority_as_waiting": true,
+      "dp_size": 2,
+      "pp_size": 1,
+      "tp_size": 1,
+      "nnodes": 1,
+      "hicache_size_gb": 20,
+      "tool_call_parser": "qwen",
+      "enable_cache_report": true,
+      "enable_hicache": true,
+      "hicache_ratio": 1.1,
+      "quantization": ""
+  },
+  "hicache_storage": {
+      "backend": "remote_backup",
+      "prefetch_policy": "wait_complete",
+      "remote_backup_port_base": 30000,
+      "remote_backup_buffer_size_gb": 40
+  }
+}

@@ -14,10 +14,10 @@ from typing import Any, Optional
 @dataclass
 class FaultInjectionConfig:
     """Corresponds to config/<name>/failure.json."""
-    after_job: str = "1"
+    after_job: str = ""
     after_task: str = ""
     timeline_after_start_s: str = ""
-    delay: int = 10
+    delay: int = 0
     dp_rank: str = "0"
     pp_rank: str = "0"
     tp_rank: str = "0"
@@ -29,10 +29,10 @@ class FaultInjectionConfig:
     @classmethod
     def from_dict(cls, d: dict) -> FaultInjectionConfig:
         return cls(
-            after_job=str(d.get("inject_after_job", "1") or "1"),
+            after_job=str(d.get("inject_after_job", "") or ""),
             after_task=str(d.get("inject_after_task", "") or ""),
             timeline_after_start_s=str(d.get("timeline_after_start_s", "") or ""),
-            delay=int(d.get("delay", 10)),
+            delay=int(d.get("delay", 0)),
             dp_rank=str(d.get("dp_rank", "0") or "0"),
             pp_rank=str(d.get("pp_rank", "0") or "0"),
             tp_rank=str(d.get("tp_rank", "0") or "0"),
@@ -51,10 +51,10 @@ class FaultInjectorConfig:
     stage_manifest: Optional[Path]
     slurm_job_id: str
     output_dir: Path
-    inject_after_job: str = "1"
+    inject_after_job: str = ""
     inject_after_task: str = ""
     timeline_after_start_s: str = ""
-    inject_delay: int = 10
+    inject_delay: int = 0
     fault_dp_rank: str = ""
     fault_pp_rank: str = "0"
     fault_tp_rank: str = "0"
@@ -164,10 +164,10 @@ def fault_injector_config_from_json(data: dict) -> FaultInjectorConfig:
         ),
         slurm_job_id=str(data["slurm_job_id"]),
         output_dir=Path(str(data["output_dir"])),
-        inject_after_job=str(data.get("inject_after_job", "1")),
+        inject_after_job=str(data.get("inject_after_job", "")),
         inject_after_task=str(data.get("inject_after_task", "")),
         timeline_after_start_s=str(data.get("timeline_after_start_s", "")),
-        inject_delay=int(data.get("inject_delay", 10)),
+        inject_delay=int(data.get("inject_delay", 0)),
         fault_dp_rank=str(data.get("fault_dp_rank", "")),
         fault_pp_rank=str(data.get("fault_pp_rank", "0")),
         fault_tp_rank=str(data.get("fault_tp_rank", "0")),

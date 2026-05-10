@@ -1,0 +1,9 @@
+__MULTI_AGENT_CONTROL__ {"event":"injector_ready","control_url":"http://127.0.0.1:35747"}
+[2026-05-10T16:25:21] event {"event":"fault_scheduled","timestamp":"2026-05-10T16:25:21.341579+00:00","event_id":1,"trigger_kind":"job","trigger_count":4,"trigger_time_s":"","inject_delay":10.0,"dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"gpu14","node_url":"http://gpu14:28000","kill_pattern":"sglang::scheduler_DP0","job_id":4,"job":"request_4","worker_id":4}
+[2026-05-10T16:25:21] [fault #1] trigger=job -> dp0/pp0/tp0 on gpu14 (delay=10.0s)
+[2026-05-10T16:25:31] event {"event":"fault_injected","timestamp":"2026-05-10T16:25:31.341975+00:00","event_id":1,"trigger_kind":"job","trigger_count":4,"trigger_time_s":"","dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"gpu14","node_url":"http://gpu14:28000","kill_pattern":"sglang::scheduler_DP0","method":"api","slurm_job_id":35271,"kv_backup":"remote_backup"}
+[2026-05-10T16:25:31] POST http://gpu14:28000/simulate_gpu_failure body=b'{"dp_rank": 0}'
+[2026-05-10T16:25:31] [fault #1] injected dp=0 on gpu14
+[2026-05-10T16:25:31] event {"event":"gpu_failure_injected","timestamp":"2026-05-10T16:25:31.345519+00:00","event_id":1,"dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"gpu14","node_url":"http://gpu14:28000","kill_pattern":"sglang::scheduler_DP0","status":"injected_no_reaction"}
+[2026-05-10T16:25:31] [fault #1] waiting for job #8 to complete before recovery
+[2026-05-10T16:25:59] event {"event":"gpu_recovered","timestamp":"2026-05-10T16:25:59.504493+00:00","event_id":1,"dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"gpu14","node_url":"http://gpu14:28000","kill_pattern":"sglang::scheduler_DP0","method":"api","status":"recovered","recover_trigger":"after_job","recover_after_job":8}

@@ -1,0 +1,13 @@
+job_id,job,year,worker_id,job_status,agent,task_label,task_completion_time_s,llm_calls,prompt_tokens,cached_prompt_tokens,completion_tokens,total_tokens,prefill_cache_hit_rate,rid,error
+1,request_1,,1,completed,fixed_client,fixed_request,24.344,1,10000,0,1000,11000,0.0,c6b05101cd1542429bb40b41dab4c02e,
+2,request_2,,2,completed,fixed_client,fixed_request,24.314,1,10000,0,1000,11000,0.0,fd8712b2320746c08091be9192cc5668,
+3,request_3,,3,completed,fixed_client,fixed_request,24.298,1,10000,5,1000,11000,0.0005,488003c1ba2d4d44b5627bc8ec5c1fb2,
+4,request_4,,4,completed,fixed_client,fixed_request,24.32,1,10000,5,1000,11000,0.0005,4f60f3ce434f4bd4a28d954830e3cf9e,
+5,request_5,,2,completed,fixed_client,fixed_request,24.039,1,10000,5,1000,11000,0.0005,c34fd3962d5f4e97a6c9595dbf882f66,
+6,request_6,,3,completed,fixed_client,fixed_request,38.178,1,10000,10000,1000,11000,1.0,d148092eb9bb4afb8738434b09636d8b,
+7,request_7,,4,completed,fixed_client,fixed_request,24.01,1,10000,5,1000,11000,0.0005,be68cda8bbe54521b0d390eb90cf163a,
+8,request_8,,1,completed,fixed_client,fixed_request,38.149,1,10000,10000,1000,11000,1.0,a8309a2d487c4efa9077c1fe3a0561a0,
+9,request_9,,3,completed,fixed_client,fixed_request,47.81,1,10000,5,1000,11000,0.0005,e8d55fa1325340b8897e77c257486ea5,
+10,request_10,,4,completed,fixed_client,fixed_request,38.038,1,10000,5,1000,11000,0.0005,da0c172910674f848fe694f5f41c6d6f,
+11,request_11,,1,completed,fixed_client,fixed_request,47.81,1,10000,5,1000,11000,0.0005,fc0e141f3e1944b98ae5fc4d07db3f06,
+12,request_12,,2,completed,fixed_client,fixed_request,38.038,1,10000,4,1000,11000,0.0004,0ee7eee3a7734f838ea9a7eae606efeb,

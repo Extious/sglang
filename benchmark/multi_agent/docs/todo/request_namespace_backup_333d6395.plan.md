@@ -4,19 +4,19 @@ overview: 将当前基于全局 token trie 的 remote_backup 设计，重构为�
 todos:
   - id: design-data-model
     content: 定义请求级命名空间数据模型与页生命周期，替换全局 token trie 作为主索引
-    status: in_progress
+    status: completed
   - id: design-protocol
     content: 设计 remote backup server/client 新读写协议与兼容迁移策略
-    status: pending
+    status: completed
   - id: migrate-write-path
     content: 规划 prefill/decode 写入链路如何统一到 request_id+generation+page_idx
-    status: pending
+    status: completed
   - id: migrate-read-path
     content: 规划 failover/retry prefetch 如何从 token 前缀匹配迁移到请求级范围召回
-    status: pending
+    status: completed
   - id: validation-tests
     content: 定义单测与端到端验证，覆盖 prefill 召回、正常完成释放、failover generation 切换
-    status: pending
+    status: completed
 isProject: false
 ---
 

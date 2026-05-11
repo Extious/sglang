@@ -475,7 +475,7 @@ def test_fixed_worker_prepare_request_builds_payload_bytes():
 def test_fixed_worker_fill_ready_queue_prebuilds_all_requests():
     import queue
 
-    from client.fixed_worker import _fill_ready_queue
+    from client.fixed_worker import _fill_ready_queue, _prepare_requests
 
     class FakePromptBuilder:
         def __init__(self) -> None:
@@ -488,17 +488,19 @@ def test_fixed_worker_fill_ready_queue_prebuilds_all_requests():
     pending: queue.Queue[int] = queue.Queue()
     for req_idx in (0, 1, 2):
         pending.put(req_idx)
+    prepared_requests = [None, None, None]
     ready: queue.Queue = queue.Queue()
     builder = FakePromptBuilder()
 
-    _fill_ready_queue(
+    _prepare_requests(
         pending_queue=pending,
-        ready_queue=ready,
+        prepared_requests=prepared_requests,
         prompt_builder=builder,
         model_path="test-model",
         output_len=32,
         ignore_eos=False,
     )
+    _fill_ready_queue(ready_queue=ready, prepared_requests=prepared_requests)
 
     assert builder.built == [0, 1, 2]
     prepared = [ready.get_nowait(), ready.get_nowait(), ready.get_nowait()]
@@ -608,7 +610,7 @@ def test_fixed_worker_can_send_next_request_while_control_events_are_draining(
     assert result["code"] == 0
 
 
-def test_fixed_worker_prepares_initial_wave_in_parallel(tmp_path, monkeypatch):
+def test_fixed_worker_prepares_all_requests_before_workers_start(tmp_path, monkeypatch):
     from client import fixed_worker
 
     class FakePromptBuilder:
@@ -629,13 +631,17 @@ def test_fixed_worker_prepares_initial_wave_in_parallel(tmp_path, monkeypatch):
             return self._payload
 
     completion_count = {"value": 0}
+    prepared_count = {"value": 0}
     active_prepares = {"value": 0}
     max_active_prepares = {"value": 0}
     prepare_lock = threading.Lock()
+    all_prepared = threading.Event()
+    total_requests = 4
 
     class FakeOpener:
         def open(self, req, timeout=0):
             if req.full_url.endswith("/completions"):
+                assert all_prepared.is_set()
                 completion_count["value"] += 1
                 return FakeResponse(
                     json.dumps(
@@ -667,6 +673,9 @@ def test_fixed_worker_prepares_initial_wave_in_parallel(tmp_path, monkeypatch):
         finally:
             with prepare_lock:
                 active_prepares["value"] -= 1
+                prepared_count["value"] += 1
+                if prepared_count["value"] == total_requests:
+                    all_prepared.set()
 
     monkeypatch.setattr(fixed_worker, "PromptBuilder", FakePromptBuilder)
     monkeypatch.setattr(fixed_worker, "_prepare_request", fake_prepare_request)
@@ -685,7 +694,7 @@ def test_fixed_worker_prepares_initial_wave_in_parallel(tmp_path, monkeypatch):
             "--model-path",
             "model",
             "--num-requests",
-            "2",
+            str(total_requests),
             "--app-workers",
             "2",
             "--output-dir",
@@ -694,5 +703,76 @@ def test_fixed_worker_prepares_initial_wave_in_parallel(tmp_path, monkeypatch):
     )
 
     assert fixed_worker.main() == 0
-    assert completion_count["value"] == 2
+    assert completion_count["value"] == total_requests
+    assert prepared_count["value"] == total_requests
     assert max_active_prepares["value"] >= 2
+
+
+def test_fixed_worker_logs_prepare_dispatch_and_completion_progress(
+    tmp_path, monkeypatch, capsys
+):
+    from client import fixed_worker
+
+    class FakePromptBuilder:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def build(self, request_index: int) -> str:
+            return f"prompt-{request_index}"
+
+    class FakeResponse:
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return self._payload
+
+    completion_count = {"value": 0}
+
+    class FakeOpener:
+        def open(self, req, timeout=0):
+            if req.full_url.endswith("/completions"):
+                completion_count["value"] += 1
+                return FakeResponse(
+                    json.dumps(
+                        {"id": f"rid-{completion_count['value']}", "usage": {}}
+                    ).encode("utf-8")
+                )
+            raise AssertionError(f"unexpected request URL: {req.full_url}")
+
+    monkeypatch.setattr(fixed_worker, "PromptBuilder", FakePromptBuilder)
+    monkeypatch.setattr(
+        fixed_worker.urllib.request,
+        "build_opener",
+        lambda *_args, **_kwargs: FakeOpener(),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "fixed_worker.py",
+            "--server-url",
+            "http://127.0.0.1:28000",
+            "--model-path",
+            "model",
+            "--num-requests",
+            "2",
+            "--app-workers",
+            "1",
+            "--output-dir",
+            str(tmp_path / "out"),
+        ],
+    )
+
+    assert fixed_worker.main() == 0
+    captured = capsys.readouterr()
+    assert "fixed workload start:" in captured.out
+    assert "prepare progress:" in captured.out
+    assert "dispatch progress:" in captured.out
+    assert "complete progress:" in captured.out

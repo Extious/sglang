@@ -1474,6 +1474,9 @@ class HiRadixCache(RadixCache):
         prefix_keys: Optional[List[str]] = None,
         prefix_token_ids: Optional[List[int]] = None,
         lookup_dp_rank: Optional[int] = None,
+        request_ns_restore: bool = False,
+        ns_dp_rank: int = 0,
+        ns_generation: int = 0,
     ) -> str:
         new_input_tokens = (
             convert_to_bigram_key(new_input_tokens)
@@ -1510,6 +1513,9 @@ class HiRadixCache(RadixCache):
             prefix_keys,
             prefix_token_ids=prefix_token_ids,
             lookup_dp_rank=lookup_dp_rank,
+            request_ns_restore=request_ns_restore,
+            ns_dp_rank=ns_dp_rank,
+            ns_generation=ns_generation,
         )
         self.ongoing_prefetch[req_id] = (
             last_host_node,

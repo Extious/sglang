@@ -3,7 +3,7 @@
     "fixed": {
         "input_len": 20000,
         "output_len": 1000,
-        "num_requests": 40,
+        "num_requests": 30,
         "app_workers": 10,
         "seed": 1,
         "ignore_eos": 1

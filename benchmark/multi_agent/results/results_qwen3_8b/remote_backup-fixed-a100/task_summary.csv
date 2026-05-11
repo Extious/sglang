@@ -1,0 +1,31 @@
+job_id,job,year,worker_id,job_status,agent,task_label,task_completion_time_s,llm_calls,prompt_tokens,cached_prompt_tokens,completion_tokens,total_tokens,prefill_cache_hit_rate,rid,error
+1,request_1,,9,completed,fixed_client,fixed_request,53.691,1,20000,5,1000,21000,0.0003,0dd1d95b14a44b749dd8260861b22992,
+2,request_2,,2,completed,fixed_client,fixed_request,53.692,1,20000,0,1000,21000,0.0,d0395dc51da840cb9d3577e362936db2,
+3,request_3,,3,completed,fixed_client,fixed_request,109.901,1,20000,5,1000,21000,0.0003,9fa8311443394067ad42220702abedbc,
+4,request_4,,4,completed,fixed_client,fixed_request,38.53,1,20000,5,1000,21000,0.0003,14200aae022145cd9a2c9a37e8c73f05,
+5,request_5,,7,completed,fixed_client,fixed_request,53.691,1,20000,5,1000,21000,0.0003,2e93093c61b6450fab96373813896825,
+6,request_6,,8,completed,fixed_client,fixed_request,38.529,1,20000,5,1000,21000,0.0003,b6fd59d1c2e24a328ca5a7895415f6fb,
+7,request_7,,1,completed,fixed_client,fixed_request,38.53,1,20000,0,1000,21000,0.0,ef5111c4dd73440a82570d10e667ede4,
+8,request_8,,5,completed,fixed_client,fixed_request,53.691,1,20000,5,1000,21000,0.0003,c6e5880b6d2243489b10c239342e48f6,
+9,request_9,,6,completed,fixed_client,fixed_request,38.529,1,20000,5,1000,21000,0.0003,c27ac285392944b7a25fba5ffdff2f08,
+10,request_10,,10,completed,fixed_client,fixed_request,38.529,1,20000,5,1000,21000,0.0003,15e5840d917644faaf2d8dfd80bbf640,
+11,request_11,,10,completed,fixed_client,fixed_request,31.719,1,20000,4,1000,21000,0.0002,47847ee946d6434a988b3b0c701ceb28,
+12,request_12,,1,completed,fixed_client,fixed_request,71.372,1,20000,4,1000,21000,0.0002,e287e5bb1daa43f58b75edd01bc96eeb,
+13,request_13,,4,completed,fixed_client,fixed_request,31.719,1,20000,5,1000,21000,0.0003,5dc76ff5da944d4dae7e3e5e71cedb47,
+14,request_14,,8,completed,fixed_client,fixed_request,71.371,1,20000,5,1000,21000,0.0003,0358c22cd71548d6bfb359ac30243c08,
+15,request_15,,6,completed,fixed_client,fixed_request,71.371,1,20000,5,1000,21000,0.0003,de306ced320c4d459baa57d49b84877e,
+16,request_16,,5,completed,fixed_client,fixed_request,109.544,1,20000,5,1000,21000,0.0003,779e4640f8084daab6ba84361c26b098,
+17,request_17,,2,completed,fixed_client,fixed_request,29.361,1,20000,5,1000,21000,0.0003,24300e5a7acd4b0592d3666f5c534c6b,
+18,request_18,,7,completed,fixed_client,fixed_request,109.543,1,20000,5,1000,21000,0.0003,0e2f93422040434698f5e88262270554,
+19,request_19,,9,completed,fixed_client,fixed_request,29.361,1,20000,5,1000,21000,0.0003,6b64748c35e642c7966aa3b2d4ba6661,
+20,request_20,,10,failed,fixed_client,fixed_request,120.1,0,0,0,0,0,,,timed out
+21,request_21,,4,completed,fixed_client,fixed_request,92.985,1,20000,4,1000,21000,0.0002,8ed3991810e448599ecfff710eae8597,
+22,request_22,,9,failed,fixed_client,fixed_request,120.004,0,0,0,0,0,,,timed out
+23,request_23,,2,completed,fixed_client,fixed_request,80.182,1,20000,5,1000,21000,0.0003,6e3739efab144330bc1ee9388b1d066c,
+24,request_24,,6,completed,fixed_client,fixed_request,118.59,1,20000,5,1000,21000,0.0003,506ee8a9f546493cbe44a03105a5cde7,
+25,request_25,,1,failed,fixed_client,fixed_request,120.101,0,0,0,0,0,,,timed out
+26,request_26,,3,completed,fixed_client,fixed_request,118.589,1,20000,5,1000,21000,0.0003,17b41066f3e041508083d421021adc4d,
+27,request_27,,8,failed,fixed_client,fixed_request,120.008,0,0,0,0,0,,,timed out
+28,request_28,,4,completed,fixed_client,fixed_request,104.212,1,20000,5,1000,21000,0.0003,8f1f02095b074a80af44e2e831e254a4,
+29,request_29,,2,completed,fixed_client,fixed_request,104.212,1,20000,5,1000,21000,0.0003,5df1487cabfb448b9db7736db7427198,
+30,request_30,,7,failed,fixed_client,fixed_request,120.072,0,0,0,0,0,,,timed out

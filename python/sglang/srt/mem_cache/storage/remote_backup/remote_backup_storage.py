@@ -38,6 +38,9 @@ from sglang.srt.mem_cache.storage.remote_backup.remote_backup_server import (
     RemoteBackupServer,
 )
 
+# When True, writes and reads use the request-namespace API as primary path.
+_USE_REQUEST_NAMESPACE = True
+
 logger = logging.getLogger(__name__)
 
 _REASON_STR_TO_CODE = {
@@ -224,31 +227,65 @@ class RemoteBackupStorage(HiCacheStorage):
                 len(raw_pages),
             )
 
-        dummy = self.mem_pool_host.get_dummy_flat_data_page()
-        dtype = dummy.dtype
-
-        results: List[bool] = []
-        for i, raw in enumerate(raw_pages):
-            if raw is not None:
-                try:
-                    page_tensor = torch.frombuffer(
-                        bytearray(raw), dtype=dtype
-                    ).reshape(dummy.shape)
-                    idx = host_indices[i * self.page_size].item()
-                    self.mem_pool_host.set_from_flat_data_page(idx, page_tensor)
-                    results.append(True)
-                except Exception as exc:
-                    logger.warning(
-                        "RemoteBackupStorage.get_pages_tokens page %d: %s", i, exc
-                    )
-                    results.append(False)
-            else:
-                results.append(False)
-        return results
+        return self._deserialize_pages_to_host(raw_pages, host_indices)
 
     # ------------------------------------------------------------------
-    # Token-aware v1 interface used by the generic HiCache backup path.
+    # Request-namespace read API (for failover/retry restore)
     # ------------------------------------------------------------------
+
+    def match_prefix_by_request(
+        self,
+        dp_rank: int,
+        rid: str,
+        generation: int,
+    ) -> tuple:
+        """Query request namespace for available page range.
+
+        Returns ``(contiguous_pages, total_pages)`` — contiguous is the max
+        range starting from page 0 that can be restored without gaps.
+        """
+        if self.local_server is not None:
+            return self.local_server.query_request_range(dp_rank, rid, generation)
+        elif self.client is not None:
+            return self.client.query_request_range(dp_rank, rid, generation)
+        return 0, 0
+
+    def get_pages_by_request(
+        self,
+        dp_rank: int,
+        rid: str,
+        generation: int,
+        page_start: int,
+        count: int,
+        host_indices: torch.Tensor,
+    ) -> List[bool]:
+        """Retrieve pages from the request namespace and write to host memory."""
+        if self.local_server is not None:
+            raw_pages = self.local_server.get_pages_by_request(
+                dp_rank, rid, generation, page_start, count
+            )
+        elif self.client is not None:
+            raw_pages = self.client.get_pages_by_request(
+                dp_rank, rid, generation, page_start, count
+            )
+        else:
+            return [False] * count
+
+        none_count = sum(1 for r in raw_pages if r is None)
+        if none_count > 0:
+            logger.warning(
+                "RemoteBackupStorage.get_pages_by_request: dp_rank=%d, rid=%s, "
+                "gen=%d, page_start=%d, count=%d, none=%d/%d",
+                dp_rank,
+                rid[:16] if rid else "",
+                generation,
+                page_start,
+                count,
+                none_count,
+                len(raw_pages),
+            )
+
+        return self._deserialize_pages_to_host(raw_pages, host_indices)
 
     # ------------------------------------------------------------------
     # Request lifecycle hooks (request-aware retention)
@@ -278,20 +315,85 @@ class RemoteBackupStorage(HiCacheStorage):
         elif self.client is not None:
             self.client.finish_request(request_id, dp_rank, generation, reason_code)
 
+    def _serialize_pages(
+        self, keys: List[str], host_indices: torch.Tensor
+    ) -> List[bytes]:
+        """Serialize host KV pages to raw bytes."""
+        pages: List[bytes] = []
+        for i in range(len(keys)):
+            idx = host_indices[i * self.page_size].item()
+            page_tensor = self.mem_pool_host.get_data_page(idx, flat=True)
+            raw = page_tensor.contiguous().view(torch.uint8).numpy().tobytes()
+            pages.append(raw)
+        return pages
+
+    def _deserialize_pages_to_host(
+        self, raw_pages: List[Optional[bytes]], host_indices: torch.Tensor
+    ) -> List[bool]:
+        """Write raw page bytes into host memory pool. Returns per-page success."""
+        dummy = self.mem_pool_host.get_dummy_flat_data_page()
+        dtype = dummy.dtype
+        results: List[bool] = []
+        for i, raw in enumerate(raw_pages):
+            if raw is not None:
+                try:
+                    page_tensor = torch.frombuffer(
+                        bytearray(raw), dtype=dtype
+                    ).reshape(dummy.shape)
+                    idx = host_indices[i * self.page_size].item()
+                    self.mem_pool_host.set_from_flat_data_page(idx, page_tensor)
+                    results.append(True)
+                except Exception as exc:
+                    logger.warning(
+                        "RemoteBackupStorage._deserialize_pages_to_host page %d: %s",
+                        i,
+                        exc,
+                    )
+                    results.append(False)
+            else:
+                results.append(False)
+        return results
+
     def batch_set_v1(
         self,
         keys: List[str],
         host_indices: torch.Tensor,
         extra_info: Optional[HiCacheStorageExtraInfo] = None,
     ) -> List[bool]:
-        """Write path: serialize host pages + token context, TCP send to remote backup server.
+        """Write path: serialize host pages and send to remote backup server.
 
-        When ``extra_info.request_id`` is set (v2 path), uses put_pages_tokens_v2
-        so the server associates the pages with the request's lease.
+        When ``_USE_REQUEST_NAMESPACE`` is enabled and ``extra_info.request_id``
+        is set, pages are written to the request namespace (primary path).
+        Otherwise falls back to the legacy token-trie v1/v2 write.
         """
-        if self.client is None:
+        if self.client is None and self.local_server is None:
             return [False] * len(keys)
 
+        rid = getattr(extra_info, "request_id", None) if extra_info else None
+        generation = getattr(extra_info, "request_generation", 0) if extra_info else 0
+        page_start = getattr(extra_info, "page_start", 0) if extra_info else 0
+
+        # Request-namespace primary write path
+        if _USE_REQUEST_NAMESPACE and rid:
+            pages = self._serialize_pages(keys, host_indices)
+            if self.local_server is not None:
+                results = self.local_server.put_pages_by_request(
+                    self._dp_rank, rid, generation, page_start, pages
+                )
+            else:
+                results = self.client.put_pages_by_request(
+                    self._dp_rank, rid, generation, page_start, pages
+                )
+            ok_count = sum(1 for r in results if r)
+            if ok_count < len(keys):
+                logger.warning(
+                    "RemoteBackupStorage.batch_set_v1(ns): only %d/%d pages sent",
+                    ok_count,
+                    len(keys),
+                )
+            return results
+
+        # Legacy token-trie fallback
         if extra_info is None or extra_info.full_token_ids is None:
             logger.warning(
                 "RemoteBackupStorage.batch_set_v1: no token context, skipping %d pages",
@@ -299,18 +401,9 @@ class RemoteBackupStorage(HiCacheStorage):
             )
             return [False] * len(keys)
 
-        pages: List[bytes] = []
-        for i in range(len(keys)):
-            idx = host_indices[i * self.page_size].item()
-            page_tensor = self.mem_pool_host.get_data_page(idx, flat=True)
-            raw = page_tensor.contiguous().view(torch.uint8).numpy().tobytes()
-            pages.append(raw)
-
-        rid = getattr(extra_info, "request_id", None)
-        generation = getattr(extra_info, "request_generation", 0)
+        pages = self._serialize_pages(keys, host_indices)
 
         if rid:
-            # V2 path: associate pages with the request lease
             if self.local_server is not None and self.local_server.request_aware:
                 results = self.local_server.insert_pages_v2(
                     self._dp_rank,
@@ -330,7 +423,6 @@ class RemoteBackupStorage(HiCacheStorage):
                     generation,
                 )
         else:
-            # V1 path: no lease metadata
             results = self.client.put_pages_tokens(
                 self._dp_rank,
                 extra_info.full_token_ids,

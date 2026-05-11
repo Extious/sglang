@@ -104,6 +104,11 @@ CMD_PUT_TOKENS_V2 = 7
 CMD_REQUEST_START = 8
 CMD_REQUEST_FINISH = 9
 
+# Request-namespace commands (replaces token trie as primary index)
+CMD_PUT_PAGES_BY_REQUEST = 10
+CMD_GET_PAGES_BY_REQUEST = 11
+CMD_QUERY_REQUEST_RANGE = 12
+
 DECODE_DEBUG_PAGE_START_THRESHOLD = 100
 REMOTE_BACKUP_ALL_DP_RANKS = 255
 REMOTE_BACKUP_NO_SOURCE_DP_RANK = -1
@@ -208,6 +213,190 @@ class RequestLeaseEntry:
     state: str = _LEASE_STATE_ACTIVE
     pages: Set[int] = field(default_factory=set)
     last_touch_ts: float = field(default_factory=time.monotonic)
+
+
+# ---------------------------------------------------------------------------
+# Request-level namespace store (replacement for token trie as primary index)
+# ---------------------------------------------------------------------------
+
+_NS_STATE_ACTIVE = "active"
+_NS_STATE_INACTIVE = "inactive"
+_NS_STATE_GC = "gc"
+
+
+@dataclass
+class RequestNamespace:
+    """Per-(dp_rank, rid, generation) page store.
+
+    Pages are indexed by ``page_idx`` (0-based sequential position within the
+    request).  Both prefill and decode pages share the same flat index space.
+    """
+
+    dp_rank: int
+    rid: str
+    generation: int
+    state: str = _NS_STATE_ACTIVE
+    pages: Dict[int, bytes] = field(default_factory=dict)
+    max_page_idx: int = -1
+    total_bytes: int = 0
+    last_touch_ts: float = field(default_factory=time.monotonic)
+
+
+class RequestNamespaceStore:
+    """Manages all request namespaces and their page data.
+
+    Thread-safety: callers must hold the server lock when calling mutating
+    methods.  Read-only helpers that only inspect ``self.namespaces`` are safe
+    under the same lock.
+    """
+
+    def __init__(self, max_size_bytes: int):
+        self.max_size = max_size_bytes
+        self.current_size: int = 0
+        self.namespaces: Dict[tuple, RequestNamespace] = {}
+        self._gc_queue: list = []
+
+    def _ns_key(self, dp_rank: int, rid: str, generation: int) -> tuple:
+        return (dp_rank, rid, generation)
+
+    def get_or_create(
+        self, dp_rank: int, rid: str, generation: int
+    ) -> RequestNamespace:
+        key = self._ns_key(dp_rank, rid, generation)
+        ns = self.namespaces.get(key)
+        if ns is None:
+            ns = RequestNamespace(dp_rank=dp_rank, rid=rid, generation=generation)
+            self.namespaces[key] = ns
+        return ns
+
+    def put_pages(
+        self,
+        dp_rank: int,
+        rid: str,
+        generation: int,
+        page_start: int,
+        kv_pages: List[bytes],
+    ) -> List[bool]:
+        """Store pages at ``[page_start, page_start + len(kv_pages))``."""
+        ns = self.get_or_create(dp_rank, rid, generation)
+        ns.last_touch_ts = time.monotonic()
+        results: List[bool] = []
+        for i, page_data in enumerate(kv_pages):
+            page_idx = page_start + i
+            old = ns.pages.get(page_idx)
+            if old is not None:
+                self.current_size -= len(old)
+                ns.total_bytes -= len(old)
+            ns.pages[page_idx] = page_data
+            data_len = len(page_data)
+            ns.total_bytes += data_len
+            self.current_size += data_len
+            if page_idx > ns.max_page_idx:
+                ns.max_page_idx = page_idx
+            results.append(True)
+        self._evict_if_needed()
+        return results
+
+    def get_pages(
+        self,
+        dp_rank: int,
+        rid: str,
+        generation: int,
+        page_start: int,
+        count: int,
+    ) -> List[Optional[bytes]]:
+        """Retrieve ``count`` pages starting at ``page_start``."""
+        key = self._ns_key(dp_rank, rid, generation)
+        ns = self.namespaces.get(key)
+        if ns is None:
+            return [None] * count
+        ns.last_touch_ts = time.monotonic()
+        results: List[Optional[bytes]] = []
+        for i in range(count):
+            results.append(ns.pages.get(page_start + i))
+        return results
+
+    def query_range(
+        self, dp_rank: int, rid: str, generation: int
+    ) -> tuple:
+        """Return ``(max_contiguous_pages, total_pages)`` for the namespace."""
+        key = self._ns_key(dp_rank, rid, generation)
+        ns = self.namespaces.get(key)
+        if ns is None:
+            return 0, 0
+        contiguous = 0
+        while contiguous in ns.pages:
+            contiguous += 1
+        return contiguous, len(ns.pages)
+
+    def release_namespace(
+        self, dp_rank: int, rid: str, generation: int
+    ) -> int:
+        """Remove and free all pages in the namespace. Returns bytes freed."""
+        key = self._ns_key(dp_rank, rid, generation)
+        ns = self.namespaces.pop(key, None)
+        if ns is None:
+            return 0
+        freed = ns.total_bytes
+        self.current_size -= freed
+        ns.pages.clear()
+        ns.total_bytes = 0
+        return freed
+
+    def mark_inactive(self, dp_rank: int, rid: str, generation: int) -> None:
+        key = self._ns_key(dp_rank, rid, generation)
+        ns = self.namespaces.get(key)
+        if ns is not None:
+            ns.state = _NS_STATE_INACTIVE
+
+    def _evict_if_needed(self) -> None:
+        """Evict inactive namespaces (oldest first) to stay within budget."""
+        if self.current_size <= self.max_size:
+            return
+        inactive = [
+            (ns.last_touch_ts, k, ns)
+            for k, ns in self.namespaces.items()
+            if ns.state == _NS_STATE_INACTIVE
+        ]
+        inactive.sort()
+        for _ts, key, ns in inactive:
+            if self.current_size <= self.max_size:
+                break
+            self.current_size -= ns.total_bytes
+            ns.pages.clear()
+            ns.total_bytes = 0
+            del self.namespaces[key]
+
+        if self.current_size > self.max_size:
+            active = [
+                (ns.last_touch_ts, k, ns)
+                for k, ns in self.namespaces.items()
+                if ns.state == _NS_STATE_ACTIVE
+            ]
+            active.sort()
+            for _ts, key, ns in active:
+                if self.current_size <= self.max_size:
+                    break
+                logger.warning(
+                    "request_namespace: evicting ACTIVE namespace rid=%s gen=%d "
+                    "(%d pages, %.1f MB) to stay within budget",
+                    ns.rid,
+                    ns.generation,
+                    len(ns.pages),
+                    ns.total_bytes / (1024 * 1024),
+                )
+                self.current_size -= ns.total_bytes
+                ns.pages.clear()
+                ns.total_bytes = 0
+                del self.namespaces[key]
+
+    @property
+    def namespace_count(self) -> int:
+        return len(self.namespaces)
+
+    @property
+    def total_pages(self) -> int:
+        return sum(len(ns.pages) for ns in self.namespaces.values())
 
 
 # ---------------------------------------------------------------------------
@@ -848,10 +1037,12 @@ class RemoteBackupServer:
         self.port = port
         self.page_size = page_size
         self.request_aware = request_aware
+        max_bytes = int(max_buffer_size_gb * (1024**3))
         self.buffer = RemoteBackupRadixBuffer(
             page_size=page_size,
-            max_size_bytes=int(max_buffer_size_gb * (1024**3)),
+            max_size_bytes=max_bytes,
         )
+        self.ns_store = RequestNamespaceStore(max_size_bytes=max_bytes)
         self.lock = threading.Lock()
         self._tcp_server: Optional[socketserver.ThreadingTCPServer] = None
         self._server_thread: Optional[threading.Thread] = None
@@ -1009,6 +1200,65 @@ class RemoteBackupServer:
                                     resp.extend(page)
                             sock.sendall(resp)
 
+                        elif cmd_byte == CMD_PUT_PAGES_BY_REQUEST:
+                            # Request-namespace PUT
+                            dp_rank = _recvall(sock, 1)[0]
+                            rid_len = struct.unpack("!H", _recvall(sock, 2))[0]
+                            rid = _recvall(sock, rid_len).decode("utf-8", errors="replace")
+                            generation = struct.unpack("<Q", _recvall(sock, 8))[0]
+                            page_start, page_count = struct.unpack(
+                                "!II", _recvall(sock, 8)
+                            )
+                            pages = []
+                            for _ in range(page_count):
+                                dlen = struct.unpack(
+                                    _ITEM_HDR_FMT,
+                                    _recvall(sock, _ITEM_HDR_SIZE),
+                                )[0]
+                                pages.append(_recvall(sock, dlen))
+                            results = server.put_pages_by_request(
+                                dp_rank, rid, generation, page_start, pages
+                            )
+                            resp = struct.pack("!BI", 0, len(results))
+                            resp += b"".join(
+                                struct.pack("!?", ok) for ok in results
+                            )
+                            sock.sendall(resp)
+
+                        elif cmd_byte == CMD_GET_PAGES_BY_REQUEST:
+                            # Request-namespace GET
+                            dp_rank = _recvall(sock, 1)[0]
+                            rid_len = struct.unpack("!H", _recvall(sock, 2))[0]
+                            rid = _recvall(sock, rid_len).decode("utf-8", errors="replace")
+                            generation = struct.unpack("<Q", _recvall(sock, 8))[0]
+                            page_start, count = struct.unpack(
+                                "!II", _recvall(sock, 8)
+                            )
+                            pages = server.get_pages_by_request(
+                                dp_rank, rid, generation, page_start, count
+                            )
+                            resp = bytearray(struct.pack("!BI", 0, len(pages)))
+                            for page in pages:
+                                if page is None:
+                                    resp.extend(struct.pack("!I", 0))
+                                else:
+                                    resp.extend(struct.pack("!I", len(page)))
+                                    resp.extend(page)
+                            sock.sendall(resp)
+
+                        elif cmd_byte == CMD_QUERY_REQUEST_RANGE:
+                            # Request-namespace QUERY
+                            dp_rank = _recvall(sock, 1)[0]
+                            rid_len = struct.unpack("!H", _recvall(sock, 2))[0]
+                            rid = _recvall(sock, rid_len).decode("utf-8", errors="replace")
+                            generation = struct.unpack("<Q", _recvall(sock, 8))[0]
+                            contiguous, total = server.query_request_range(
+                                dp_rank, rid, generation
+                            )
+                            sock.sendall(
+                                struct.pack("!BII", 0, contiguous, total)
+                            )
+
                         elif cmd_byte == CMD_HEALTH:
                             sock.sendall(b"\x01")
 
@@ -1109,6 +1359,7 @@ class RemoteBackupServer:
     ) -> int:
         """Mark a request lease as finished and enqueue it for GC.
 
+        Also releases the request namespace for non-failover finishes.
         Returns _LEASE_STATUS_OK or _LEASE_STATUS_STALE.
         Thread-safe under self.lock.
         """
@@ -1118,6 +1369,17 @@ class RemoteBackupServer:
         with self.lock:
             key = (dp_rank, rid)
             existing = self._active_leases.get(key)
+
+            # Release namespace regardless of lease state — the namespace
+            # lifecycle is tied to the (dp_rank, rid, generation) triple,
+            # not to the active lease lookup which is keyed by (dp_rank, rid).
+            if reason in (LEASE_REASON_NORMAL, LEASE_REASON_ABORT):
+                self.ns_store.release_namespace(dp_rank, rid, generation)
+            elif reason == LEASE_REASON_FAILOVER_OLD:
+                self.ns_store.mark_inactive(dp_rank, rid, generation)
+            elif reason == LEASE_REASON_FAILOVER_SUPERSEDE:
+                self.ns_store.release_namespace(dp_rank, rid, generation)
+
             if existing is None or existing.generation != generation:
                 return _LEASE_STATUS_STALE
 
@@ -1131,6 +1393,7 @@ class RemoteBackupServer:
             del self._active_leases[key]
             # Keep in _lease_by_id until GC processes and cleans up
             self._gc_queue.put(existing.lease_id)
+
             return _LEASE_STATUS_OK
 
     # ------------------------------------------------------------------
@@ -1372,9 +1635,97 @@ class RemoteBackupServer:
             )
             return pages
 
+    # ------------------------------------------------------------------
+    # Request-namespace API (thread-safe via self.lock)
+    # ------------------------------------------------------------------
+
+    def put_pages_by_request(
+        self,
+        dp_rank: int,
+        rid: str,
+        generation: int,
+        page_start: int,
+        pages: List[bytes],
+    ) -> List[bool]:
+        """Store pages in the request namespace and optionally in the trie."""
+        with self.lock:
+            results = self.ns_store.put_pages(
+                dp_rank, rid, generation, page_start, pages
+            )
+            ok_count = sum(1 for ok in results if ok)
+            logger.info(
+                "REMOTE_BACKUP ns_put dp_rank=%d rid=%s gen=%d page_start=%d "
+                "pages=%d ok=%d/%d ns_count=%d ns_pages=%d ns_mb=%.1f",
+                dp_rank,
+                rid[:16] if rid else "",
+                generation,
+                page_start,
+                len(pages),
+                ok_count,
+                len(results),
+                self.ns_store.namespace_count,
+                self.ns_store.total_pages,
+                self.ns_store.current_size / (1024 * 1024),
+            )
+            return results
+
+    def get_pages_by_request(
+        self,
+        dp_rank: int,
+        rid: str,
+        generation: int,
+        page_start: int,
+        count: int,
+    ) -> List[Optional[bytes]]:
+        """Retrieve pages from the request namespace."""
+        with self.lock:
+            pages = self.ns_store.get_pages(
+                dp_rank, rid, generation, page_start, count
+            )
+            hit_count = sum(1 for p in pages if p is not None)
+            logger.info(
+                "REMOTE_BACKUP ns_get dp_rank=%d rid=%s gen=%d page_start=%d "
+                "count=%d hit=%d/%d ns_mb=%.1f",
+                dp_rank,
+                rid[:16] if rid else "",
+                generation,
+                page_start,
+                count,
+                hit_count,
+                len(pages),
+                self.ns_store.current_size / (1024 * 1024),
+            )
+            return pages
+
+    def query_request_range(
+        self, dp_rank: int, rid: str, generation: int
+    ) -> tuple:
+        """Return ``(contiguous_pages, total_pages)`` for a request namespace."""
+        with self.lock:
+            return self.ns_store.query_range(dp_rank, rid, generation)
+
+    def release_request_namespace(
+        self, dp_rank: int, rid: str, generation: int
+    ) -> int:
+        """Release all pages in a request namespace. Returns bytes freed."""
+        with self.lock:
+            freed = self.ns_store.release_namespace(dp_rank, rid, generation)
+            if freed > 0:
+                logger.info(
+                    "REMOTE_BACKUP ns_release dp_rank=%d rid=%s gen=%d "
+                    "freed_mb=%.1f ns_count=%d",
+                    dp_rank,
+                    rid[:16] if rid else "",
+                    generation,
+                    freed / (1024 * 1024),
+                    self.ns_store.namespace_count,
+                )
+            return freed
+
     def clear(self):
         with self.lock:
             self.buffer.clear()
+            self.ns_store = RequestNamespaceStore(max_size_bytes=self.ns_store.max_size)
 
 
 # ---------------------------------------------------------------------------
@@ -1667,6 +2018,107 @@ class RemoteBackupClient:
             except Exception as exc:
                 self._record_failure(exc)
                 return [None] * count
+
+    # ------------------------------------------------------------------
+    # Request-namespace API
+    # ------------------------------------------------------------------
+
+    def put_pages_by_request(
+        self,
+        dp_rank: int,
+        rid: str,
+        generation: int,
+        page_start: int,
+        pages: List[bytes],
+    ) -> List[bool]:
+        """Send pages to the request namespace on the server."""
+        with self._lock:
+            if self._is_in_cooldown():
+                return [False] * len(pages)
+            try:
+                sock = self._connect()
+                rid_bytes = rid.encode("utf-8")
+                hdr = struct.pack("!B", CMD_PUT_PAGES_BY_REQUEST)
+                sock.sendall(hdr)
+                sock.sendall(bytes([dp_rank & 0xFF]))
+                sock.sendall(struct.pack("!H", len(rid_bytes)))
+                sock.sendall(rid_bytes)
+                sock.sendall(struct.pack("<Q", generation))
+                sock.sendall(struct.pack("!II", page_start, len(pages)))
+                for page in pages:
+                    sock.sendall(struct.pack(_ITEM_HDR_FMT, len(page)))
+                    sock.sendall(page)
+                resp_hdr = _recvall(sock, 5)
+                _, count = struct.unpack("!BI", resp_hdr)
+                resp_data = _recvall(sock, count)
+                self._record_success()
+                return [bool(b) for b in resp_data]
+            except Exception as exc:
+                self._record_failure(exc)
+                return [False] * len(pages)
+
+    def get_pages_by_request(
+        self,
+        dp_rank: int,
+        rid: str,
+        generation: int,
+        page_start: int,
+        count: int,
+    ) -> List[Optional[bytes]]:
+        """Retrieve pages from the request namespace on the server."""
+        with self._lock:
+            if self._is_in_cooldown():
+                return [None] * count
+            try:
+                sock = self._connect()
+                rid_bytes = rid.encode("utf-8")
+                hdr = struct.pack("!B", CMD_GET_PAGES_BY_REQUEST)
+                sock.sendall(hdr)
+                sock.sendall(bytes([dp_rank & 0xFF]))
+                sock.sendall(struct.pack("!H", len(rid_bytes)))
+                sock.sendall(rid_bytes)
+                sock.sendall(struct.pack("<Q", generation))
+                sock.sendall(struct.pack("!II", page_start, count))
+                resp_hdr = _recvall(sock, 5)
+                _, recv_count = struct.unpack("!BI", resp_hdr)
+                pages: List[Optional[bytes]] = []
+                for _ in range(recv_count):
+                    dlen = struct.unpack("!I", _recvall(sock, 4))[0]
+                    if dlen == 0:
+                        pages.append(None)
+                    else:
+                        pages.append(_recvall(sock, dlen))
+                self._record_success()
+                if len(pages) < count:
+                    pages.extend([None] * (count - len(pages)))
+                return pages[:count]
+            except Exception as exc:
+                self._record_failure(exc)
+                return [None] * count
+
+    def query_request_range(
+        self, dp_rank: int, rid: str, generation: int
+    ) -> tuple:
+        """Query the contiguous and total page counts for a request namespace."""
+        with self._lock:
+            if self._is_in_cooldown():
+                return 0, 0
+            try:
+                sock = self._connect()
+                rid_bytes = rid.encode("utf-8")
+                hdr = struct.pack("!B", CMD_QUERY_REQUEST_RANGE)
+                sock.sendall(hdr)
+                sock.sendall(bytes([dp_rank & 0xFF]))
+                sock.sendall(struct.pack("!H", len(rid_bytes)))
+                sock.sendall(rid_bytes)
+                sock.sendall(struct.pack("<Q", generation))
+                resp = _recvall(sock, 9)
+                _, contiguous, total = struct.unpack("!BII", resp)
+                self._record_success()
+                return contiguous, total
+            except Exception as exc:
+                self._record_failure(exc)
+                return 0, 0
 
     def close(self):
         with self._lock:

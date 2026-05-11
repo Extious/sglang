@@ -10,7 +10,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from client.metrics_utils import (
     write_cache_hit_records,
@@ -37,6 +37,11 @@ class CompletedRequest:
     rid: str
     usage: dict[str, Any]
     response_body: dict[str, Any]
+
+
+def _log(message: str) -> None:
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {message}", flush=True)
 
 
 def _extract_cache_details(body: dict[str, Any]) -> dict[str, Any]:
@@ -177,32 +182,92 @@ def _prepare_request(
     )
 
 
-def _fill_ready_queue(
+def _prepare_requests(
     *,
     pending_queue: "queue.Queue[int]",
-    ready_queue: "queue.Queue[PreparedRequest]",
+    prepared_requests: list[PreparedRequest | None],
     prompt_builder: "PromptBuilder",
     model_path: str,
     output_len: int,
     ignore_eos: bool,
-    on_prepared: Callable[[], None] | None = None,
+    progress: "ProgressTracker | None" = None,
 ) -> None:
     while True:
         try:
             req_idx = pending_queue.get_nowait()
         except queue.Empty:
             return
-        ready_queue.put(
-            _prepare_request(
-                req_idx=req_idx,
-                prompt_builder=prompt_builder,
-                model_path=model_path,
-                output_len=output_len,
-                ignore_eos=ignore_eos,
-            )
+        prepared_requests[req_idx] = _prepare_request(
+            req_idx=req_idx,
+            prompt_builder=prompt_builder,
+            model_path=model_path,
+            output_len=output_len,
+            ignore_eos=ignore_eos,
         )
-        if on_prepared is not None:
-            on_prepared()
+        if progress is not None:
+            progress.note_prepared(req_idx)
+
+
+def _fill_ready_queue(
+    *,
+    ready_queue: "queue.Queue[PreparedRequest | None]",
+    prepared_requests: list[PreparedRequest | None],
+) -> None:
+    for req_idx, prepared in enumerate(prepared_requests):
+        if prepared is None:
+            raise RuntimeError(f"request {req_idx} was not prepared")
+        ready_queue.put(prepared)
+
+
+class ProgressTracker:
+    def __init__(self, total_requests: int) -> None:
+        self.total_requests = max(0, int(total_requests))
+        self.prepared = 0
+        self.dispatched = 0
+        self.completed = 0
+        self.failed = 0
+        self._lock = threading.Lock()
+
+    def note_prepared(self, req_idx: int) -> None:
+        with self._lock:
+            self.prepared += 1
+            prepared = self.prepared
+            total = self.total_requests
+        _log(f"prepare progress: built request {req_idx + 1}/{total} ({prepared}/{total} ready)")
+
+    def note_prepared_done(self) -> None:
+        _log(f"prepare progress: all {self.total_requests} requests built and queued")
+
+    def note_dispatched(self, *, job_id: str, worker_id: str) -> None:
+        with self._lock:
+            self.dispatched += 1
+            dispatched = self.dispatched
+            total = self.total_requests
+        _log(
+            f"dispatch progress: worker={worker_id} sent request {job_id} "
+            f"({dispatched}/{total} dispatched)"
+        )
+
+    def note_completed(
+        self, *, job_id: str, worker_id: str, status: str, duration_s: float, error: str
+    ) -> None:
+        with self._lock:
+            self.completed += 1
+            if status != "completed":
+                self.failed += 1
+            completed = self.completed
+            failed = self.failed
+            total = self.total_requests
+        summary = (
+            f"complete progress: worker={worker_id} finished request {job_id} "
+            f"status={status} duration={duration_s:.3f}s ({completed}/{total} done"
+        )
+        if failed > 0:
+            summary += f", {failed} failed"
+        summary += ")"
+        if error:
+            summary += f" error={error}"
+        _log(summary)
 
 
 class PromptBuilder:
@@ -219,54 +284,93 @@ class PromptBuilder:
             use_fast=True,
         )
         self._lock = threading.Lock()
+        self._stable_filler_token_ids = self._build_stable_filler_token_ids()
 
     def _token_ids(self, text: str) -> list[int]:
         with self._lock:
             return self.tokenizer.encode(text, add_special_tokens=False)
 
+    def _decode_token_ids(self, token_ids: list[int]) -> str:
+        with self._lock:
+            return self.tokenizer.decode(
+                token_ids,
+                clean_up_tokenization_spaces=False,
+                skip_special_tokens=False,
+            )
+
+    def _build_stable_filler_token_ids(self) -> tuple[int, ...]:
+        special_ids = set(getattr(self.tokenizer, "all_special_ids", []))
+        filler_token_ids: list[int] = []
+        vocab_size = len(self.tokenizer)
+        target_pool_size = 256
+
+        for token_id in range(vocab_size):
+            if token_id in special_ids:
+                continue
+            text = self._decode_token_ids([token_id])
+            if not text or not text.startswith(" ") or not text.isascii():
+                continue
+            if any(ch in text for ch in "\r\n\t"):
+                continue
+            roundtrip_ids = self._token_ids(text)
+            if roundtrip_ids == [token_id]:
+                filler_token_ids.append(token_id)
+                if len(filler_token_ids) >= target_pool_size:
+                    break
+
+        if not filler_token_ids:
+            raise RuntimeError("Failed to find stable filler tokens for fixed prompt generation")
+
+        return tuple(filler_token_ids)
+
+    def _normalize_token_ids(
+        self, token_ids: list[int], rng: random.Random, request_index: int
+    ) -> str:
+        current_ids = list(token_ids)
+
+        for _ in range(3):
+            text = self._decode_token_ids(current_ids)
+            roundtrip_ids = self._token_ids(text)
+            if len(roundtrip_ids) == self.target_input_len:
+                return text
+
+            if len(roundtrip_ids) > self.target_input_len:
+                current_ids = roundtrip_ids[: self.target_input_len]
+                continue
+
+            missing = self.target_input_len - len(roundtrip_ids)
+            current_ids = roundtrip_ids + [
+                self._stable_filler_token_ids[
+                    rng.randrange(len(self._stable_filler_token_ids))
+                ]
+                for _ in range(missing)
+            ]
+
+        raise RuntimeError(
+            "Failed to build exact-length prompt after normalization: "
+            f"req={request_index}, got {len(roundtrip_ids)}, want {self.target_input_len}"
+        )
+
     def build(self, request_index: int) -> str:
         mixed_seed = (self.seed * 1000003 + int(request_index)) & 0xFFFFFFFF
         rng = random.Random(mixed_seed)
-        words = [f"req{int(request_index):05d}"]
+        prefix = f"req{int(request_index):05d}"
+        prefix_ids = self._token_ids(prefix)
 
-        # Grow text until tokenized length reaches target.
-        text = " ".join(words)
-        token_ids = self._token_ids(text)
-        while len(token_ids) < self.target_input_len:
-            words.append(f"tok{rng.randrange(0, 100000):05d}")
-            text = " ".join(words)
-            token_ids = self._token_ids(text)
-
-        # Trim to exact token length and decode back to prompt text.
-        if len(token_ids) > self.target_input_len:
-            token_ids = token_ids[: self.target_input_len]
-            with self._lock:
-                text = self.tokenizer.decode(
-                    token_ids,
-                    clean_up_tokenization_spaces=False,
-                    skip_special_tokens=False,
-                )
-            token_ids = self._token_ids(text)
-
-        # Ensure exact size after decode/encode round-trip.
-        while len(token_ids) < self.target_input_len:
-            text = text + " x"
-            token_ids = self._token_ids(text)
-        if len(token_ids) > self.target_input_len:
-            token_ids = token_ids[: self.target_input_len]
-            with self._lock:
-                text = self.tokenizer.decode(
-                    token_ids,
-                    clean_up_tokenization_spaces=False,
-                    skip_special_tokens=False,
-                )
-            token_ids = self._token_ids(text)
-
-        if len(token_ids) != self.target_input_len:
-            raise RuntimeError(
-                f"Failed to build exact-length prompt: got {len(token_ids)}, want {self.target_input_len}"
+        if len(prefix_ids) >= self.target_input_len:
+            return self._normalize_token_ids(
+                prefix_ids[: self.target_input_len], rng, request_index
             )
-        return text
+
+        filler_count = self.target_input_len - len(prefix_ids)
+        prompt_token_ids = prefix_ids + [
+            self._stable_filler_token_ids[
+                rng.randrange(len(self._stable_filler_token_ids))
+            ]
+            for _ in range(filler_count)
+        ]
+
+        return self._normalize_token_ids(prompt_token_ids, rng, request_index)
 
 
 def _post_control_event(control_url: str, event_type: str, payload: dict[str, Any]) -> None:
@@ -433,45 +537,34 @@ def main() -> int:
     job_records: list[dict[str, Any]] = []
     cache_rows: list[dict[str, Any]] = []
     worker_count = max(1, int(args.app_workers))
-    ready_queue: queue.Queue[PreparedRequest | None] = queue.Queue(
-        maxsize=max(1, worker_count * 2)
-    )
+    ready_queue: queue.Queue[PreparedRequest | None] = queue.Queue()
     completed_queue: queue.Queue[CompletedRequest | None] = queue.Queue()
     producer_errors: list[Exception] = []
     producer_count = min(worker_count, num_requests)
-    initial_ready_target = producer_count
-    prepared_count = 0
-    producer_done_count = 0
-    producer_state = threading.Condition()
-
-    def note_prepared() -> None:
-        nonlocal prepared_count
-        with producer_state:
-            prepared_count += 1
-            producer_state.notify_all()
+    prepared_requests: list[PreparedRequest | None] = [None] * num_requests
+    producer_error_lock = threading.Lock()
+    prompt_builder = PromptBuilder(args.model_path, args.input_len, args.seed)
+    progress = ProgressTracker(num_requests)
+    start_gate = threading.Event()
 
     def producer() -> None:
-        nonlocal producer_done_count
         try:
-            prompt_builder = PromptBuilder(args.model_path, args.input_len, args.seed)
-            _fill_ready_queue(
+            _prepare_requests(
                 pending_queue=pending_queue,
-                ready_queue=ready_queue,
+                prepared_requests=prepared_requests,
                 prompt_builder=prompt_builder,
                 model_path=args.model_path,
                 output_len=args.output_len,
                 ignore_eos=bool(args.ignore_eos),
-                on_prepared=note_prepared,
+                progress=progress,
             )
         except Exception as exc:
-            producer_errors.append(exc)
-        finally:
-            with producer_state:
-                producer_done_count += 1
-                producer_state.notify_all()
+            with producer_error_lock:
+                producer_errors.append(exc)
 
     def worker(worker_idx: int) -> None:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        start_gate.wait()
         while True:
             prepared = ready_queue.get()
             if prepared is None:
@@ -479,6 +572,7 @@ def main() -> int:
 
             job_id = prepared.job_id
             worker_id = str(worker_idx)
+            progress.note_dispatched(job_id=job_id, worker_id=worker_id)
             wall_start = time.time()
             error = ""
             status = "completed"
@@ -506,18 +600,47 @@ def main() -> int:
                 error = str(exc)[:200]
 
             wall_end = time.time()
+            duration_s = round(wall_end - wall_start, 3)
+            progress.note_completed(
+                job_id=job_id,
+                worker_id=worker_id,
+                status=status,
+                duration_s=duration_s,
+                error=error,
+            )
             completed_queue.put(
                 _build_completed_request(
                     job_id=job_id,
                     worker_id=worker_id,
                     status=status,
                     error=error,
-                    duration_s=round(wall_end - wall_start, 3),
+                    duration_s=duration_s,
                     rid=rid,
                     usage=usage,
                     response_body=response_body,
                 )
             )
+
+    producer_threads: list[threading.Thread] = []
+    _log(
+        f"fixed workload start: requests={num_requests}, app_workers={worker_count}, "
+        f"input_len={args.input_len}, output_len={args.output_len}"
+    )
+    for _ in range(producer_count):
+        th = threading.Thread(target=producer, daemon=True)
+        producer_threads.append(th)
+        th.start()
+
+    for th in producer_threads:
+        th.join()
+
+    if producer_errors:
+        raise RuntimeError(f"Failed to prepare fixed workload requests: {producer_errors[0]}")
+
+    _fill_ready_queue(ready_queue=ready_queue, prepared_requests=prepared_requests)
+    progress.note_prepared_done()
+    for _ in range(worker_count):
+        ready_queue.put(None)
 
     recorder_thread = threading.Thread(
         target=_drain_completed_requests,
@@ -531,38 +654,18 @@ def main() -> int:
     )
     recorder_thread.start()
 
-    producer_threads: list[threading.Thread] = []
-    for _ in range(producer_count):
-        th = threading.Thread(target=producer, daemon=True)
-        producer_threads.append(th)
-        th.start()
-
-    if initial_ready_target > 0:
-        with producer_state:
-            while (
-                prepared_count < initial_ready_target
-                and producer_done_count < producer_count
-                and not producer_errors
-            ):
-                producer_state.wait(timeout=0.05)
-
     threads: list[threading.Thread] = []
     for idx in range(worker_count):
         th = threading.Thread(target=worker, args=(idx + 1,), daemon=True)
         threads.append(th)
         th.start()
+    _log(f"dispatch progress: releasing {worker_count} app_workers")
+    start_gate.set()
 
-    for th in producer_threads:
-        th.join()
-    for _ in range(worker_count):
-        ready_queue.put(None)
     for th in threads:
         th.join()
     completed_queue.put(None)
     recorder_thread.join()
-
-    if producer_errors:
-        raise RuntimeError(f"Failed to prepare fixed workload requests: {producer_errors[0]}")
 
     job_records.sort(key=lambda item: int(item.get("topic_id", "0") or 0))
     write_cache_hit_records(cache_rows, output_dir / "cache_hits.csv")

@@ -1,0 +1,8 @@
+{
+    "inject_after_job": "4",
+    "recover_after_job": "8",
+    "delay": 20,
+    "dp_rank": "0",
+    "pp_rank": "0",
+    "tp_rank": "0"
+}

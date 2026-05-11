@@ -1,0 +1,31 @@
+job_id,job,year,worker_id,status,job_completion_time_s,llm_calls,prefill_cached_tokens,total_tokens,error
+1,request_1,,9,completed,53.691,1,5,21000,
+2,request_2,,2,completed,53.692,1,0,21000,
+3,request_3,,3,completed,109.901,1,5,21000,
+4,request_4,,4,completed,38.53,1,5,21000,
+5,request_5,,7,completed,53.691,1,5,21000,
+6,request_6,,8,completed,38.529,1,5,21000,
+7,request_7,,1,completed,38.53,1,0,21000,
+8,request_8,,5,completed,53.691,1,5,21000,
+9,request_9,,6,completed,38.529,1,5,21000,
+10,request_10,,10,completed,38.529,1,5,21000,
+11,request_11,,10,completed,31.719,1,4,21000,
+12,request_12,,1,completed,71.372,1,4,21000,
+13,request_13,,4,completed,31.719,1,5,21000,
+14,request_14,,8,completed,71.371,1,5,21000,
+15,request_15,,6,completed,71.371,1,5,21000,
+16,request_16,,5,completed,109.544,1,5,21000,
+17,request_17,,2,completed,29.361,1,5,21000,
+18,request_18,,7,completed,109.543,1,5,21000,
+19,request_19,,9,completed,29.361,1,5,21000,
+20,request_20,,10,failed,120.1,0,0,0,timed out
+21,request_21,,4,completed,92.985,1,4,21000,
+22,request_22,,9,failed,120.004,0,0,0,timed out
+23,request_23,,2,completed,80.182,1,5,21000,
+24,request_24,,6,completed,118.59,1,5,21000,
+25,request_25,,1,failed,120.101,0,0,0,timed out
+26,request_26,,3,completed,118.589,1,5,21000,
+27,request_27,,8,failed,120.008,0,0,0,timed out
+28,request_28,,4,completed,104.212,1,5,21000,
+29,request_29,,2,completed,104.212,1,5,21000,
+30,request_30,,7,failed,120.072,0,0,0,timed out

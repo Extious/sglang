@@ -1997,6 +1997,17 @@ class Scheduler(
                     if req.is_failover_retried
                     else None
                 )
+                # Use request-namespace restore for failover retries that
+                # were backed up via remote_backup.
+                use_ns_restore = (
+                    req.is_failover_retried
+                    and getattr(req, "kv_backup_strategy", "none")
+                    in ("remote_backup", "remote")
+                )
+                ns_dp_rank = getattr(req, "failover_source_dp_rank", 0) or 0
+                ns_generation = max(
+                    0, getattr(req, "remote_backup_generation", 1) - 1
+                )
                 prefetch_status = self.tree_cache.prefetch_from_storage(
                     req.rid,
                     last_host_node,
@@ -2005,6 +2016,9 @@ class Scheduler(
                     prefix_keys,
                     prefix_token_ids=prefix_token_ids,
                     lookup_dp_rank=lookup_dp_rank,
+                    request_ns_restore=use_ns_restore,
+                    ns_dp_rank=ns_dp_rank,
+                    ns_generation=ns_generation,
                 )
                 if req.is_failover_retried and prefetch_status == "rate_limited":
                     req.failover_prefetch_pending = True

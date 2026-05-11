@@ -242,10 +242,16 @@ class PrefetchOperation(StorageOperation):
         prefix_keys: Optional[List[str]] = None,
         prefix_token_ids: Optional[List[int]] = None,
         lookup_dp_rank: Optional[int] = None,
+        request_ns_restore: bool = False,
+        ns_dp_rank: int = 0,
+        ns_generation: int = 0,
     ):
         self.request_id = request_id
         self.prefix_token_ids = prefix_token_ids
         self.storage_query_count = 0
+        self.request_ns_restore = request_ns_restore
+        self.ns_dp_rank = ns_dp_rank
+        self.ns_generation = ns_generation
 
         self._lock = threading.Lock()
         self._terminated_flag = False
@@ -847,6 +853,9 @@ class HiCacheController:
         prefix_keys: Optional[List[str]] = None,
         prefix_token_ids: Optional[List[int]] = None,
         lookup_dp_rank: Optional[int] = None,
+        request_ns_restore: bool = False,
+        ns_dp_rank: int = 0,
+        ns_generation: int = 0,
     ) -> PrefetchOperation:
         """
         Prefetch KV caches from storage backend to host memory.
@@ -859,6 +868,9 @@ class HiCacheController:
             prefix_keys,
             prefix_token_ids=prefix_token_ids,
             lookup_dp_rank=lookup_dp_rank,
+            request_ns_restore=request_ns_restore,
+            ns_dp_rank=ns_dp_rank,
+            ns_generation=ns_generation,
         )
         self.prefetch_queue.put(operation)
         return operation
@@ -914,9 +926,41 @@ class HiCacheController:
                 break  # Operation terminated by controller
 
     def _page_transfer(self, operation):
+        if (
+            self.is_token_storage
+            and getattr(operation, "request_ns_restore", False)
+            and hasattr(self.storage_backend, "get_pages_by_request")
+        ):
+            return self._page_transfer_request_ns(operation)
         if self.is_token_storage and getattr(operation, "full_token_ids", None):
             return self._page_transfer_tokens(operation)
         return self._page_transfer_hash(operation)
+
+    def _page_transfer_request_ns(self, operation):
+        """Request-namespace page retrieval for failover/retry restore."""
+        rid = getattr(operation, "request_id", None) or ""
+        ns_dp_rank = getattr(operation, "ns_dp_rank", 0)
+        ns_generation = getattr(operation, "ns_generation", 0)
+        prefix_pages = getattr(operation, "page_start", 0)
+        total_pages = len(operation.hash_value)
+
+        for batch_start in range(0, total_pages, self.storage_batch_size):
+            batch_count = min(self.storage_batch_size, total_pages - batch_start)
+            batch_host_indices = operation.host_indices[
+                batch_start * self.page_size : (batch_start + batch_count) * self.page_size
+            ]
+            results = self.storage_backend.get_pages_by_request(
+                ns_dp_rank,
+                rid,
+                ns_generation,
+                prefix_pages + batch_start,
+                batch_count,
+                batch_host_indices,
+            )
+            for ok in results:
+                if ok:
+                    if not operation.increment(self.page_size):
+                        return
 
     def _page_transfer_tokens(self, operation):
         """Token-based page retrieval from peer radix buffer.
@@ -1007,6 +1051,22 @@ class HiCacheController:
         return False
 
     def _storage_hit_query(self, operation) -> tuple[list[str], int]:
+        # Request-namespace path for failover/retry
+        if (
+            self.is_token_storage
+            and getattr(operation, "request_ns_restore", False)
+            and hasattr(self.storage_backend, "match_prefix_by_request")
+        ):
+            hash_value, hit_count = self._storage_hit_query_request_ns(operation)
+            if hit_count > 0:
+                return hash_value, hit_count
+            # Namespace empty (prefill pages only live in the token trie);
+            # clear the flag so _page_transfer also uses the token path.
+            operation.request_ns_restore = False
+            logger.info(
+                "Request-namespace empty for %s, falling back to token-trie query",
+                getattr(operation, "request_id", "?"),
+            )
         if self.is_token_storage and hasattr(operation, "prefix_token_ids"):
             return self._storage_hit_query_tokens(operation)
         return self._storage_hit_query_hash(operation)
@@ -1047,6 +1107,56 @@ class HiCacheController:
             len(full_tokens),
         )
 
+        hash_value = []
+        lh = last_hash
+        for i in range(data_count):
+            tok = tokens_to_fetch[
+                i * self.page_size : (i + 1) * self.page_size
+            ]
+            lh = self.get_hash_str(tok, lh)
+            hash_value.append(lh)
+
+        operation.full_token_ids = full_tokens
+        operation.page_start = prefix_pages
+
+        return hash_value, range_tokens
+
+    def _storage_hit_query_request_ns(self, operation) -> tuple[list[str], int]:
+        """Request-namespace range query for failover/retry restore."""
+        rid = getattr(operation, "request_id", None) or ""
+        ns_dp_rank = getattr(operation, "ns_dp_rank", 0)
+        ns_generation = getattr(operation, "ns_generation", 0)
+        tokens_to_fetch = operation.token_ids
+        prefix_token_ids = getattr(operation, "prefix_token_ids", None) or []
+        last_hash = operation.last_hash
+
+        prefix_pages = len(prefix_token_ids) // self.page_size
+        max_fetchable_pages = len(tokens_to_fetch) // self.page_size
+
+        contiguous, total = self.storage_backend.match_prefix_by_request(
+            ns_dp_rank, rid, ns_generation
+        )
+
+        # Only restore pages beyond what we already have locally
+        restorable = max(0, contiguous - prefix_pages)
+        data_count = min(restorable, max_fetchable_pages)
+        range_tokens = data_count * self.page_size
+
+        logger.info(
+            "_storage_hit_query_request_ns: req=%s, ns_dp_rank=%d, ns_gen=%d, "
+            "contiguous=%d, total=%d, prefix_pages=%d, data_pages=%d, "
+            "tokens_to_fetch=%d",
+            rid,
+            ns_dp_rank,
+            ns_generation,
+            contiguous,
+            total,
+            prefix_pages,
+            data_count,
+            len(tokens_to_fetch),
+        )
+
+        full_tokens = list(prefix_token_ids) + list(tokens_to_fetch)
         hash_value = []
         lh = last_hash
         for i in range(data_count):

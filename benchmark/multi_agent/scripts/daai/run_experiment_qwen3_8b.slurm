@@ -2,11 +2,11 @@
 #SBATCH --job-name=crewai_exp_8b_daai_dp2
 #SBATCH --partition=short
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:a100:4
+#SBATCH --gres=gpu:a100:2
 #SBATCH --exclude=hkbugpudgx01
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=600G
+#SBATCH --mem=300G
 #SBATCH --time=24:00:00
 #SBATCH --output=/dev/null
 #SBATCH --error=/dev/null
@@ -32,6 +32,82 @@ find_repo_root() {
     done
 
     return 1
+}
+
+check_assigned_gpus_idle() {
+    local max_used_mib="${GPU_IDLE_MAX_USED_MIB:-2048}"
+    local devices_raw="${CUDA_VISIBLE_DEVICES:-}"
+    local smi_output
+    local token
+    local match
+    local idx
+    local uuid
+    local used_mib
+    local total_mib
+    local bad_gpu=0
+
+    if ! command -v nvidia-smi >/dev/null 2>&1; then
+        echo "WARN: nvidia-smi is unavailable; skipping GPU idle check."
+        return 0
+    fi
+
+    if [ -z "${devices_raw}" ]; then
+        echo "WARN: CUDA_VISIBLE_DEVICES is not set; skipping GPU idle check."
+        return 0
+    fi
+
+    smi_output="$(nvidia-smi --query-gpu=index,uuid,memory.used,memory.total --format=csv,noheader,nounits)" || {
+        echo "ERROR: Failed to query GPU memory via nvidia-smi."
+        return 1
+    }
+
+    echo "Checking assigned GPUs for pre-existing memory usage (threshold: ${max_used_mib} MiB)..."
+    echo "CUDA_VISIBLE_DEVICES=${devices_raw}"
+
+    IFS=',' read -r -a gpu_tokens <<< "${devices_raw}"
+    for token in "${gpu_tokens[@]}"; do
+        token="${token// /}"
+        [ -n "${token}" ] || continue
+
+        match="$(
+            printf '%s\n' "${smi_output}" | awk -F',' -v token="${token}" '
+                function trim(s) {
+                    gsub(/^[ \t]+|[ \t]+$/, "", s)
+                    return s
+                }
+                {
+                    idx = trim($1)
+                    uuid = trim($2)
+                    used = trim($3)
+                    total = trim($4)
+                    if (idx == token || uuid == token) {
+                        print idx "," uuid "," used "," total
+                        exit
+                    }
+                }
+            '
+        )"
+
+        if [ -z "${match}" ]; then
+            echo "ERROR: Could not resolve allocated GPU '${token}' from nvidia-smi output."
+            return 1
+        fi
+
+        IFS=',' read -r idx uuid used_mib total_mib <<< "${match}"
+        echo "  GPU ${idx} (${uuid}): used=${used_mib} MiB / total=${total_mib} MiB"
+
+        if [ "${used_mib}" -gt "${max_used_mib}" ]; then
+            bad_gpu=1
+        fi
+    done
+
+    if [ "${bad_gpu}" -ne 0 ]; then
+        echo "ERROR: At least one allocated GPU already has more than ${max_used_mib} MiB in use."
+        echo "ERROR: Refusing to start on a dirty GPU. Override the threshold with GPU_IDLE_MAX_USED_MIB if needed."
+        echo "Active compute processes reported by nvidia-smi:"
+        nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory --format=csv,noheader || true
+        return 1
+    fi
 }
 
 # sglang root path
@@ -92,6 +168,9 @@ export TORCH_NCCL_DUMP_ON_TIMEOUT="${TORCH_NCCL_DUMP_ON_TIMEOUT:-0}"
 
 # sglang root path
 export SGLANG_REPO_ROOT="${REPO_ROOT}"
+
+# Fail fast if Slurm handed us a GPU that is already heavily occupied.
+check_assigned_gpus_idle
 
 # execute main function
 cd "${SRC_ROOT}"

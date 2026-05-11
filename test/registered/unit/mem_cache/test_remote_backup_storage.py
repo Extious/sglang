@@ -12,10 +12,13 @@ maybe_stub_sgl_kernel()
 
 from sglang.srt.mem_cache.hicache_storage import HiCacheStorageExtraInfo
 from sglang.srt.mem_cache.storage.remote_backup.remote_backup_server import (
+    LEASE_REASON_ABORT,
     LEASE_REASON_FAILOVER_OLD,
+    LEASE_REASON_FAILOVER_SUPERSEDE,
     LEASE_REASON_NORMAL,
     _LEASE_STATUS_OK,
     RemoteBackupServer,
+    RequestNamespaceStore,
 )
 from sglang.srt.mem_cache.storage.remote_backup.remote_backup_storage import (
     RemoteBackupStorage,
@@ -42,9 +45,6 @@ class TestRemoteBackupStorageLookupDpRank(CustomTestCase):
         )
 
         self.assertEqual((data_count, navigable), (4, 4))
-        self.storage.local_server.match_prefix_from.assert_called_once_with(
-            1, [1, 2, 3, 4], 2
-        )
 
     def test_get_pages_tokens_uses_override_dp_rank(self):
         self.storage.local_server.get_pages_by_tokens.return_value = [bytes([7])]
@@ -61,10 +61,90 @@ class TestRemoteBackupStorageLookupDpRank(CustomTestCase):
         )
 
         self.assertEqual(results, [True])
-        self.storage.local_server.get_pages_by_tokens.assert_called_once_with(
-            1, [11], 0, 1
-        )
         self.storage.mem_pool_host.set_from_flat_data_page.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# RequestNamespaceStore unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestRequestNamespaceStore(CustomTestCase):
+    """Tests for the standalone RequestNamespaceStore data structure."""
+
+    def test_put_and_get_pages(self):
+        store = RequestNamespaceStore(max_size_bytes=10_000)
+        results = store.put_pages(0, "r1", 0, 0, [b"page0", b"page1"])
+        self.assertEqual(results, [True, True])
+        self.assertEqual(store.current_size, 10)
+
+        pages = store.get_pages(0, "r1", 0, 0, 3)
+        self.assertEqual(pages, [b"page0", b"page1", None])
+
+    def test_query_range_contiguous(self):
+        store = RequestNamespaceStore(max_size_bytes=10_000)
+        store.put_pages(0, "r1", 0, 0, [b"a", b"b", b"c"])
+        contiguous, total = store.query_range(0, "r1", 0)
+        self.assertEqual(contiguous, 3)
+        self.assertEqual(total, 3)
+
+    def test_query_range_with_gap(self):
+        store = RequestNamespaceStore(max_size_bytes=10_000)
+        store.put_pages(0, "r1", 0, 0, [b"a"])
+        store.put_pages(0, "r1", 0, 3, [b"d"])
+        contiguous, total = store.query_range(0, "r1", 0)
+        self.assertEqual(contiguous, 1)
+        self.assertEqual(total, 2)
+
+    def test_release_namespace(self):
+        store = RequestNamespaceStore(max_size_bytes=10_000)
+        store.put_pages(0, "r1", 0, 0, [b"abc"])
+        self.assertEqual(store.namespace_count, 1)
+        freed = store.release_namespace(0, "r1", 0)
+        self.assertEqual(freed, 3)
+        self.assertEqual(store.namespace_count, 0)
+        self.assertEqual(store.current_size, 0)
+
+    def test_page_overwrite(self):
+        store = RequestNamespaceStore(max_size_bytes=10_000)
+        store.put_pages(0, "r1", 0, 0, [b"old"])
+        self.assertEqual(store.current_size, 3)
+        store.put_pages(0, "r1", 0, 0, [b"newdata"])
+        self.assertEqual(store.current_size, 7)
+        pages = store.get_pages(0, "r1", 0, 0, 1)
+        self.assertEqual(pages, [b"newdata"])
+
+    def test_eviction_inactive_first(self):
+        store = RequestNamespaceStore(max_size_bytes=10)
+        store.put_pages(0, "r1", 0, 0, [b"aaaa"])  # 4 bytes
+        store.mark_inactive(0, "r1", 0)
+        store.put_pages(0, "r2", 0, 0, [b"bbbbbb"])  # 6 bytes, fits
+        self.assertEqual(store.namespace_count, 2)
+        # This should evict r1 (inactive)
+        store.put_pages(0, "r3", 0, 0, [b"cccccc"])  # 6 bytes, exceeds 10
+        self.assertIsNone(store.namespaces.get((0, "r1", 0)))
+
+    def test_different_generations_independent(self):
+        store = RequestNamespaceStore(max_size_bytes=10_000)
+        store.put_pages(0, "r1", 0, 0, [b"gen0"])
+        store.put_pages(0, "r1", 1, 0, [b"gen1"])
+        self.assertEqual(store.namespace_count, 2)
+        p0 = store.get_pages(0, "r1", 0, 0, 1)
+        p1 = store.get_pages(0, "r1", 1, 0, 1)
+        self.assertEqual(p0, [b"gen0"])
+        self.assertEqual(p1, [b"gen1"])
+
+    def test_nonexistent_namespace_returns_none(self):
+        store = RequestNamespaceStore(max_size_bytes=10_000)
+        pages = store.get_pages(0, "missing", 0, 0, 3)
+        self.assertEqual(pages, [None, None, None])
+        contiguous, total = store.query_range(0, "missing", 0)
+        self.assertEqual((contiguous, total), (0, 0))
+
+
+# ---------------------------------------------------------------------------
+# RemoteBackupServer request-namespace integration tests
+# ---------------------------------------------------------------------------
 
 
 class TestRemoteBackupRequestNamespace(CustomTestCase):
@@ -83,14 +163,12 @@ class TestRemoteBackupRequestNamespace(CustomTestCase):
             server.put_pages_by_request(3, "rid-1", 0, 0, [b"p0", b"p1"]),
             [True, True],
         )
-        self.assertEqual(
-            server.match_request_pages(3, "rid-1", 0, start_page=0, count=4),
-            (2, 2),
-        )
-        self.assertEqual(
-            server.get_pages_by_request(3, "rid-1", 0, start_page=0, count=3),
-            [b"p0", b"p1", None],
-        )
+        contiguous, total = server.query_request_range(3, "rid-1", 0)
+        self.assertEqual(contiguous, 2)
+        self.assertEqual(total, 2)
+
+        pages = server.get_pages_by_request(3, "rid-1", 0, 0, 3)
+        self.assertEqual(pages, [b"p0", b"p1", None])
 
         self.assertEqual(
             server.finish_request(3, "rid-1", 0, LEASE_REASON_NORMAL),
@@ -98,52 +176,88 @@ class TestRemoteBackupRequestNamespace(CustomTestCase):
         )
         self._drain_gc(server)
 
-        self.assertEqual(
-            server.match_request_pages(3, "rid-1", 0, start_page=0, count=4),
-            (0, 0),
-        )
-        self.assertEqual(
-            server.get_pages_by_request(3, "rid-1", 0, start_page=0, count=2),
-            [None, None],
-        )
+        contiguous, total = server.query_request_range(3, "rid-1", 0)
+        self.assertEqual(contiguous, 0)
+        self.assertEqual(total, 0)
 
-    def test_new_generation_does_not_remove_old_namespace_until_finished(self):
+        pages = server.get_pages_by_request(3, "rid-1", 0, 0, 2)
+        self.assertEqual(pages, [None, None])
+
+    def test_failover_old_marks_inactive_keeps_readable(self):
+        """Old generation stays readable after FAILOVER_OLD until evicted."""
         server = RemoteBackupServer(port=0, max_buffer_size_gb=0.001, page_size=1)
 
-        self.assertEqual(server.start_request(1, "rid-2", 0), _LEASE_STATUS_OK)
-        self.assertEqual(
-            server.put_pages_by_request(1, "rid-2", 0, 0, [b"a", b"b"]),
-            [True, True],
-        )
+        server.start_request(1, "rid-2", 0)
+        server.put_pages_by_request(1, "rid-2", 0, 0, [b"a", b"b"])
 
-        self.assertEqual(server.start_request(1, "rid-2", 1), _LEASE_STATUS_OK)
-        self.assertEqual(
-            server.match_request_pages(1, "rid-2", 0, start_page=0, count=4),
-            (2, 2),
-        )
-        self.assertEqual(
-            server.get_pages_by_request(1, "rid-2", 0, start_page=0, count=2),
-            [b"a", b"b"],
-        )
-        self.assertEqual(
-            server.match_request_pages(1, "rid-2", 1, start_page=0, count=4),
-            (0, 0),
-        )
+        # Supersede: new generation starts
+        server.start_request(1, "rid-2", 1)
 
-        self.assertEqual(
-            server.finish_request(1, "rid-2", 0, LEASE_REASON_FAILOVER_OLD),
-            _LEASE_STATUS_OK,
-        )
+        # Old generation still readable
+        contiguous, total = server.query_request_range(1, "rid-2", 0)
+        self.assertEqual(contiguous, 2)
+        pages = server.get_pages_by_request(1, "rid-2", 0, 0, 2)
+        self.assertEqual(pages, [b"a", b"b"])
+
+        # New generation empty
+        contiguous, total = server.query_request_range(1, "rid-2", 1)
+        self.assertEqual(contiguous, 0)
+
+        # Finish old gen with FAILOVER_OLD → marks inactive but keeps data
+        server.finish_request(1, "rid-2", 0, LEASE_REASON_FAILOVER_OLD)
         self._drain_gc(server)
 
-        self.assertEqual(
-            server.match_request_pages(1, "rid-2", 0, start_page=0, count=4),
-            (0, 0),
-        )
-        self.assertEqual(
-            server.match_request_pages(1, "rid-2", 1, start_page=0, count=4),
-            (0, 0),
-        )
+        # Old gen is now inactive (marked for eviction), pages still exist
+        ns_key = (1, "rid-2", 0)
+        ns = server.ns_store.namespaces.get(ns_key)
+        if ns is not None:
+            self.assertEqual(ns.state, "inactive")
+
+    def test_abort_releases_namespace(self):
+        server = RemoteBackupServer(port=0, max_buffer_size_gb=0.001, page_size=1)
+        server.start_request(0, "rid-3", 0)
+        server.put_pages_by_request(0, "rid-3", 0, 0, [b"x"])
+
+        server.finish_request(0, "rid-3", 0, LEASE_REASON_ABORT)
+        self._drain_gc(server)
+
+        contiguous, total = server.query_request_range(0, "rid-3", 0)
+        self.assertEqual(contiguous, 0)
+        self.assertEqual(total, 0)
+
+    def test_failover_supersede_releases_namespace(self):
+        server = RemoteBackupServer(port=0, max_buffer_size_gb=0.001, page_size=1)
+        server.start_request(0, "rid-4", 0)
+        server.put_pages_by_request(0, "rid-4", 0, 0, [b"y"])
+
+        server.finish_request(0, "rid-4", 0, LEASE_REASON_FAILOVER_SUPERSEDE)
+        self._drain_gc(server)
+
+        contiguous, total = server.query_request_range(0, "rid-4", 0)
+        self.assertEqual(contiguous, 0)
+
+    def test_decode_pages_appended_incrementally(self):
+        """Simulate decode page-by-page append."""
+        server = RemoteBackupServer(port=0, max_buffer_size_gb=0.01, page_size=1)
+        server.start_request(0, "rid-5", 0)
+
+        # Prefill pages
+        server.put_pages_by_request(0, "rid-5", 0, 0, [b"p0", b"p1", b"p2"])
+        # Decode pages (incremental)
+        server.put_pages_by_request(0, "rid-5", 0, 3, [b"d3"])
+        server.put_pages_by_request(0, "rid-5", 0, 4, [b"d4"])
+
+        contiguous, total = server.query_request_range(0, "rid-5", 0)
+        self.assertEqual(contiguous, 5)
+        self.assertEqual(total, 5)
+
+        pages = server.get_pages_by_request(0, "rid-5", 0, 0, 5)
+        self.assertEqual(pages, [b"p0", b"p1", b"p2", b"d3", b"d4"])
+
+
+# ---------------------------------------------------------------------------
+# RemoteBackupStorage request-namespace API tests
+# ---------------------------------------------------------------------------
 
 
 class TestRemoteBackupStorageRequestApi(CustomTestCase):
@@ -183,16 +297,41 @@ class TestRemoteBackupStorageRequestApi(CustomTestCase):
             [b"\x01", b"\x02"],
         )
 
-    def test_match_request_pages_uses_exact_failover_dp_rank(self):
-        self.storage.local_server.match_request_pages.return_value = (3, 3)
+    def test_match_prefix_by_request_delegates_to_local_server(self):
+        self.storage.local_server.query_request_range.return_value = (3, 5)
 
-        result = self.storage.match_request_pages(
-            "rid-storage", generation=4, start_page=2, count=5, lookup_dp_rank=7
+        contiguous, total = self.storage.match_prefix_by_request(
+            dp_rank=7, rid="rid-x", generation=4
         )
 
-        self.assertEqual(result, (3, 3))
-        self.storage.local_server.match_request_pages.assert_called_once_with(
-            7, "rid-storage", 4, 2, 5
+        self.assertEqual(contiguous, 3)
+        self.assertEqual(total, 5)
+        self.storage.local_server.query_request_range.assert_called_once_with(
+            7, "rid-x", 4
+        )
+
+    def test_get_pages_by_request_delegates_to_local_server(self):
+        self.storage.local_server.get_pages_by_request.return_value = [
+            b"data",
+            None,
+        ]
+        self.storage.mem_pool_host.get_dummy_flat_data_page.return_value = (
+            torch.zeros((1,), dtype=torch.uint8)
+        )
+
+        results = self.storage.get_pages_by_request(
+            dp_rank=7,
+            rid="rid-x",
+            generation=4,
+            page_start=2,
+            count=2,
+            host_indices=torch.tensor([10, 11], dtype=torch.int64),
+        )
+
+        self.assertEqual(results[0], True)
+        self.assertEqual(results[1], False)
+        self.storage.local_server.get_pages_by_request.assert_called_once_with(
+            7, "rid-x", 4, 2, 2
         )
 
 

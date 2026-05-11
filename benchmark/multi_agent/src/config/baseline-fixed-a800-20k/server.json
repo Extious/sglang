@@ -1,7 +1,7 @@
 {
   "name": "baseline-fixed",
   "description": "SGLang server with Qwen3-8B + YaRN-scaled 200K context (no KV backup) for fixed-length, non-agent requests.",
-  "platform": "gpuhome",
+  "platform": "tianhe",
   "kv_backup": "none",
   "server": {
     "model_path": "/HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/.cache/huggingface/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218",

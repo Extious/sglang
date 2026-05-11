@@ -49,6 +49,8 @@ class InsertParams:
 
     key: RadixKey
     value: Optional[torch.Tensor] = None
+    request_id: Optional[str] = None
+    request_generation: int = 0
 
     # Mamba specific
     mamba_value: Optional[torch.Tensor] = None
@@ -256,6 +258,21 @@ class BasePrefixCache(ABC, PrefixCacheTrait):
     def export_failure_checkpoints(self, req: Req) -> Any:
         """Export failover-time checkpoint metadata for host backup pull."""
         return None
+
+    def flush_remote_backup_before_failover(
+        self, reqs: List[Req], timeout_s: float = 0.5
+    ) -> None:
+        """Best-effort bounded flush before failover snapshot.
+
+        Default is a no-op; caches with remote backup support may override this
+        to reduce the window where in-flight requests have not finished backing
+        up their request namespace yet.
+        """
+        return None
+
+    def get_request_namespace_synced_tokens(self, req: Req) -> int:
+        """Return request-namespace synced tokens for failover metrics."""
+        return 0
 
     def import_host_checkpoints(self, metadata_batch: Any) -> Any:
         """Import host checkpoint metadata on survivor workers."""

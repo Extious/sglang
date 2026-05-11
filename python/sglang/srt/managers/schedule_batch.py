@@ -101,9 +101,13 @@ def apply_cache_source_breakdown(req: Any) -> None:
     prefix_len = len(prefix_indices) if prefix_indices is not None else 0
     host_total = _int_attr(req, "host_hit_length")
     storage_completed = _int_attr(req, "storage_hit_length")
-    storage_reused = min(host_total, storage_completed)
-    host_portion = max(0, host_total - storage_reused)
-    device_portion = max(0, prefix_len - host_total)
+    # Remote-prefetched pages may already contribute to prefix_indices before
+    # host_hit_length is fully reflected on the request. Treat remote hits as a
+    # non-device source first so they are not misattributed as device reuse.
+    non_device_total = max(host_total, storage_completed)
+    storage_reused = min(non_device_total, storage_completed)
+    host_portion = max(0, non_device_total - storage_reused)
+    device_portion = max(0, prefix_len - non_device_total)
 
     req.cached_tokens_device = device_portion
     req.cached_tokens_host = host_portion

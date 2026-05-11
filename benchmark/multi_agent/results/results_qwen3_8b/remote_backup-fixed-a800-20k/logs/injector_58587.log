@@ -1,0 +1,9 @@
+__MULTI_AGENT_CONTROL__ {"event":"injector_ready","control_url":"http://127.0.0.1:8749"}
+[2026-05-11T02:22:44] event {"event":"fault_scheduled","timestamp":"2026-05-11T02:22:44.641056+00:00","event_id":1,"trigger_kind":"job","trigger_count":10,"trigger_time_s":"","inject_delay":15.0,"dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"an53","node_url":"http://an53:28100","kill_pattern":"sglang::scheduler_DP0","job_id":3,"job":"request_3","worker_id":1}
+[2026-05-11T02:22:44] [fault #1] trigger=job -> dp0/pp0/tp0 on an53 (delay=15.0s)
+[2026-05-11T02:22:59] event {"event":"fault_injected","timestamp":"2026-05-11T02:22:59.641364+00:00","event_id":1,"trigger_kind":"job","trigger_count":10,"trigger_time_s":"","dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"an53","node_url":"http://an53:28100","kill_pattern":"sglang::scheduler_DP0","method":"api","slurm_job_id":58587,"kv_backup":"remote_backup"}
+[2026-05-11T02:22:59] POST http://an53:28100/simulate_gpu_failure body=b'{"dp_rank": 0}'
+[2026-05-11T02:22:59] [fault #1] injected dp=0 on an53
+[2026-05-11T02:22:59] event {"event":"gpu_failure_injected","timestamp":"2026-05-11T02:22:59.661008+00:00","event_id":1,"dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"an53","node_url":"http://an53:28100","kill_pattern":"sglang::scheduler_DP0","status":"injected_no_reaction"}
+[2026-05-11T02:22:59] [fault #1] waiting for job #20 to complete before recovery
+[2026-05-11T02:24:30] event {"event":"gpu_recovered","timestamp":"2026-05-11T02:24:30.850033+00:00","event_id":1,"dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"an53","node_url":"http://an53:28100","kill_pattern":"sglang::scheduler_DP0","method":"api","status":"recovered","recover_trigger":"after_job","recover_after_job":20}

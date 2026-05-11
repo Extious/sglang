@@ -1,7 +1,7 @@
 {
   "name": "remote_backup-fixed",
   "description": "SGLang server with Qwen3-8B + YaRN-scaled 200K context and remote backup for fixed-length, non-agent requests.",
-  "platform": "gpuhome",
+  "platform": "tianhe",
   "kv_backup": "remote_backup",
   "server": {
     "model_path": "/HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/.cache/huggingface/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218",
@@ -25,6 +25,6 @@
     "backend": "remote_backup",
     "prefetch_policy": "wait_complete",
     "remote_backup_port_base": 30100,
-    "remote_backup_buffer_size_gb": 120
+    "remote_backup_buffer_size_gb": 150
   }
 }

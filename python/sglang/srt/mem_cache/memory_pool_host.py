@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import itertools
 import logging
 import threading
 from collections import defaultdict
@@ -63,6 +64,14 @@ if _is_npu:
     from sgl_kernel_npu.kvcacheio import TransferDirection, transfer_kv_dim_exchange
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SharedHostKVPoolConfig:
+    arena_id: str
+    manager: Any
+    owner_rank: int
+    world_size: int
 
 
 def synchronized(func):
@@ -160,6 +169,7 @@ class HostKVCache(abc.ABC):
         pin_memory: bool,
         device: str,
         allocator_type: str = "default",
+        shared_config: Optional[SharedHostKVPoolConfig] = None,
     ):
         self.device_pool = device_pool
         self.page_size = page_size
@@ -167,21 +177,36 @@ class HostKVCache(abc.ABC):
         self.pin_memory = pin_memory
         self.device = device
         self.allocator = get_allocator_from_storage(allocator_type)
+        self.shared_config = shared_config
 
         self.dtype = device_pool.store_dtype
         self.size_per_token = self.get_size_per_token()
         if host_size > 0:
-            self.size = int(host_size * 1e9 // self.size_per_token)
+            local_size = int(host_size * 1e9 // self.size_per_token)
         else:
-            self.size = int(device_pool.size * host_to_device_ratio)
-        # Align up the host memory pool size to the page size
-        self.page_num = self.size // self.page_size + 1
-        self.size = self.page_num * self.page_size
+            local_size = int(device_pool.size * host_to_device_ratio)
+        # Align up the host memory pool size to the page size.
+        local_page_num = local_size // self.page_size + 1
+        self.local_size = local_page_num * self.page_size
+        self.local_page_num = self.local_size // self.page_size
+        self.shared_world_size = (
+            max(1, int(shared_config.world_size)) if shared_config is not None else 1
+        )
+        self.shared_owner_rank = (
+            int(shared_config.owner_rank) if shared_config is not None else 0
+        )
+        self.shared_arena_id = (
+            str(shared_config.arena_id) if shared_config is not None else None
+        )
+        self.partition_size = self.local_size
+        self.partition_start = self.shared_owner_rank * self.partition_size
+        self.size = self.partition_size * self.shared_world_size
+        self.page_num = self.size // self.page_size
         self.start_layer = device_pool.start_layer
         self.end_layer = device_pool.end_layer
 
         assert (
-            self.size > device_pool.size
+            self.local_size > device_pool.size
         ), "The host memory should be larger than the device memory with the current protocol"
 
         # Verify there is enough available host memory.
@@ -207,6 +232,110 @@ class HostKVCache(abc.ABC):
         # A lock for synchronized operations on memory allocation and state transitions.
         self.lock = threading.RLock()
         self.clear()
+
+    def _alloc_buffer(
+        self,
+        dims: tuple,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        if self.shared_config is not None:
+            return self.shared_config.manager.malloc(shape=dims, dtype=dtype)
+        alloc_func = ALLOC_MEMORY_FUNCS[self.device_pool.device]
+        return alloc_func(
+            dims,
+            dtype=dtype,
+            device=self.device,
+            pin_memory=self.pin_memory,
+            allocator=self.allocator,
+        )
+
+    def is_shared_across_workers(self) -> bool:
+        return self.shared_config is not None
+
+    def descriptor_context(self) -> dict[str, Any]:
+        return {
+            "arena_id": self.shared_arena_id,
+            "layout": self.layout,
+            "page_size": self.page_size,
+            "owner_dp_rank": self.shared_owner_rank,
+        }
+
+    def descriptor_is_compatible(
+        self,
+        *,
+        arena_id: Optional[str],
+        layout: Optional[str],
+        page_size: Optional[int],
+    ) -> bool:
+        if not self.is_shared_across_workers():
+            return False
+        return (
+            arena_id == self.shared_arena_id
+            and layout == self.layout
+            and int(page_size or -1) == self.page_size
+        )
+
+    def _reset_local_allocator_state(self) -> None:
+        self.mem_state = torch.zeros(
+            (self.size,), dtype=torch.uint8, device=self.device
+        )
+        self.free_ranges: list[tuple[int, int]] = [
+            (self.partition_start, self.partition_start + self.partition_size)
+        ]
+
+    def _available_size_from_ranges(self) -> int:
+        return sum(end - start for start, end in self.free_ranges)
+
+    def _alloc_from_ranges(self, need_size: int) -> Optional[torch.Tensor]:
+        for range_idx, (start, end) in enumerate(self.free_ranges):
+            if end - start < need_size:
+                continue
+            alloc_start = start
+            alloc_end = start + need_size
+            if alloc_end == end:
+                self.free_ranges.pop(range_idx)
+            else:
+                self.free_ranges[range_idx] = (alloc_end, end)
+            return torch.arange(alloc_start, alloc_end, dtype=torch.int64)
+        return None
+
+    def _merge_free_run(self, start: int, end: int) -> None:
+        if start >= end:
+            return
+        merged: list[tuple[int, int]] = []
+        inserted = False
+        for cur_start, cur_end in self.free_ranges:
+            if cur_end < start:
+                merged.append((cur_start, cur_end))
+                continue
+            if end < cur_start:
+                if not inserted:
+                    merged.append((start, end))
+                    inserted = True
+                merged.append((cur_start, cur_end))
+                continue
+            start = min(start, cur_start)
+            end = max(end, cur_end)
+        if not inserted:
+            merged.append((start, end))
+        self.free_ranges = merged
+
+    def _free_back_to_ranges(self, indices: torch.Tensor) -> int:
+        if indices.numel() == 0:
+            return 0
+        cpu_indices = indices.detach().cpu().to(torch.int64)
+        run_start = int(cpu_indices[0].item())
+        prev = run_start
+        for idx in cpu_indices[1:].tolist():
+            idx = int(idx)
+            if idx == prev + 1:
+                prev = idx
+                continue
+            self._merge_free_run(run_start, prev + 1)
+            run_start = idx
+            prev = idx
+        self._merge_free_run(run_start, prev + 1)
+        return len(cpu_indices)
 
     @abc.abstractmethod
     def get_size_per_token(self):
@@ -258,14 +387,11 @@ class HostKVCache(abc.ABC):
 
     @synchronized
     def clear(self):
-        # Initialize memory states and tracking structures.
-        self.mem_state = torch.zeros(
-            (self.size,), dtype=torch.uint8, device=self.device
-        )
-        self.free_slots = torch.arange(self.size, dtype=torch.int64)
+        # Allocation ownership stays local even when the physical arena is shared.
+        self._reset_local_allocator_state()
 
     def available_size(self):
-        return len(self.free_slots)
+        return self._available_size_from_ranges()
 
     @synchronized
     def alloc(self, need_size: int) -> Optional[torch.Tensor]:
@@ -274,16 +400,11 @@ class HostKVCache(abc.ABC):
         ), "The requested size should be a multiple of the page size."
         if need_size > self.available_size():
             return None
-
-        select_index = self.free_slots[:need_size]
-        self.free_slots = self.free_slots[need_size:]
-
-        return select_index
+        return self._alloc_from_ranges(need_size)
 
     @synchronized
     def free(self, indices: torch.Tensor) -> int:
-        self.free_slots = torch.cat([self.free_slots, indices.cpu()])
-        return len(indices)
+        return self._free_back_to_ranges(indices)
 
 
 class MHATokenToKVPoolHost(HostKVCache):
@@ -299,6 +420,7 @@ class MHATokenToKVPoolHost(HostKVCache):
         pin_memory: bool = True,
         device: str = "cpu",
         allocator_type: str = "default",
+        shared_config: Optional[SharedHostKVPoolConfig] = None,
     ):
         super().__init__(
             device_pool,
@@ -309,6 +431,7 @@ class MHATokenToKVPoolHost(HostKVCache):
             pin_memory,
             device,
             allocator_type,
+            shared_config=shared_config,
         )
         self.element_dim = self.device_pool.head_num * self.device_pool.head_dim
         self.can_use_jit = _is_cuda and can_use_hicache_jit_kernel(
@@ -374,15 +497,7 @@ class MHATokenToKVPoolHost(HostKVCache):
         self.token_stride_size = self.head_num * self.head_dim * self.dtype.itemsize
         self.layout_dim = self.token_stride_size * self.layer_num
 
-        alloc_func = ALLOC_MEMORY_FUNCS[self.device_pool.device]
-        buffer = alloc_func(
-            dims,
-            dtype=self.dtype,
-            device=self.device,
-            pin_memory=self.pin_memory,
-            allocator=self.allocator,
-        )
-        return buffer
+        return self._alloc_buffer(dims, dtype=self.dtype)
 
     @property
     def k_buffer(self):
@@ -797,6 +912,7 @@ class MLATokenToKVPoolHost(HostKVCache):
         device: str = "cpu",
         allocator_type: str = "default",
         override_kv_cache_dim: Optional[int] = None,
+        shared_config: Optional[SharedHostKVPoolConfig] = None,
     ):
         self.override_kv_cache_dim = override_kv_cache_dim
         super().__init__(
@@ -808,6 +924,7 @@ class MLATokenToKVPoolHost(HostKVCache):
             pin_memory,
             device,
             allocator_type,
+            shared_config=shared_config,
         )
         self.can_use_jit = _is_cuda and can_use_hicache_jit_kernel(
             element_size=self.kv_cache_dim * self.dtype.itemsize
@@ -878,29 +995,17 @@ class MLATokenToKVPoolHost(HostKVCache):
                 self.page_size,
                 1,
             )
-            alloc_func = ALLOC_MEMORY_FUNCS[self.device_pool.device]
-            self.k_buffer = alloc_func(
-                (*base_dims, self.kv_lora_rank),
-                dtype=self.dtype,
-                device=self.device,
-                pin_memory=self.pin_memory,
-                allocator=self.allocator,
+            self.k_buffer = self._alloc_buffer(
+                (*base_dims, self.kv_lora_rank), dtype=self.dtype
             )
-            self.v_buffer = alloc_func(
-                (*base_dims, self.qk_rope_head_dim),
-                dtype=self.dtype,
-                device=self.device,
-                pin_memory=self.pin_memory,
-                allocator=self.allocator,
+            self.v_buffer = self._alloc_buffer(
+                (*base_dims, self.qk_rope_head_dim), dtype=self.dtype
             )
             self.index_k_buffer = None
             if self.device_pool.index_head_dim is not None:
-                self.index_k_buffer = alloc_func(
+                self.index_k_buffer = self._alloc_buffer(
                     (*base_dims, self.device_pool.index_head_dim),
                     dtype=self.dtype,
-                    device=self.device,
-                    pin_memory=self.pin_memory,
-                    allocator=self.allocator,
                 )
             # Return k_buffer to preserve original kv_buffer and data_refs init logic,
             # though Ascend doesn't use these parameters.
@@ -910,15 +1015,7 @@ class MLATokenToKVPoolHost(HostKVCache):
         self.token_stride_size = self.kv_cache_dim * self.dtype.itemsize
         self.layout_dim = self.token_stride_size * self.layer_num
 
-        alloc_func = ALLOC_MEMORY_FUNCS[self.device_pool.device]
-        buffer = alloc_func(
-            dims,
-            dtype=self.dtype,
-            device=self.device,
-            pin_memory=self.pin_memory,
-            allocator=self.allocator,
-        )
-        return buffer
+        return self._alloc_buffer(dims, dtype=self.dtype)
 
     def load_to_device_per_layer(
         self, device_pool, host_indices, device_indices, layer_id, io_backend
@@ -1638,6 +1735,31 @@ class HostPoolGroup:
     def set_from_flat_data_page(self, index: int, data_page) -> None:
         return self.anchor_entry.host_pool.set_from_flat_data_page(index, data_page)
 
+    @property
+    def shared_arena_id(self) -> Optional[str]:
+        return getattr(self.anchor_entry.host_pool, "shared_arena_id", None)
+
+    def is_shared_across_workers(self) -> bool:
+        return bool(
+            getattr(self.anchor_entry.host_pool, "is_shared_across_workers", lambda: False)()
+        )
+
+    def descriptor_context(self) -> dict[str, Any]:
+        return getattr(
+            self.anchor_entry.host_pool, "descriptor_context", lambda: {}
+        )()
+
+    def descriptor_is_compatible(
+        self, *, arena_id: Optional[str], layout: Optional[str], page_size: Optional[int]
+    ) -> bool:
+        return bool(
+            getattr(
+                self.anchor_entry.host_pool,
+                "descriptor_is_compatible",
+                lambda **_: False,
+            )(arena_id=arena_id, layout=layout, page_size=page_size)
+        )
+
     def load_to_device_per_layer(
         self,
         device_pool,
@@ -1716,6 +1838,7 @@ class NSATokenToKVPoolHost(MLATokenToKVPoolHost):
         pin_memory: bool = True,
         device: str = "cpu",
         allocator_type: str = "default",
+        shared_config: Optional[SharedHostKVPoolConfig] = None,
     ):
         # Initialize indexer metadata before HostKVCache.__init__ calls get_size_per_token.
         self.index_head_dim = device_pool.index_head_dim
@@ -1735,6 +1858,7 @@ class NSATokenToKVPoolHost(MLATokenToKVPoolHost):
             device,
             allocator_type,
             override_kv_cache_dim=device_pool.kv_cache_dim,
+            shared_config=shared_config,
         )
         self.indexer_page_stride_size = (
             self.indexer_size_per_token * self.page_size * self.indexer_dtype.itemsize
@@ -1754,7 +1878,6 @@ class NSATokenToKVPoolHost(MLATokenToKVPoolHost):
         )
 
     def _init_indexer_buffers(self):
-        alloc_func = ALLOC_MEMORY_FUNCS[self.device_pool.device]
         self.index_k_device_ptrs = torch.tensor(
             [x.data_ptr() for x in self.device_pool.index_k_with_scale_buffer],
             dtype=torch.uint64,
@@ -1762,12 +1885,9 @@ class NSATokenToKVPoolHost(MLATokenToKVPoolHost):
         )
         if self.layout == "layer_first":
             self.index_k_with_scale_buffer = [
-                alloc_func(
+                self._alloc_buffer(
                     (self.indexer_page_num, self.indexer_page_stride_size),
                     dtype=self.indexer_dtype,
-                    device=self.device,
-                    pin_memory=self.pin_memory,
-                    allocator=self.allocator,
                 )
                 for _ in range(self.layer_num)
             ]
@@ -1780,7 +1900,7 @@ class NSATokenToKVPoolHost(MLATokenToKVPoolHost):
                 device=self.device_pool.device,
             )
         elif self.layout in ["page_first", "page_first_direct"]:
-            self.index_k_with_scale_buffer = alloc_func(
+            self.index_k_with_scale_buffer = self._alloc_buffer(
                 (
                     self.indexer_page_num,
                     self.layer_num,
@@ -1788,9 +1908,6 @@ class NSATokenToKVPoolHost(MLATokenToKVPoolHost):
                     self.indexer_page_stride_size,
                 ),
                 dtype=self.indexer_dtype,
-                device=self.device,
-                pin_memory=self.pin_memory,
-                allocator=self.allocator,
             )
         else:
             raise ValueError(f"Unsupported layout: {self.layout}")

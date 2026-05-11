@@ -1,0 +1,28 @@
+{
+  "name": "baseline-fixed",
+  "description": "SGLang server with Qwen3-8B + YaRN-scaled 200K context (no KV backup) for fixed-length, non-agent requests.",
+  "platform": "daai",
+  "kv_backup": "none",
+  "server": {
+    "model_path": "Qwen/Qwen3-8B",
+    "server_port_base": 28200,
+    "dp_size": 2,
+    "load_balance_method": "round_robin",
+    "pp_size": 1,
+    "tp_size": 1,
+    "nnodes": 1,
+    "hicache_size_gb": 60,
+    "tool_call_parser": "qwen",
+    "context_length": 200000,
+    "retry_queue_same_priority_as_waiting": true,
+    "json_model_override_args": "{\"max_position_embeddings\": 200000, \"rope_theta\": 1000000, \"rope_scaling\": {\"rope_type\": \"yarn\", \"factor\": 4.8828125, \"original_max_position_embeddings\": 40960, \"rope_theta\": 1000000}}",
+    "enable_cache_report": true,
+    "enable_hicache": true,
+    "hicache_ratio": 1.1,
+    "quantization": ""
+  },
+  "hicache_storage": {
+    "backend": "",
+    "prefetch_policy": ""
+  }
+}

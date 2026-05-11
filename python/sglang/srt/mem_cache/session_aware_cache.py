@@ -334,6 +334,12 @@ class SessionAwareCache(BasePrefixCache):
     def check_hicache_events(self):
         return self.inner.check_hicache_events()
 
+    def flush_remote_backup_before_failover(self, reqs, timeout_s: float = 0.5):
+        return self.inner.flush_remote_backup_before_failover(reqs, timeout_s)
+
+    def get_request_namespace_synced_tokens(self, req):
+        return self.inner.get_request_namespace_synced_tokens(req)
+
     def take_events(self):
         return self.inner.take_events()
 

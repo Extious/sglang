@@ -244,6 +244,8 @@ else:
 
 logger = logging.getLogger(__name__)
 
+FAILOVER_REMOTE_BACKUP_FLUSH_TIMEOUT_S = 0.5
+
 # Test retract decode for debugging purposes
 TEST_RETRACT = envs.SGLANG_TEST_RETRACT.get()
 TEST_RETRACT_INTERVAL = envs.SGLANG_TEST_RETRACT_INTERVAL.get()
@@ -3612,6 +3614,14 @@ class Scheduler(
         ):
             self.tree_cache.check_hicache_events()
         reqs_to_failover = self._collect_failover_reqs()
+        if (
+            reqs_to_failover
+            and self.enable_hicache_storage
+            and hasattr(self.tree_cache, "flush_remote_backup_before_failover")
+        ):
+            self.tree_cache.flush_remote_backup_before_failover(
+                reqs_to_failover, timeout_s=FAILOVER_REMOTE_BACKUP_FLUSH_TIMEOUT_S
+            )
         snapshots = [self._snapshot_req(req) for req in reqs_to_failover]
 
         # Simulated GPU failure should behave like a hard local loss: do not
@@ -3665,7 +3675,13 @@ class Scheduler(
         backed_up = 0
         kv_backup_strategy = getattr(self.server_args, "kv_backup_strategy", "none")
         host_backup_metadata = None
-        if self.enable_hicache_storage and hasattr(
+        if (
+            kv_backup_strategy in ("remote_backup", "remote")
+            and self.enable_hicache_storage
+            and hasattr(self.tree_cache, "get_request_namespace_synced_tokens")
+        ):
+            backed_up = self.tree_cache.get_request_namespace_synced_tokens(req)
+        elif self.enable_hicache_storage and hasattr(
             self.tree_cache, "count_remote_acked_tokens"
         ):
             all_ids = list(req.origin_input_ids) + list(req.output_ids)

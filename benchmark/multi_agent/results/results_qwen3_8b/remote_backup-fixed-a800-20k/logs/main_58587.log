@@ -1,0 +1,15 @@
+[2026-05-11 10:19:04] ============================================================
+[2026-05-11 10:19:04] EXPERIMENT  topology=DP2_PP1_TP1_N1  kv_backup=remote_backup
+[2026-05-11 10:19:04]   result_dir: /HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/sglang/benchmark/multi_agent/results/results_qwen3_8b/remote_backup-fixed-a800-20k
+[2026-05-11 10:19:04]   log_dir:    /HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/sglang/benchmark/multi_agent/logs
+[2026-05-11 10:19:04] Step 1: Start SGLang server subprocess...
+[2026-05-11 10:19:04]   Server PID: 192661
+[2026-05-11 10:21:26]   Server ready at http://an53:28100
+[2026-05-11 10:21:26] Step 2: Start injector and client subprocesses...
+[2026-05-11 10:21:26]   Injector PID: 193639
+[2026-05-11 10:21:27]   Client PID: 193643
+[2026-05-11 10:26:49]   Client exited (rc=0)
+[2026-05-11 10:26:49] Step 3: Generate plots...
+Warning: expected 6 agents, found 1.
+Saved plot to /HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/sglang/benchmark/multi_agent/results/results_qwen3_8b/remote_backup-fixed-a800-20k/figures/trace_log_profile.png
+[2026-05-11 10:26:52] Experiment complete. Results in /HOME/yt_hkbu_chizhou2/yt_hkbu_chizhou2_1/sglang/benchmark/multi_agent/results/results_qwen3_8b/remote_backup-fixed-a800-20k

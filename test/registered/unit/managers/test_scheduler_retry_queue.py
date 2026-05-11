@@ -12,7 +12,7 @@ from sglang.test.test_utils import CustomTestCase, maybe_stub_sgl_kernel
 maybe_stub_sgl_kernel()
 
 from sglang.srt.mem_cache.common import release_kv_cache
-from sglang.srt.managers.io_struct import SimulateGpuFailureReqInput
+from sglang.srt.managers.io_struct import ReqSnapshot, SimulateGpuFailureReqInput
 from sglang.srt.managers.schedule_batch import Req
 from sglang.srt.managers.schedule_policy import AddReqResult
 from sglang.srt.managers.scheduler import Scheduler
@@ -22,7 +22,11 @@ register_cpu_ci(5, "stage-a-test-cpu")
 
 
 def _make_req(rid: str):
-    return SimpleNamespace(rid=rid, init_next_round_input=MagicMock())
+    return SimpleNamespace(
+        rid=rid,
+        init_next_round_input=MagicMock(),
+        is_failover_retried=False,
+    )
 
 
 class TestSchedulerRetryQueue(CustomTestCase):
@@ -107,6 +111,9 @@ class TestSchedulerRetryQueue(CustomTestCase):
             ["prefix-hash"],
             prefix_token_ids=[101, 102, 103, 104],
             lookup_dp_rank=1,
+            request_ns_restore=False,
+            ns_dp_rank=1,
+            ns_generation=0,
         )
 
     def test_snapshot_uses_remote_acked_tokens(self):
@@ -118,6 +125,7 @@ class TestSchedulerRetryQueue(CustomTestCase):
             stream=False,
         )
         self.scheduler.enable_hicache_storage = True
+        self.scheduler.server_args = SimpleNamespace(kv_backup_strategy="none")
         self.scheduler.tree_cache.count_remote_acked_tokens = MagicMock(return_value=6)
 
         snapshot = self.scheduler._snapshot_req(req)
@@ -128,6 +136,29 @@ class TestSchedulerRetryQueue(CustomTestCase):
         self.scheduler.tree_cache.count_remote_acked_tokens.assert_called_once_with(
             [1, 2, 3, 4]
         )
+
+    def test_snapshot_prefers_request_namespace_synced_tokens_for_remote_backup(self):
+        req = SimpleNamespace(
+            rid="rid-1",
+            origin_input_ids=[1, 2],
+            output_ids=[3, 4],
+            sampling_params=SimpleNamespace(max_new_tokens=12),
+            stream=False,
+        )
+        self.scheduler.enable_hicache_storage = True
+        self.scheduler.server_args = SimpleNamespace(kv_backup_strategy="remote_backup")
+        self.scheduler.tree_cache.get_request_namespace_synced_tokens = MagicMock(
+            return_value=4
+        )
+        self.scheduler.tree_cache.count_remote_acked_tokens = MagicMock(return_value=2)
+
+        snapshot = self.scheduler._snapshot_req(req)
+
+        self.assertEqual(snapshot.backed_up_tokens, 4)
+        self.scheduler.tree_cache.get_request_namespace_synced_tokens.assert_called_once_with(
+            req
+        )
+        self.scheduler.tree_cache.count_remote_acked_tokens.assert_not_called()
 
     def test_pending_hicache_load_queue_blocks_idle_memory_check(self):
         cache_controller = SimpleNamespace(
@@ -315,7 +346,8 @@ class TestSchedulerRetryQueue(CustomTestCase):
         self.scheduler.enable_metrics = False
         self.scheduler.num_generated_tokens = 0
         self.scheduler.server_args = SimpleNamespace(
-            disaggregation_decode_enable_offload_kvcache=False
+            disaggregation_decode_enable_offload_kvcache=False,
+            hicache_insert_step=0,
         )
         self.scheduler.enable_hisparse = False
         self.scheduler.token_to_kv_pool_allocator = SimpleNamespace(
@@ -336,16 +368,30 @@ class TestSchedulerRetryQueue(CustomTestCase):
         self, mock_append_failover_event
     ):
         self.scheduler.enable_hicache_storage = True
+        self.scheduler.enable_hierarchical_cache = True
         self.scheduler.dp_rank = 1
         self.scheduler.tree_cache.check_hicache_events = MagicMock()
-        self.scheduler._collect_failover_reqs = MagicMock(return_value=[])
+        self.scheduler.tree_cache.flush_remote_backup_before_failover = MagicMock()
+        req = _make_req("rid-1")
+        self.scheduler._collect_failover_reqs = MagicMock(return_value=[req])
+        self.scheduler._snapshot_req = MagicMock(
+            return_value=ReqSnapshot(rid="rid-1", output_ids=[], backed_up_tokens=0)
+        )
         self.scheduler._clear_failed_rank_scheduler_state = MagicMock()
         self.scheduler.send_to_tokenizer = MagicMock()
+        self.scheduler.server_args = SimpleNamespace(kv_backup_strategy="remote_backup")
 
         self.scheduler.handle_simulate_gpu_failure(SimulateGpuFailureReqInput(dp_rank=1))
 
         self.scheduler.tree_cache.check_hicache_events.assert_called_once_with()
         self.scheduler._collect_failover_reqs.assert_called_once_with()
+        self.scheduler.tree_cache.flush_remote_backup_before_failover.assert_called_once()
+        flush_args, flush_kwargs = (
+            self.scheduler.tree_cache.flush_remote_backup_before_failover.call_args
+        )
+        self.assertEqual(flush_args[0], [req])
+        self.assertGreater(flush_kwargs["timeout_s"], 0.0)
+        self.scheduler._snapshot_req.assert_called_once_with(req)
         self.scheduler.send_to_tokenizer.send_output.assert_called_once()
         self.assertEqual(mock_append_failover_event.call_count, 1)
 

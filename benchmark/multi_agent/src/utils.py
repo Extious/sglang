@@ -57,7 +57,11 @@ def build_experiment_config(
         default="",
         help="SGLang DP scheduling, e.g. total_tokens (empty = use server.json / default)",
     )
-    p.add_argument("--kv-backup", default="none", choices=["none", "host", "device", "remote_backup"])
+    p.add_argument(
+        "--kv-backup",
+        default="none",
+        choices=["none", "host", "host_backup", "device", "remote_backup"],
+    )
     p.add_argument("--job-limit", type=int, default=0)
     p.add_argument("--app-workers", type=int, default=0)
     p.add_argument("--default-year", default="")
@@ -194,9 +198,14 @@ def build_experiment_config(
         fixed.seed = args.fixed_seed
 
     # build kv backup
-    # TODO: only remote backup is supported now
     kv_backup = top.get("kv_backup", args.kv_backup)
-    if isinstance(kv_backup, str) and kv_backup not in {"none", "host", "device", "remote_backup"}:
+    if isinstance(kv_backup, str) and kv_backup not in {
+        "none",
+        "host",
+        "host_backup",
+        "device",
+        "remote_backup",
+    }:
         kv_backup = args.kv_backup
 
     # build experiment config

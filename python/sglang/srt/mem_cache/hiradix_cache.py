@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import atexit
+import hashlib
 import heapq
 import json
 import logging
 import os
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from queue import Empty
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -35,6 +36,7 @@ from sglang.srt.mem_cache.memory_pool_host import (
     MHATokenToKVPoolHost,
     MLATokenToKVPoolHost,
     NSATokenToKVPoolHost,
+    SharedHostKVPoolConfig,
 )
 from sglang.srt.mem_cache.radix_cache import (
     RadixCache,
@@ -45,12 +47,24 @@ from sglang.srt.mem_cache.radix_cache import (
 )
 from sglang.srt.mem_cache.utils import convert_to_bigram_key
 from sglang.srt.observability.metrics_collector import StorageMetricsCollector
+from sglang.srt.distributed.naive_distributed import (
+    NaiveDistributed,
+    get_naive_distributed,
+    set_naive_distributed,
+)
+from sglang.srt.utils.host_shared_memory import HostSharedMemoryManager
 
 if TYPE_CHECKING:
     from sglang.srt.mem_cache.cache_init_params import CacheInitParams
     from sglang.srt.server_args import ServerArgs
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class HostCheckpointDescriptor:
+    slot_start: int
+    slot_count: int
 
 
 @dataclass
@@ -61,16 +75,81 @@ class FailureCheckpointMetadata:
     extra_key: Optional[str]
     checkpoint_len: int
     prefix_token_ids: List[int]
-    pages: List[torch.Tensor]
+    arena_id: Optional[str] = None
+    layout: Optional[str] = None
+    page_size: int = 0
+    descriptors: List[Dict[str, int]] = field(default_factory=list)
+    pages: List[torch.Tensor] = field(default_factory=list)
 
 
 class HiRadixCache(RadixCache):
+
+    @staticmethod
+    def _shared_host_descriptor_enabled(server_args: ServerArgs) -> bool:
+        return (
+            getattr(server_args, "kv_backup_strategy", "none") in ("host", "host_backup")
+            and int(getattr(server_args, "dp_size", 1) or 1) > 1
+            and int(getattr(server_args, "nnodes", 1) or 1) == 1
+        )
+
+    @staticmethod
+    def _make_shared_host_pool_config(
+        params: CacheInitParams, server_args: ServerArgs, page_size: int
+    ) -> Optional[SharedHostKVPoolConfig]:
+        if not HiRadixCache._shared_host_descriptor_enabled(server_args):
+            return None
+
+        dp_rank = int(getattr(params, "dp_rank", 0) or 0)
+        rendezvous_key = "|".join(
+            [
+                str(getattr(server_args, "dist_init_addr", None) or ""),
+                str(getattr(server_args, "host", "127.0.0.1")),
+                str(getattr(server_args, "port", 0)),
+                str(getattr(server_args, "model_path", "")),
+                str(getattr(server_args, "hicache_mem_layout", "")),
+                str(page_size),
+                str(getattr(server_args, "dp_size", 1)),
+            ]
+        )
+        arena_suffix = hashlib.sha1(rendezvous_key.encode("utf-8")).hexdigest()[:16]
+        rendezvous = f"/tmp/sglang_host_backup_{arena_suffix}"
+        try:
+            dist = get_naive_distributed()
+            if dist.get_rank() != dp_rank or dist.get_world_size() != int(
+                getattr(server_args, "dp_size", 1) or 1
+            ):
+                logger.warning(
+                    "Reusing existing naive distributed context for host descriptor failover "
+                    "with mismatched rank/world_size: existing=(%s,%s) new=(%s,%s)",
+                    dist.get_rank(),
+                    dist.get_world_size(),
+                    dp_rank,
+                    getattr(server_args, "dp_size", 1),
+                )
+        except AssertionError:
+            set_naive_distributed(
+                NaiveDistributed(
+                    rank=dp_rank,
+                    world_size=int(getattr(server_args, "dp_size", 1) or 1),
+                    rendezvous=rendezvous,
+                )
+            )
+
+        return SharedHostKVPoolConfig(
+            arena_id=f"host-backup-{arena_suffix}",
+            manager=HostSharedMemoryManager(base_name=f"sglang_host_backup_{arena_suffix}"),
+            owner_rank=dp_rank,
+            world_size=int(getattr(server_args, "dp_size", 1) or 1),
+        )
 
     def __init__(self, params: CacheInitParams, server_args: ServerArgs):
         self._enable_metrics_flag = params.enable_metrics
 
         self.page_size = params.page_size
         self.kv_cache = params.token_to_kv_pool_allocator.get_kvcache()
+        shared_host_pool_config = self._make_shared_host_pool_config(
+            params, server_args, self.page_size
+        )
 
         if isinstance(self.kv_cache, MHATokenToKVPool):
             self.token_to_kv_pool_host = MHATokenToKVPoolHost(
@@ -80,6 +159,7 @@ class HiRadixCache(RadixCache):
                 self.page_size,
                 server_args.hicache_mem_layout,
                 allocator_type=server_args.hicache_storage_backend,
+                shared_config=shared_host_pool_config,
             )
         elif isinstance(self.kv_cache, NSATokenToKVPool):
             self.token_to_kv_pool_host = NSATokenToKVPoolHost(
@@ -89,6 +169,7 @@ class HiRadixCache(RadixCache):
                 self.page_size,
                 server_args.hicache_mem_layout,
                 allocator_type=server_args.hicache_storage_backend,
+                shared_config=shared_host_pool_config,
             )
         elif isinstance(self.kv_cache, MLATokenToKVPool):
             self.token_to_kv_pool_host = MLATokenToKVPoolHost(
@@ -98,6 +179,7 @@ class HiRadixCache(RadixCache):
                 self.page_size,
                 server_args.hicache_mem_layout,
                 allocator_type=server_args.hicache_storage_backend,
+                shared_config=shared_host_pool_config,
             )
         else:
             raise ValueError(f"HiRadixCache only supports MHA and MLA yet")
@@ -159,6 +241,10 @@ class HiRadixCache(RadixCache):
         # record the ongoing prefetch requests
         self.ongoing_prefetch = {}
         self.ongoing_backup = {}
+        self.ongoing_request_namespace_backup: Dict[int, Tuple[str, int, int]] = {}
+        self.request_namespace_synced_tokens_by_reqid_gen: Dict[
+            Tuple[str, int], int
+        ] = {}
         # track per-request tokens loaded from storage (remote backup hits)
         # key: request_id, value: number of tokens actually loaded from storage
         self.prefetch_loaded_tokens_by_reqid: dict[str, int] = {}
@@ -491,6 +577,14 @@ class HiRadixCache(RadixCache):
         def _drain_backup():
             for operation in _drain_queue(cc.ack_backup_queue, n_backup):
                 ack_id = operation.id
+                ns_entry = self.ongoing_request_namespace_backup.pop(ack_id, None)
+                if ns_entry is not None:
+                    rid, generation, synced_tokens = ns_entry
+                    key = (rid, generation)
+                    self.request_namespace_synced_tokens_by_reqid_gen[key] = max(
+                        self.request_namespace_synced_tokens_by_reqid_gen.get(key, 0),
+                        synced_tokens,
+                    )
                 entry = self.ongoing_backup.pop(ack_id, None)
                 if entry is not None:
                     entry.storage_acked_len = max(
@@ -673,6 +767,15 @@ class HiRadixCache(RadixCache):
         if host_indices is not None:
             node.host_value = host_indices.clone()
             assert len(node.host_value) > 0
+            self._set_host_value_metadata(
+                node,
+                owner_dp_rank=int(getattr(self.cache_controller, "dp_rank", 0) or 0),
+                generation=0,
+                arena_id=getattr(
+                    self.cache_controller.mem_pool_host, "shared_arena_id", None
+                ),
+                imported=False,
+            )
             self.ongoing_write_through[node.id] = node
             if not write_back:
                 # no need to lock nodes if write back
@@ -699,9 +802,140 @@ class HiRadixCache(RadixCache):
             prefix_keys,
             full_token_ids=full_token_ids,
             page_start=page_start,
+            request_id=getattr(node, "request_id", None),
+            request_generation=int(getattr(node, "request_generation", 0) or 0),
         )
         self.ongoing_backup[operation_id] = node
         node.protect_host()
+
+    def _should_sync_request_namespace(self) -> bool:
+        if not self.enable_storage:
+            return False
+        return getattr(self.cache_controller, "storage_backend_type", None) == (
+            "remote_backup"
+        )
+
+    def _mirror_request_namespace_prefix(self, req, token_ids: List[int]) -> None:
+        """Mirror the host-backed prefix into the request namespace.
+
+        Shared radix nodes may already be backed up from prior requests, but the
+        request namespace requires contiguous pages starting from page 0 for each
+        individual ``(rid, generation)``. This helper incrementally mirrors the
+        current host-backed prefix under the request's own namespace.
+        """
+        if not self._should_sync_request_namespace():
+            return
+
+        rid = getattr(req, "rid", None)
+        if not rid:
+            return
+
+        generation = int(getattr(req, "remote_backup_generation", 0) or 0)
+        sync_key = (rid, generation)
+        host_indices = self._collect_host_backed_prefix_indices(token_ids, req.extra_key)
+        checkpoint_len = (len(host_indices) // self.page_size) * self.page_size
+        synced_tokens = self.request_namespace_synced_tokens_by_reqid_gen.get(
+            sync_key, 0
+        )
+        if checkpoint_len <= synced_tokens:
+            return
+
+        host_indices = host_indices[synced_tokens:checkpoint_len]
+        if host_indices.numel() == 0:
+            return
+
+        page_start = synced_tokens // self.page_size
+        page_count = (checkpoint_len - synced_tokens) // self.page_size
+        full_token_ids = list(token_ids[:checkpoint_len])
+        page_hashes = [f"ns:{rid}:{page_start + i}" for i in range(page_count)]
+        operation_id = self.cache_controller.write_storage(
+            host_indices,
+            full_token_ids[synced_tokens:checkpoint_len],
+            hash_value=page_hashes,
+            full_token_ids=full_token_ids,
+            page_start=page_start,
+            request_id=rid,
+            request_generation=generation,
+        )
+        self.ongoing_request_namespace_backup[operation_id] = (
+            rid,
+            generation,
+            checkpoint_len,
+        )
+
+    def get_request_namespace_synced_tokens(self, req) -> int:
+        rid = getattr(req, "rid", None)
+        if not rid:
+            return 0
+
+        generation = int(getattr(req, "remote_backup_generation", 0) or 0)
+        synced = self.request_namespace_synced_tokens_by_reqid_gen.get(
+            (rid, generation), 0
+        )
+        total_tokens = len(list(getattr(req, "origin_input_ids", [])) + list(getattr(req, "output_ids", [])))
+        total_tokens = (total_tokens // self.page_size) * self.page_size
+        return min(synced, total_tokens)
+
+    def flush_remote_backup_before_failover(
+        self, reqs: List[Any], timeout_s: float = 0.5
+    ) -> None:
+        """Best-effort bounded flush for request-namespace backups.
+
+        This is used immediately before failover snapshot so in-flight requests
+        get one last chance to mirror their current host-backed prefix into the
+        request namespace before the failed rank is reset.
+        """
+        if not self._should_sync_request_namespace() or not reqs:
+            return
+
+        targets: Dict[Tuple[str, int], int] = {}
+        for req in reqs:
+            rid = getattr(req, "rid", None)
+            if not rid:
+                continue
+            token_ids = list(getattr(req, "origin_input_ids", [])) + list(
+                getattr(req, "output_ids", [])
+            )
+            target_tokens = (len(token_ids) // self.page_size) * self.page_size
+            if target_tokens <= 0:
+                continue
+            generation = int(getattr(req, "remote_backup_generation", 0) or 0)
+            self._mirror_request_namespace_prefix(req, token_ids)
+            targets[(rid, generation)] = target_tokens
+
+        if not targets:
+            return
+
+        self.flush_write_through_acks()
+        deadline = time.monotonic() + max(0.0, float(timeout_s or 0.0))
+        while True:
+            self.flush_write_through_acks()
+            self._drain_storage_control_queues_local()
+
+            pending = []
+            for key, target_tokens in targets.items():
+                synced = self.request_namespace_synced_tokens_by_reqid_gen.get(key, 0)
+                if synced < target_tokens:
+                    pending.append((key, synced, target_tokens))
+
+            if not pending:
+                return
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.01)
+
+        logger.warning(
+            "Timed out waiting for request-namespace backups before failover: %s "
+            "(backup_queue=%s ack_backup_queue=%s ongoing_backup=%s ns_ongoing=%s)",
+            ", ".join(
+                f"{rid[:16]}@g{generation}:{synced}/{target}"
+                for (rid, generation), synced, target in pending
+            ),
+            self.cache_controller.backup_queue.qsize(),
+            self.cache_controller.ack_backup_queue.qsize(),
+            len(self.ongoing_backup),
+            len(self.ongoing_request_namespace_backup),
+        )
 
     def _inc_hit_count(self, node: TreeNode, chunked=False):
         if self.cache_controller.write_policy == "write_back" or chunked:
@@ -923,7 +1157,7 @@ class HiRadixCache(RadixCache):
             # Block deleted entirely (GPU already evicted, now CPU freed) --
             # emit BlockRemoved so the router removes this block from its index.
             self._record_remove_event(x)
-            num_evicted += self.cache_controller.evict_host(x.host_value)
+            num_evicted += self._release_host_value(x)
 
             key = self.get_child_key_fn(x.key)
             v = x.parent.children.pop(key, None)
@@ -1165,6 +1399,10 @@ class HiRadixCache(RadixCache):
             ),
             written_indices,
             hash_value[: min_completed_tokens // self.page_size],
+            owner_dp_rank=int(getattr(self.cache_controller, "dp_rank", 0) or 0),
+            generation=0,
+            arena_id=getattr(self.cache_controller.mem_pool_host, "shared_arena_id", None),
+            imported=False,
         )
 
         self.cache_controller.mem_pool_host.free(host_indices[:matched_length])
@@ -1283,6 +1521,82 @@ class HiRadixCache(RadixCache):
             return torch.empty((0,), dtype=torch.int64)
         return torch.cat(values)
 
+    def _host_indices_to_descriptors(
+        self, host_indices: torch.Tensor
+    ) -> List[HostCheckpointDescriptor]:
+        if host_indices.numel() == 0:
+            return []
+        cpu_indices = host_indices.detach().cpu().to(torch.int64)
+        descriptors: List[HostCheckpointDescriptor] = []
+        run_start = int(cpu_indices[0].item())
+        prev = run_start
+        for idx in cpu_indices[1:].tolist():
+            idx = int(idx)
+            if idx == prev + 1:
+                prev = idx
+                continue
+            descriptors.append(
+                HostCheckpointDescriptor(
+                    slot_start=run_start,
+                    slot_count=prev - run_start + 1,
+                )
+            )
+            run_start = idx
+            prev = idx
+        descriptors.append(
+            HostCheckpointDescriptor(
+                slot_start=run_start,
+                slot_count=prev - run_start + 1,
+            )
+        )
+        return descriptors
+
+    def _descriptor_batch_to_host_indices(
+        self, descriptors: List[HostCheckpointDescriptor]
+    ) -> torch.Tensor:
+        if not descriptors:
+            return torch.empty((0,), dtype=torch.int64)
+        pieces = [
+            torch.arange(
+                int(descriptor.slot_start),
+                int(descriptor.slot_start) + int(descriptor.slot_count),
+                dtype=torch.int64,
+            )
+            for descriptor in descriptors
+            if descriptor.slot_count > 0
+        ]
+        if not pieces:
+            return torch.empty((0,), dtype=torch.int64)
+        return torch.cat(pieces)
+
+    def _set_host_value_metadata(
+        self,
+        node: TreeNode,
+        *,
+        owner_dp_rank: int,
+        generation: int,
+        arena_id: Optional[str],
+        imported: bool,
+    ) -> None:
+        node.host_owner_dp_rank = int(owner_dp_rank)
+        node.host_generation = int(generation)
+        node.host_arena_id = arena_id
+        node.host_imported = imported
+
+    def _release_host_value(self, node: TreeNode) -> int:
+        if not node.backuped:
+            return 0
+        if getattr(node, "host_imported", False):
+            released = len(node.host_value)
+        else:
+            released = self.cache_controller.evict_host(node.host_value)
+        node.host_value = None
+        node.host_owner_dp_rank = None
+        node.host_generation = 0
+        node.host_arena_id = None
+        node.host_imported = False
+        return released
+
     def export_failure_checkpoints(self, req) -> List[Dict[str, Any]]:
         all_ids = list(req.origin_input_ids) + list(req.output_ids)
         host_indices = self._collect_host_backed_prefix_indices(all_ids, req.extra_key)
@@ -1292,14 +1606,25 @@ class HiRadixCache(RadixCache):
 
         host_indices = host_indices[:checkpoint_len]
         token_prefix = all_ids[:checkpoint_len]
-        pages: List[torch.Tensor] = []
-        for i in range(0, checkpoint_len, self.page_size):
-            page_index = int(host_indices[i].item())
-            pages.append(
-                self.cache_controller.mem_pool_host.get_data_page(
-                    page_index, flat=True
-                ).clone()
-            )
+        mem_pool_host = self.cache_controller.mem_pool_host
+        descriptors = []
+        if hasattr(mem_pool_host, "descriptor_context") and mem_pool_host.is_shared_across_workers():
+            descriptors = [
+                descriptor.__dict__
+                for descriptor in self._host_indices_to_descriptors(host_indices)
+            ]
+            descriptor_context = mem_pool_host.descriptor_context()
+            pages: List[torch.Tensor] = []
+        else:
+            descriptor_context = {
+                "arena_id": None,
+                "layout": getattr(mem_pool_host, "layout", None),
+                "page_size": self.page_size,
+            }
+            pages = []
+            for i in range(0, checkpoint_len, self.page_size):
+                page_index = int(host_indices[i].item())
+                pages.append(mem_pool_host.get_data_page(page_index, flat=True).clone())
 
         metadata = FailureCheckpointMetadata(
             owner_dp_rank=int(getattr(self.cache_controller, "dp_rank", 0) or 0),
@@ -1308,9 +1633,30 @@ class HiRadixCache(RadixCache):
             extra_key=req.extra_key,
             checkpoint_len=checkpoint_len,
             prefix_token_ids=token_prefix,
+            arena_id=descriptor_context["arena_id"],
+            layout=descriptor_context["layout"],
+            page_size=int(descriptor_context["page_size"] or self.page_size),
+            descriptors=descriptors,
             pages=pages,
         )
+        logger.info(
+            "host-backup export rid=%s tokens=%d descriptors=%d tensor_pages=%d",
+            req.rid,
+            checkpoint_len,
+            len(descriptors),
+            len(pages),
+        )
         return [metadata.__dict__]
+
+    def cache_finished_req(self, req, is_insert: bool = True):
+        super().cache_finished_req(req, is_insert=is_insert)
+        self._mirror_request_namespace_prefix(
+            req, list(req.origin_input_ids) + list(req.output_ids)
+        )
+
+    def cache_unfinished_req(self, req, chunked=False):
+        super().cache_unfinished_req(req, chunked=chunked)
+        self._mirror_request_namespace_prefix(req, list(req.fill_ids))
 
     def import_host_checkpoints(self, metadata_batch) -> int:
         if not metadata_batch:
@@ -1327,28 +1673,47 @@ class HiRadixCache(RadixCache):
             ):
                 continue
 
-            required_pages = meta.checkpoint_len // self.page_size
-            if len(meta.pages) < required_pages:
-                continue
+            mem_pool_host = self.cache_controller.mem_pool_host
+            descriptor_mode = bool(meta.descriptors) and hasattr(
+                mem_pool_host, "descriptor_is_compatible"
+            )
+            if descriptor_mode and mem_pool_host.descriptor_is_compatible(
+                arena_id=meta.arena_id,
+                layout=meta.layout,
+                page_size=meta.page_size,
+            ):
+                descriptors = [
+                    HostCheckpointDescriptor(**descriptor)
+                    for descriptor in meta.descriptors
+                ]
+                host_indices = self._descriptor_batch_to_host_indices(descriptors)
+                if len(host_indices) < meta.checkpoint_len:
+                    logger.warning(
+                        "import_host_checkpoints: descriptor length mismatch for rid=%s",
+                        meta.rid,
+                    )
+                    continue
+                host_indices = host_indices[: meta.checkpoint_len]
+                required_pages = meta.checkpoint_len // self.page_size
+            else:
+                required_pages = meta.checkpoint_len // self.page_size
+                if len(meta.pages) < required_pages:
+                    continue
 
-            host_indices = self.cache_controller.mem_pool_host.alloc(meta.checkpoint_len)
-            if host_indices is None:
-                self.evict_host(meta.checkpoint_len)
-                host_indices = self.cache_controller.mem_pool_host.alloc(
-                    meta.checkpoint_len
-                )
-            if host_indices is None:
-                logger.warning(
-                    "import_host_checkpoints: insufficient host memory for %d tokens",
-                    meta.checkpoint_len,
-                )
-                continue
+                host_indices = mem_pool_host.alloc(meta.checkpoint_len)
+                if host_indices is None:
+                    self.evict_host(meta.checkpoint_len)
+                    host_indices = mem_pool_host.alloc(meta.checkpoint_len)
+                if host_indices is None:
+                    logger.warning(
+                        "import_host_checkpoints: insufficient host memory for %d tokens",
+                        meta.checkpoint_len,
+                    )
+                    continue
 
-            for page_i in range(required_pages):
-                dst_index = int(host_indices[page_i * self.page_size].item())
-                self.cache_controller.mem_pool_host.set_from_flat_data_page(
-                    dst_index, meta.pages[page_i]
-                )
+                for page_i in range(required_pages):
+                    dst_index = int(host_indices[page_i * self.page_size].item())
+                    mem_pool_host.set_from_flat_data_page(dst_index, meta.pages[page_i])
 
             matched_length = self._insert_helper_host(
                 self.root_node,
@@ -1358,14 +1723,26 @@ class HiRadixCache(RadixCache):
                 ),
                 host_indices,
                 [None] * required_pages,
+                owner_dp_rank=meta.owner_dp_rank,
+                generation=meta.generation,
+                arena_id=meta.arena_id,
+                imported=descriptor_mode,
             )
-            if matched_length > 0:
-                self.cache_controller.mem_pool_host.free(host_indices[:matched_length])
+            if matched_length > 0 and not descriptor_mode:
+                mem_pool_host.free(host_indices[:matched_length])
 
             imported_tokens += max(0, meta.checkpoint_len - matched_length)
             self.imported_host_keys_by_owner_gen.setdefault(
                 (meta.owner_dp_rank, meta.generation), []
             ).append((meta.extra_key, meta.prefix_token_ids[: meta.checkpoint_len]))
+            logger.info(
+                "host-backup import rid=%s tokens=%d matched=%d descriptors=%d fallback_pages=%d",
+                meta.rid,
+                meta.checkpoint_len,
+                matched_length,
+                len(meta.descriptors),
+                len(meta.pages),
+            )
         return imported_tokens
 
     def _delete_host_only_prefix(
@@ -1400,8 +1777,7 @@ class HiRadixCache(RadixCache):
                 break
             parent = node.parent
             if node.backuped:
-                self.cache_controller.evict_host(node.host_value)
-                node.host_value = None
+                self._release_host_value(node)
             if node in self.evictable_host_leaves:
                 self.evictable_host_leaves.remove(node)
             k = self.get_child_key_fn(node.key)
@@ -1527,7 +1903,16 @@ class HiRadixCache(RadixCache):
         return "dispatched"
 
     def _insert_helper_host(
-        self, node: TreeNode, key: RadixKey, host_value, hash_value
+        self,
+        node: TreeNode,
+        key: RadixKey,
+        host_value,
+        hash_value,
+        *,
+        owner_dp_rank: int,
+        generation: int,
+        arena_id: Optional[str],
+        imported: bool,
     ):
         node.last_access_time = time.monotonic()
         if len(key) == 0:
@@ -1558,6 +1943,13 @@ class HiRadixCache(RadixCache):
             new_node.key = key
             new_node.value = None
             new_node.host_value = host_value.clone()
+            self._set_host_value_metadata(
+                new_node,
+                owner_dp_rank=owner_dp_rank,
+                generation=generation,
+                arena_id=arena_id,
+                imported=imported,
+            )
             new_node.storage_acked_len = len(key)
             new_node.hash_value = hash_value
             node.children[child_key] = new_node
@@ -1598,6 +1990,10 @@ class HiRadixCache(RadixCache):
         new_node = TreeNode(priority=child.priority)
         new_node.children = {self.get_child_key_fn(key[split_len:]): child}
         new_node.parent = child.parent
+        new_node.request_id = getattr(child, "request_id", None)
+        new_node.request_generation = int(
+            getattr(child, "request_generation", 0) or 0
+        )
         new_node.lock_ref = child.lock_ref
         new_node.key = child.key[:split_len]
         new_node.hit_count = child.hit_count
@@ -1612,6 +2008,10 @@ class HiRadixCache(RadixCache):
         if child.backuped:
             new_node.host_value = child.host_value[:split_len].clone()
             child.host_value = child.host_value[split_len:].clone()
+            new_node.host_owner_dp_rank = getattr(child, "host_owner_dp_rank", None)
+            new_node.host_generation = getattr(child, "host_generation", 0)
+            new_node.host_arena_id = getattr(child, "host_arena_id", None)
+            new_node.host_imported = getattr(child, "host_imported", False)
 
         new_node.hash_value, child.hash_value = split_node_hash_value(
             child.hash_value, split_len, self.page_size
@@ -1628,6 +2028,8 @@ class HiRadixCache(RadixCache):
         value = params.value
         chunked = params.chunked
         priority = params.priority
+        request_id = params.request_id
+        request_generation = int(params.request_generation or 0)
 
         if priority is None:
             priority = 0
@@ -1648,6 +2050,9 @@ class HiRadixCache(RadixCache):
             node = node.children[child_key]
             node.last_access_time = time.monotonic()
             node.priority = max(node.priority, priority)
+            if request_id:
+                node.request_id = request_id
+                node.request_generation = request_generation
             prefix_len = self.key_match_fn(node.key, key)
 
             if prefix_len == len(node.key):
@@ -1668,6 +2073,9 @@ class HiRadixCache(RadixCache):
                 new_node = self._split_node(node.key, node, prefix_len)
                 # shared-prefix node should also reflect max priority
                 new_node.priority = max(new_node.priority, priority)
+                if request_id:
+                    new_node.request_id = request_id
+                    new_node.request_generation = request_generation
                 if new_node.evicted:
                     new_node.value = value[:prefix_len].clone()
                     self.evictable_size_ += len(new_node.value)
@@ -1691,6 +2099,8 @@ class HiRadixCache(RadixCache):
             new_node.parent = node
             new_node.key = key
             new_node.value = value.clone()
+            new_node.request_id = request_id
+            new_node.request_generation = request_generation
             node.children[child_key] = new_node
             self.evictable_size_ += len(value)
             self._update_leaf_status(node)
@@ -1711,6 +2121,13 @@ class HiRadixCache(RadixCache):
         # Clean up storage hit tracking for aborted request
         self.prefetch_loaded_tokens_by_reqid.pop(rid, None)
         self.storage_query_tokens_by_reqid.pop(rid, None)
+        stale_sync_keys = [
+            key
+            for key in self.request_namespace_synced_tokens_by_reqid_gen
+            if key[0] == rid
+        ]
+        for key in stale_sync_keys:
+            self.request_namespace_synced_tokens_by_reqid_gen.pop(key, None)
 
         if rid not in self.ongoing_prefetch:
             return
@@ -1758,6 +2175,8 @@ class HiRadixCache(RadixCache):
         if not getattr(req, "remote_backup_lease_active", False):
             return  # Not registered; nothing to clean up
         req.remote_backup_lease_active = False
+        sync_key = (req.rid, int(getattr(req, "remote_backup_generation", 0) or 0))
+        self.request_namespace_synced_tokens_by_reqid_gen.pop(sync_key, None)
         dp_rank = getattr(self.cache_controller, "dp_rank", 0) or 0
         self.cache_controller.notify_request_finish(
             req.rid, dp_rank, req.remote_backup_generation, reason

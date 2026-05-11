@@ -582,6 +582,10 @@ class MambaRadixCache(BasePrefixCache):
                     value=page_aligned_kv_indices,
                     mamba_value=mamba_value,
                     prev_prefix_len=req.cache_protected_len,
+                    request_id=req.rid,
+                    request_generation=int(
+                        getattr(req, "remote_backup_generation", 0) or 0
+                    ),
                 )
             )
             mamba_exist = result.mamba_exist
@@ -675,6 +679,10 @@ class MambaRadixCache(BasePrefixCache):
                 value=page_aligned_kv_indices,
                 mamba_value=mamba_value_forked,
                 prev_prefix_len=req.cache_protected_len,
+                request_id=req.rid,
+                request_generation=int(
+                    getattr(req, "remote_backup_generation", 0) or 0
+                ),
             )
         )
         new_prefix_len, mamba_exist = result.prefix_len, result.mamba_exist

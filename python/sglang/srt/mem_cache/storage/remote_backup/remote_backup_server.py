@@ -85,6 +85,7 @@ import sys
 import threading
 import time
 from collections import OrderedDict
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
@@ -245,9 +246,9 @@ class RequestNamespace:
 class RequestNamespaceStore:
     """Manages all request namespaces and their page data.
 
-    Thread-safety: callers must hold the server lock when calling mutating
-    methods.  Read-only helpers that only inspect ``self.namespaces`` are safe
-    under the same lock.
+    Hot-path operations use namespace-striped locks so unrelated requests do not
+    contend on a single global lock. A small metadata lock still protects the
+    namespace index and aggregate size counters.
     """
 
     def __init__(self, max_size_bytes: int):
@@ -255,19 +256,31 @@ class RequestNamespaceStore:
         self.current_size: int = 0
         self.namespaces: Dict[tuple, RequestNamespace] = {}
         self._gc_queue: list = []
+        self._meta_lock = threading.Lock()
+        self._stripe_locks = [threading.Lock() for _ in range(64)]
 
     def _ns_key(self, dp_rank: int, rid: str, generation: int) -> tuple:
         return (dp_rank, rid, generation)
+
+    def _namespace_lock(self, key: tuple) -> threading.Lock:
+        return self._stripe_locks[hash(key) % len(self._stripe_locks)]
+
+    def _acquire_all_namespace_locks(self):
+        stack = ExitStack()
+        for lock in self._stripe_locks:
+            stack.enter_context(lock)
+        return stack
 
     def get_or_create(
         self, dp_rank: int, rid: str, generation: int
     ) -> RequestNamespace:
         key = self._ns_key(dp_rank, rid, generation)
-        ns = self.namespaces.get(key)
-        if ns is None:
-            ns = RequestNamespace(dp_rank=dp_rank, rid=rid, generation=generation)
-            self.namespaces[key] = ns
-        return ns
+        with self._meta_lock:
+            ns = self.namespaces.get(key)
+            if ns is None:
+                ns = RequestNamespace(dp_rank=dp_rank, rid=rid, generation=generation)
+                self.namespaces[key] = ns
+            return ns
 
     def put_pages(
         self,
@@ -278,23 +291,42 @@ class RequestNamespaceStore:
         kv_pages: List[bytes],
     ) -> List[bool]:
         """Store pages at ``[page_start, page_start + len(kv_pages))``."""
-        ns = self.get_or_create(dp_rank, rid, generation)
-        ns.last_touch_ts = time.monotonic()
-        results: List[bool] = []
-        for i, page_data in enumerate(kv_pages):
-            page_idx = page_start + i
-            old = ns.pages.get(page_idx)
-            if old is not None:
-                self.current_size -= len(old)
-                ns.total_bytes -= len(old)
-            ns.pages[page_idx] = page_data
-            data_len = len(page_data)
-            ns.total_bytes += data_len
-            self.current_size += data_len
-            if page_idx > ns.max_page_idx:
-                ns.max_page_idx = page_idx
-            results.append(True)
-        self._evict_if_needed()
+        key = self._ns_key(dp_rank, rid, generation)
+        ns_lock = self._namespace_lock(key)
+        with ns_lock:
+            with self._meta_lock:
+                ns = self.namespaces.get(key)
+                if ns is None:
+                    ns = RequestNamespace(dp_rank=dp_rank, rid=rid, generation=generation)
+                    self.namespaces[key] = ns
+
+            ns.last_touch_ts = time.monotonic()
+            results: List[bool] = []
+            size_delta = 0
+            for i, page_data in enumerate(kv_pages):
+                page_idx = page_start + i
+                old = ns.pages.get(page_idx)
+                if old is not None:
+                    old_len = len(old)
+                    size_delta -= old_len
+                    ns.total_bytes -= old_len
+                ns.pages[page_idx] = page_data
+                data_len = len(page_data)
+                ns.total_bytes += data_len
+                size_delta += data_len
+                if page_idx > ns.max_page_idx:
+                    ns.max_page_idx = page_idx
+                results.append(True)
+
+            if size_delta:
+                with self._meta_lock:
+                    self.current_size += size_delta
+
+        if self.current_size > self.max_size:
+            with self._meta_lock:
+                if self.current_size > self.max_size:
+                    with self._acquire_all_namespace_locks():
+                        self._evict_if_needed()
         return results
 
     def get_pages(
@@ -307,47 +339,52 @@ class RequestNamespaceStore:
     ) -> List[Optional[bytes]]:
         """Retrieve ``count`` pages starting at ``page_start``."""
         key = self._ns_key(dp_rank, rid, generation)
-        ns = self.namespaces.get(key)
-        if ns is None:
-            return [None] * count
-        ns.last_touch_ts = time.monotonic()
-        results: List[Optional[bytes]] = []
-        for i in range(count):
-            results.append(ns.pages.get(page_start + i))
-        return results
+        with self._namespace_lock(key):
+            ns = self.namespaces.get(key)
+            if ns is None:
+                return [None] * count
+            ns.last_touch_ts = time.monotonic()
+            results: List[Optional[bytes]] = []
+            for i in range(count):
+                results.append(ns.pages.get(page_start + i))
+            return results
 
     def query_range(
         self, dp_rank: int, rid: str, generation: int
     ) -> tuple:
         """Return ``(max_contiguous_pages, total_pages)`` for the namespace."""
         key = self._ns_key(dp_rank, rid, generation)
-        ns = self.namespaces.get(key)
-        if ns is None:
-            return 0, 0
-        contiguous = 0
-        while contiguous in ns.pages:
-            contiguous += 1
-        return contiguous, len(ns.pages)
+        with self._namespace_lock(key):
+            ns = self.namespaces.get(key)
+            if ns is None:
+                return 0, 0
+            contiguous = 0
+            while contiguous in ns.pages:
+                contiguous += 1
+            return contiguous, len(ns.pages)
 
     def release_namespace(
         self, dp_rank: int, rid: str, generation: int
     ) -> int:
         """Remove and free all pages in the namespace. Returns bytes freed."""
         key = self._ns_key(dp_rank, rid, generation)
-        ns = self.namespaces.pop(key, None)
-        if ns is None:
-            return 0
-        freed = ns.total_bytes
-        self.current_size -= freed
-        ns.pages.clear()
-        ns.total_bytes = 0
-        return freed
+        with self._namespace_lock(key):
+            with self._meta_lock:
+                ns = self.namespaces.pop(key, None)
+                if ns is None:
+                    return 0
+                freed = ns.total_bytes
+                self.current_size -= freed
+            ns.pages.clear()
+            ns.total_bytes = 0
+            return freed
 
     def mark_inactive(self, dp_rank: int, rid: str, generation: int) -> None:
         key = self._ns_key(dp_rank, rid, generation)
-        ns = self.namespaces.get(key)
-        if ns is not None:
-            ns.state = _NS_STATE_INACTIVE
+        with self._namespace_lock(key):
+            ns = self.namespaces.get(key)
+            if ns is not None:
+                ns.state = _NS_STATE_INACTIVE
 
     def _evict_if_needed(self) -> None:
         """Evict inactive namespaces (oldest first) to stay within budget."""
@@ -392,11 +429,13 @@ class RequestNamespaceStore:
 
     @property
     def namespace_count(self) -> int:
-        return len(self.namespaces)
+        with self._meta_lock:
+            return len(self.namespaces)
 
     @property
     def total_pages(self) -> int:
-        return sum(len(ns.pages) for ns in self.namespaces.values())
+        with self._acquire_all_namespace_locks():
+            return sum(len(ns.pages) for ns in self.namespaces.values())
 
 
 # ---------------------------------------------------------------------------
@@ -1648,26 +1687,25 @@ class RemoteBackupServer:
         pages: List[bytes],
     ) -> List[bool]:
         """Store pages in the request namespace and optionally in the trie."""
-        with self.lock:
-            results = self.ns_store.put_pages(
-                dp_rank, rid, generation, page_start, pages
-            )
-            ok_count = sum(1 for ok in results if ok)
-            logger.info(
-                "REMOTE_BACKUP ns_put dp_rank=%d rid=%s gen=%d page_start=%d "
-                "pages=%d ok=%d/%d ns_count=%d ns_pages=%d ns_mb=%.1f",
-                dp_rank,
-                rid[:16] if rid else "",
-                generation,
-                page_start,
-                len(pages),
-                ok_count,
-                len(results),
-                self.ns_store.namespace_count,
-                self.ns_store.total_pages,
-                self.ns_store.current_size / (1024 * 1024),
-            )
-            return results
+        results = self.ns_store.put_pages(
+            dp_rank, rid, generation, page_start, pages
+        )
+        ok_count = sum(1 for ok in results if ok)
+        logger.info(
+            "REMOTE_BACKUP ns_put dp_rank=%d rid=%s gen=%d page_start=%d "
+            "pages=%d ok=%d/%d ns_count=%d ns_pages=%d ns_mb=%.1f",
+            dp_rank,
+            rid[:16] if rid else "",
+            generation,
+            page_start,
+            len(pages),
+            ok_count,
+            len(results),
+            self.ns_store.namespace_count,
+            self.ns_store.total_pages,
+            self.ns_store.current_size / (1024 * 1024),
+        )
+        return results
 
     def get_pages_by_request(
         self,
@@ -1678,49 +1716,46 @@ class RemoteBackupServer:
         count: int,
     ) -> List[Optional[bytes]]:
         """Retrieve pages from the request namespace."""
-        with self.lock:
-            pages = self.ns_store.get_pages(
-                dp_rank, rid, generation, page_start, count
-            )
-            hit_count = sum(1 for p in pages if p is not None)
-            logger.info(
-                "REMOTE_BACKUP ns_get dp_rank=%d rid=%s gen=%d page_start=%d "
-                "count=%d hit=%d/%d ns_mb=%.1f",
-                dp_rank,
-                rid[:16] if rid else "",
-                generation,
-                page_start,
-                count,
-                hit_count,
-                len(pages),
-                self.ns_store.current_size / (1024 * 1024),
-            )
-            return pages
+        pages = self.ns_store.get_pages(
+            dp_rank, rid, generation, page_start, count
+        )
+        hit_count = sum(1 for p in pages if p is not None)
+        logger.info(
+            "REMOTE_BACKUP ns_get dp_rank=%d rid=%s gen=%d page_start=%d "
+            "count=%d hit=%d/%d ns_mb=%.1f",
+            dp_rank,
+            rid[:16] if rid else "",
+            generation,
+            page_start,
+            count,
+            hit_count,
+            len(pages),
+            self.ns_store.current_size / (1024 * 1024),
+        )
+        return pages
 
     def query_request_range(
         self, dp_rank: int, rid: str, generation: int
     ) -> tuple:
         """Return ``(contiguous_pages, total_pages)`` for a request namespace."""
-        with self.lock:
-            return self.ns_store.query_range(dp_rank, rid, generation)
+        return self.ns_store.query_range(dp_rank, rid, generation)
 
     def release_request_namespace(
         self, dp_rank: int, rid: str, generation: int
     ) -> int:
         """Release all pages in a request namespace. Returns bytes freed."""
-        with self.lock:
-            freed = self.ns_store.release_namespace(dp_rank, rid, generation)
-            if freed > 0:
-                logger.info(
-                    "REMOTE_BACKUP ns_release dp_rank=%d rid=%s gen=%d "
-                    "freed_mb=%.1f ns_count=%d",
-                    dp_rank,
-                    rid[:16] if rid else "",
-                    generation,
-                    freed / (1024 * 1024),
-                    self.ns_store.namespace_count,
-                )
-            return freed
+        freed = self.ns_store.release_namespace(dp_rank, rid, generation)
+        if freed > 0:
+            logger.info(
+                "REMOTE_BACKUP ns_release dp_rank=%d rid=%s gen=%d "
+                "freed_mb=%.1f ns_count=%d",
+                dp_rank,
+                rid[:16] if rid else "",
+                generation,
+                freed / (1024 * 1024),
+                self.ns_store.namespace_count,
+            )
+        return freed
 
     def clear(self):
         with self.lock:
@@ -1737,7 +1772,7 @@ class RemoteBackupClient:
     """TCP client that sends KV cache pages to the remote backup server."""
 
     CONNECT_TIMEOUT_S = 2.0
-    IO_TIMEOUT_S = 2.0
+    IO_TIMEOUT_S = 5.0
     FAILURE_COOLDOWN_S = 15.0
     FAILURE_THRESHOLD = 2
 

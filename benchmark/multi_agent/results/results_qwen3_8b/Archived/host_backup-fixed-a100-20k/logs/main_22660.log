@@ -1,0 +1,11 @@
+Checking assigned GPUs for pre-existing memory usage (threshold: 2048 MiB)...
+CUDA_VISIBLE_DEVICES=2,6
+  GPU 2 (GPU-fe850ea5-e46b-485a-71d6-e6101f0f21b0): used=0 MiB / total=81920 MiB
+  GPU 6 (GPU-11fa669d-0ad1-543c-cd92-84662f39482d): used=0 MiB / total=81920 MiB
+[2026-05-11 12:10:59] ============================================================
+[2026-05-11 12:10:59] EXPERIMENT  topology=DP2_PP1_TP1_N1  kv_backup=host_backup
+[2026-05-11 12:10:59]   result_dir: /home/comp/25482351/sglang/benchmark/multi_agent/results/results_qwen3_8b/host_backup-fixed-a100-20k
+[2026-05-11 12:10:59]   log_dir:    /home/comp/25482351/sglang/benchmark/multi_agent/logs
+[2026-05-11 12:10:59] Step 1: Start SGLang server subprocess...
+[2026-05-11 12:10:59]   Server PID: 3682252
+[2026-05-11 12:30:59] ERROR: timed out waiting for server_ready after 1200s

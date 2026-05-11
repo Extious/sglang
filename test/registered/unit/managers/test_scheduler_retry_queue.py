@@ -116,6 +116,29 @@ class TestSchedulerRetryQueue(CustomTestCase):
             ns_generation=0,
         )
 
+    def test_host_backup_restore_does_not_require_storage_backend(self):
+        req = SimpleNamespace(
+            rid="rid-host",
+            init_next_round_input=MagicMock(),
+            is_failover_retried=True,
+            kv_backup_strategy="host_backup",
+            host_backup_metadata=[{"rid": "rid-host"}],
+            failover_prefetch_pending=True,
+        )
+
+        self.scheduler.enable_hicache_storage = False
+
+        self.scheduler._prefetch_kvcache(req)
+
+        self.scheduler.tree_cache.import_host_checkpoints.assert_called_once_with(
+            [{"rid": "rid-host"}]
+        )
+        req.init_next_round_input.assert_called_once_with(
+            self.scheduler.tree_cache, cow_mamba=False
+        )
+        self.assertIsNone(req.host_backup_metadata)
+        self.assertFalse(req.failover_prefetch_pending)
+
     def test_snapshot_uses_remote_acked_tokens(self):
         req = SimpleNamespace(
             rid="rid-1",

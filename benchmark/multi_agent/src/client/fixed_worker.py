@@ -586,7 +586,7 @@ def main() -> int:
                 headers={"Content-Type": "application/json", "Authorization": "Bearer EMPTY_API_KEY"},
             )
             try:
-                with opener.open(req, timeout=120) as resp:
+                with opener.open(req, timeout=240) as resp:
                     raw_body = json.loads(resp.read().decode("utf-8"))
                 response_body = raw_body if isinstance(raw_body, dict) else {}
                 if not isinstance(response_body, dict):

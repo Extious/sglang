@@ -14,7 +14,6 @@
     "hicache_size_gb": 60,
     "tool_call_parser": "qwen",
     "context_length": 200000,
-    "retry_queue_same_priority_as_waiting": true,
     "json_model_override_args": "{\"max_position_embeddings\": 200000, \"rope_theta\": 1000000, \"rope_scaling\": {\"rope_type\": \"yarn\", \"factor\": 4.8828125, \"original_max_position_embeddings\": 40960, \"rope_theta\": 1000000}}",
     "enable_cache_report": true,
     "enable_hicache": true,

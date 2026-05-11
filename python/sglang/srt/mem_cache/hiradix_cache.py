@@ -278,6 +278,18 @@ class HiRadixCache(RadixCache):
                 self.detach_storage_backend()
         except Exception:
             logger.exception("Failed to detach storage backend on process shutdown.")
+        try:
+            manager = getattr(
+                getattr(self.token_to_kv_pool_host, "shared_config", None),
+                "manager",
+                None,
+            )
+            if manager is not None and hasattr(manager, "close"):
+                manager.close()
+        except Exception:
+            logger.exception(
+                "Failed to close host shared memory manager on process shutdown."
+            )
 
     def _apply_storage_runtime_config(
         self,
@@ -1677,11 +1689,31 @@ class HiRadixCache(RadixCache):
             descriptor_mode = bool(meta.descriptors) and hasattr(
                 mem_pool_host, "descriptor_is_compatible"
             )
-            if descriptor_mode and mem_pool_host.descriptor_is_compatible(
-                arena_id=meta.arena_id,
-                layout=meta.layout,
-                page_size=meta.page_size,
-            ):
+            descriptor_compatible = False
+            if descriptor_mode:
+                descriptor_compatible = mem_pool_host.descriptor_is_compatible(
+                    arena_id=meta.arena_id,
+                    layout=meta.layout,
+                    page_size=meta.page_size,
+                )
+                logger.info(
+                    "import_host_checkpoints: rid=%s checkpoint_len=%d "
+                    "descriptors=%d pages=%d descriptor_compatible=%s "
+                    "meta_arena_id=%s local_arena_id=%s meta_layout=%s "
+                    "local_layout=%s meta_page_size=%s local_page_size=%s",
+                    meta.rid,
+                    meta.checkpoint_len,
+                    len(meta.descriptors),
+                    len(meta.pages),
+                    descriptor_compatible,
+                    meta.arena_id,
+                    getattr(mem_pool_host, "shared_arena_id", None),
+                    meta.layout,
+                    getattr(mem_pool_host, "layout", None),
+                    meta.page_size,
+                    getattr(mem_pool_host, "page_size", None),
+                )
+            if descriptor_mode and descriptor_compatible:
                 descriptors = [
                     HostCheckpointDescriptor(**descriptor)
                     for descriptor in meta.descriptors
@@ -1698,6 +1730,16 @@ class HiRadixCache(RadixCache):
             else:
                 required_pages = meta.checkpoint_len // self.page_size
                 if len(meta.pages) < required_pages:
+                    logger.warning(
+                        "import_host_checkpoints: skipping rid=%s because "
+                        "descriptor_mode=%s descriptor_compatible=%s fallback_pages=%d "
+                        "required_pages=%d",
+                        meta.rid,
+                        descriptor_mode,
+                        descriptor_compatible,
+                        len(meta.pages),
+                        required_pages,
+                    )
                     continue
 
                 host_indices = mem_pool_host.alloc(meta.checkpoint_len)

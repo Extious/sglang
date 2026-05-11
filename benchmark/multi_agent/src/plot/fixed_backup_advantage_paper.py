@@ -294,15 +294,18 @@ def draw_latency_panel(
 
     baseline_affected = collect_values(grouped, context_label, "Failure-affected", baseline_label, value_fn)
     backup_affected = collect_values(grouped, context_label, "Failure-affected", backup_label, value_fn)
+    affected_label_x = 0.78
+    affected_label_y = y_max * 1.15
     if baseline_affected and backup_affected:
         baseline_median = statistics.median(baseline_affected)
         backup_median = statistics.median(backup_affected)
         if baseline_median > 0:
             reduction = 100.0 * (baseline_median - backup_median) / baseline_median
             local_group_max = max(baseline_affected + backup_affected)
+            improvement_y = min(local_group_max + y_max * 0.02, y_max * 1.06)
             axis.text(
-                1.0,
-                local_group_max + y_max * 0.08,
+                1.28,
+                improvement_y,
                 f"{reduction:.0f}% lower\n{improvement_label}",
                 color=BACKUP_COLOR,
                 ha="center",
@@ -323,7 +326,15 @@ def draw_latency_panel(
     axis.grid(axis="y", linestyle="--", alpha=0.45)
     axis.set_xlim(-0.55, 1.55)
     axis.set_ylim(0, y_max * 1.24)
-    axis.text(1.0, y_max * 1.10, "Affected", ha="center", va="bottom", fontsize=8, color=FAULT_BORDER)
+    axis.text(
+        affected_label_x,
+        affected_label_y,
+        "Affected",
+        ha="center",
+        va="bottom",
+        fontsize=8,
+        color=FAULT_BORDER,
+    )
     axis.legend(
         handles=[
             mpatches.Patch(facecolor=BASELINE_COLOR, edgecolor=BASELINE_COLOR, alpha=0.30, label=baseline_label),

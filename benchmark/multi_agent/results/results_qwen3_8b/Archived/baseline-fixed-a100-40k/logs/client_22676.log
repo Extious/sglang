@@ -1,0 +1,75 @@
+[2026-05-11 13:10:31] fixed workload start: requests=24, app_workers=6, input_len=40000, output_len=2000
+[2026-05-11 13:10:32] prepare progress: built request 4/24 (1/24 ready)
+[2026-05-11 13:10:32] prepare progress: built request 2/24 (2/24 ready)
+[2026-05-11 13:10:32] prepare progress: built request 1/24 (3/24 ready)
+[2026-05-11 13:10:33] prepare progress: built request 5/24 (4/24 ready)
+[2026-05-11 13:10:33] prepare progress: built request 6/24 (5/24 ready)
+[2026-05-11 13:10:33] prepare progress: built request 7/24 (6/24 ready)
+[2026-05-11 13:10:34] prepare progress: built request 3/24 (7/24 ready)
+[2026-05-11 13:10:34] prepare progress: built request 9/24 (8/24 ready)
+[2026-05-11 13:10:34] prepare progress: built request 10/24 (9/24 ready)
+[2026-05-11 13:10:34] prepare progress: built request 8/24 (10/24 ready)
+[2026-05-11 13:10:34] prepare progress: built request 12/24 (11/24 ready)
+[2026-05-11 13:10:34] prepare progress: built request 11/24 (12/24 ready)
+[2026-05-11 13:10:35] prepare progress: built request 13/24 (13/24 ready)
+[2026-05-11 13:10:35] prepare progress: built request 17/24 (14/24 ready)
+[2026-05-11 13:10:35] prepare progress: built request 15/24 (15/24 ready)
+[2026-05-11 13:10:35] prepare progress: built request 18/24 (16/24 ready)
+[2026-05-11 13:10:35] prepare progress: built request 14/24 (17/24 ready)
+[2026-05-11 13:10:36] prepare progress: built request 16/24 (18/24 ready)
+[2026-05-11 13:10:36] prepare progress: built request 19/24 (19/24 ready)
+[2026-05-11 13:10:36] prepare progress: built request 20/24 (20/24 ready)
+[2026-05-11 13:10:36] prepare progress: built request 22/24 (21/24 ready)
+[2026-05-11 13:10:36] prepare progress: built request 23/24 (22/24 ready)
+[2026-05-11 13:10:37] prepare progress: built request 24/24 (23/24 ready)
+[2026-05-11 13:10:37] prepare progress: built request 21/24 (24/24 ready)
+[2026-05-11 13:10:37] prepare progress: all 24 requests built and queued
+[2026-05-11 13:10:37] dispatch progress: releasing 6 app_workers
+[2026-05-11 13:10:37] dispatch progress: worker=6 sent request 1 (1/24 dispatched)[2026-05-11 13:10:37] dispatch progress: worker=1 sent request 2 (2/24 dispatched)[2026-05-11 13:10:37] dispatch progress: worker=2 sent request 3 (3/24 dispatched)[2026-05-11 13:10:37] dispatch progress: worker=4 sent request 4 (4/24 dispatched)
+
+
+[2026-05-11 13:10:37] dispatch progress: worker=3 sent request 5 (5/24 dispatched)
+[2026-05-11 13:10:37] dispatch progress: worker=5 sent request 6 (6/24 dispatched)
+
+[2026-05-11 13:11:52] complete progress: worker=2 finished request 3 status=completed duration=75.033s (1/24 done)[2026-05-11 13:11:52] complete progress: worker=5 finished request 6 status=completed duration=75.032s (2/24 done)
+[2026-05-11 13:11:52] complete progress: worker=1 finished request 2 status=completed duration=75.033s (3/24 done)
+[2026-05-11 13:11:52] dispatch progress: worker=5 sent request 7 (7/24 dispatched)
+[2026-05-11 13:11:52] dispatch progress: worker=2 sent request 8 (8/24 dispatched)
+
+[2026-05-11 13:11:52] dispatch progress: worker=1 sent request 9 (9/24 dispatched)
+[2026-05-11 13:11:52] complete progress: worker=4 finished request 4 status=completed duration=75.242s (4/24 done)[2026-05-11 13:11:52] complete progress: worker=6 finished request 1 status=completed duration=75.242s (5/24 done)[2026-05-11 13:11:52] complete progress: worker=3 finished request 5 status=completed duration=75.241s (6/24 done)
+[2026-05-11 13:11:52] dispatch progress: worker=4 sent request 10 (10/24 dispatched)
+
+[2026-05-11 13:11:52] dispatch progress: worker=6 sent request 11 (11/24 dispatched)
+[2026-05-11 13:11:52] dispatch progress: worker=3 sent request 12 (12/24 dispatched)
+
+[2026-05-11 13:13:43] complete progress: worker=1 finished request 9 status=completed duration=111.559s (7/24 done)[2026-05-11 13:13:43] complete progress: worker=4 finished request 10 status=completed duration=111.352s (8/24 done)
+[2026-05-11 13:13:43] complete progress: worker=2 finished request 8 status=completed duration=111.560s (9/24 done)[2026-05-11 13:13:43] dispatch progress: worker=1 sent request 13 (13/24 dispatched)
+
+[2026-05-11 13:13:43] dispatch progress: worker=2 sent request 14 (14/24 dispatched)
+
+[2026-05-11 13:13:43] dispatch progress: worker=4 sent request 15 (15/24 dispatched)
+[2026-05-11 13:14:08] complete progress: worker=3 finished request 12 status=completed duration=136.217s (10/24 done)[2026-05-11 13:14:08] complete progress: worker=6 finished request 11 status=completed duration=136.217s (11/24 done)[2026-05-11 13:14:08] complete progress: worker=5 finished request 7 status=completed duration=136.425s (12/24 done)
+[2026-05-11 13:14:08] dispatch progress: worker=3 sent request 16 (16/24 dispatched)
+
+[2026-05-11 13:14:08] dispatch progress: worker=6 sent request 17 (17/24 dispatched)
+
+[2026-05-11 13:14:08] dispatch progress: worker=5 sent request 18 (18/24 dispatched)
+[2026-05-11 13:15:39] complete progress: worker=4 finished request 15 status=completed duration=115.797s (13/24 done)[2026-05-11 13:15:39] complete progress: worker=1 finished request 13 status=completed duration=115.798s (14/24 done)
+[2026-05-11 13:15:39] complete progress: worker=2 finished request 14 status=completed duration=115.797s (15/24 done)
+[2026-05-11 13:15:39] dispatch progress: worker=4 sent request 19 (19/24 dispatched)
+[2026-05-11 13:15:39] dispatch progress: worker=1 sent request 20 (20/24 dispatched)
+
+[2026-05-11 13:15:39] dispatch progress: worker=2 sent request 21 (21/24 dispatched)
+[2026-05-11 13:15:40] complete progress: worker=6 finished request 17 status=completed duration=91.306s (16/24 done)
+[2026-05-11 13:15:40] dispatch progress: worker=6 sent request 22 (22/24 dispatched)
+[2026-05-11 13:15:40] complete progress: worker=5 finished request 18 status=completed duration=91.307s (17/24 done)[2026-05-11 13:15:40] complete progress: worker=3 finished request 16 status=completed duration=91.307s (18/24 done)
+
+[2026-05-11 13:15:40] dispatch progress: worker=3 sent request 23 (23/24 dispatched)
+[2026-05-11 13:15:40] dispatch progress: worker=5 sent request 24 (24/24 dispatched)
+[2026-05-11 13:16:54] complete progress: worker=5 finished request 24 status=completed duration=74.134s (19/24 done)[2026-05-11 13:16:54] complete progress: worker=4 finished request 19 status=completed duration=74.508s (20/24 done)
+[2026-05-11 13:16:54] complete progress: worker=1 finished request 20 status=completed duration=74.508s (21/24 done)
+
+[2026-05-11 13:16:54] complete progress: worker=3 finished request 23 status=completed duration=74.456s (22/24 done)[2026-05-11 13:16:54] complete progress: worker=6 finished request 22 status=completed duration=74.457s (23/24 done)[2026-05-11 13:16:54] complete progress: worker=2 finished request 21 status=completed duration=74.830s (24/24 done)
+
+

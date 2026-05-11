@@ -530,6 +530,7 @@ def run_node_server(
     dist_init_addr: str,
     head_node: str,
     remote_backup_url: str,
+    remote_backup_urls: list[str] | None,
     server_pid_out: dict[str, int],
 ) -> None:
     server_log = get_process_log_path(log_dir, "server")
@@ -561,11 +562,13 @@ def run_node_server(
             remote_backup_url = f"{head_node}:{remote_backup_port}"
         extra = {
             "remote_backup_url": remote_backup_url,
+            "remote_backup_urls": remote_backup_urls or [],
             "remote_backup_buffer_size_gb": float(cfg.get("remote_backup_buffer_size_gb", 32.0)),
             "remote_backup_mode": "client",
         }
         effective_hicache_extra_config = json.dumps(extra, separators=(",", ":"))
         os.environ["SGLANG_REMOTE_BACKUP_URL"] = remote_backup_url
+        os.environ["SGLANG_REMOTE_BACKUP_URLS"] = json.dumps(remote_backup_urls or [])
 
     # Resolve model path
     model_path = cfg["model_path"]
@@ -689,6 +692,7 @@ def build_shared_manifest(
     server_port: int,
     manifests: list[dict[str, Any]],
     remote_backup_url: str = "",
+    remote_backup_urls: list[str] | None = None,
 ) -> dict[str, Any]:
     all_stages: list[dict] = []
     for m in manifests:
@@ -706,6 +710,8 @@ def build_shared_manifest(
     }
     if remote_backup_url:
         combined["remote_backup_url"] = remote_backup_url
+    if remote_backup_urls:
+        combined["remote_backup_urls"] = remote_backup_urls
     return combined
 
 
@@ -747,16 +753,17 @@ def deploy(cfg: dict[str, Any]) -> int:
         log(f"Using free dist-init port {dist_init_port}")
     dist_init_addr = f"{node_list[0]}:{dist_init_port}"
 
-    # Remote backup URL (head node hosts the backup server)
+    # Remote backup URL(s) (head node hosts one shard per DP rank)
     remote_backup_url = ""
-    backup_port = remote_backup_port_base
+    remote_backup_urls: list[str] = []
+    backup_procs: list[subprocess.Popen[Any]] = []
     log(f"[DEBUG] kv_backup='{cfg.get('kv_backup', 'none')}', "
         f"remote_backup_port_base={cfg.get('remote_backup_port_base', 'N/A')}, "
         f"remote_backup_buffer_size_gb={cfg.get('remote_backup_buffer_size_gb', 'N/A')}, "
         f"hicache_storage_backend='{cfg.get('hicache_storage_backend', '')}'")
     log(
         f"[DEBUG] resolved ports: server_port={server_port}, "
-        f"dist_init_addr={dist_init_addr}, backup_port={backup_port}"
+        f"dist_init_addr={dist_init_addr}, backup_port_base={remote_backup_port_base}"
     )
     if cfg.get("kv_backup", "") == "remote_backup":
         # Resolve venv_dir and repo_root early (needed for backup server launch)
@@ -764,62 +771,77 @@ def deploy(cfg: dict[str, Any]) -> int:
         _venv_dir = Path(cfg.get("venv_dir", ".venv"))
         if not _venv_dir.is_absolute():
             _venv_dir = _repo_root / _venv_dir
-        backup_buffer_gb = cfg.get("remote_backup_buffer_size_gb", 32.0)
-        backup_log = get_process_log_path(log_dir, "backup_server")
-        # Clear previous log
-        backup_log.write_bytes(b"")
         venv_python = _venv_dir / "bin" / "python"
+        backup_buffer_gb = cfg.get("remote_backup_buffer_size_gb", 32.0)
 
-        # Build the launch plan and start the backup server as a direct subprocess.
-        plan = build_remote_backup_launch_plan(
-            repo_root=_repo_root,
-            venv_python=venv_python,
-            backup_port=backup_port,
-            backup_buffer_gb=backup_buffer_gb,
-        )
-        log(f"Remote backup server launching directly at 127.0.0.1:{backup_port} ...")
-        backup_proc = subprocess.Popen(
-            plan.cmd,
-            stdout=backup_log.open("ab"),
-            stderr=subprocess.STDOUT,
-            env=plan.env,
-        )
-
-        # Poll with raw socket (server speaks binary protocol, not HTTP)
+        # Build and start one backup server shard per DP rank.
         import socket
-        backup_ready = False
-        for attempt in range(120):
-            if backup_proc.poll() is not None:
-                stdout, _ = backup_proc.communicate()
-                log_err(f"  backup process exited early (rc={backup_proc.returncode})")
-                if stdout:
-                    log_err(f"  stdout: {stdout[:500].decode(errors='replace')}")
-                break
-            try:
-                with socket.create_connection((plan.client_host, backup_port), timeout=2) as sock:
-                    sock.sendall(b"\xff")  # CMD_HEALTH
-                    resp = sock.recv(1)
-                    if resp == b"\x01":
-                        remote_backup_url = f"127.0.0.1:{backup_port}"
-                        log(f"  Remote backup server ready at {remote_backup_url}")
-                        backup_ready = True
-                        break
-            except (OSError, ConnectionRefusedError, socket.timeout):
-                pass
-            time.sleep(2)
-        if not backup_ready:
-            log_err(f"Remote backup server failed to respond at 127.0.0.1:{backup_port}")
-            if backup_log.exists() and backup_log.stat().st_size > 0:
-                log_err(f"  Backup server log content:")
-                for line in backup_log.read_text(encoding="utf-8").strip().split("\n")[-20:]:
-                    log_err(f"    {line}")
-            if backup_proc.poll() is None:
-                backup_proc.terminate()
+
+        for backup_rank in range(max(1, int(dp_size))):
+            backup_port = remote_backup_port_base + backup_rank
+            backup_log = Path(log_dir) / f"backup_server_dp{backup_rank}_{slurm_job_id or 'manual'}.log"
+            backup_log.write_bytes(b"")
+            plan = build_remote_backup_launch_plan(
+                repo_root=_repo_root,
+                venv_python=venv_python,
+                backup_port=backup_port,
+                backup_buffer_gb=backup_buffer_gb,
+            )
+            log(
+                f"Remote backup server shard {backup_rank} launching directly at 127.0.0.1:{backup_port} ..."
+            )
+            backup_proc = subprocess.Popen(
+                plan.cmd,
+                stdout=backup_log.open("ab"),
+                stderr=subprocess.STDOUT,
+                env=plan.env,
+            )
+            backup_procs.append(backup_proc)
+
+            backup_ready = False
+            for attempt in range(120):
+                if backup_proc.poll() is not None:
+                    stdout, _ = backup_proc.communicate()
+                    log_err(
+                        f"  backup shard {backup_rank} exited early (rc={backup_proc.returncode})"
+                    )
+                    if stdout:
+                        log_err(f"  stdout: {stdout[:500].decode(errors='replace')}")
+                    break
                 try:
-                    backup_proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    backup_proc.kill()
-            return 1
+                    with socket.create_connection((plan.client_host, backup_port), timeout=2) as sock:
+                        sock.sendall(b"\xff")  # CMD_HEALTH
+                        resp = sock.recv(1)
+                        if resp == b"\x01":
+                            shard_url = f"127.0.0.1:{backup_port}"
+                            remote_backup_urls.append(shard_url)
+                            log(
+                                f"  Remote backup server shard {backup_rank} ready at {shard_url}"
+                            )
+                            backup_ready = True
+                            break
+                except (OSError, ConnectionRefusedError, socket.timeout):
+                    pass
+                time.sleep(2)
+            if not backup_ready:
+                log_err(
+                    f"Remote backup server shard {backup_rank} failed to respond at 127.0.0.1:{backup_port}"
+                )
+                if backup_log.exists() and backup_log.stat().st_size > 0:
+                    log_err("  Backup server log content:")
+                    for line in backup_log.read_text(encoding="utf-8").strip().split("\n")[-20:]:
+                        log_err(f"    {line}")
+                for proc in backup_procs:
+                    if proc.poll() is None:
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                return 1
+
+        if remote_backup_urls:
+            remote_backup_url = remote_backup_urls[0]
 
     log(f"Deploying SGLang server (DP={dp_size} PP={pp_size} TP={tp_size} nodes={total_nodes})")
     log(f"  kv_backup:       {cfg.get('kv_backup', 'none')}")
@@ -864,6 +886,7 @@ def deploy(cfg: dict[str, Any]) -> int:
             f"DIST_INIT_ADDR={dist_init_addr}",
             f"HEAD_NODE={node_list[0]}",
             f"REMOTE_BACKUP_URL={remote_backup_url}",
+            f"REMOTE_BACKUP_URLS={json.dumps(remote_backup_urls, separators=(',', ':'))}",
             f"SCRIPT_DIR={Path(__file__).parent}",
             f"REPO_ROOT={repo_root}",
             f"VENV_DIR={venv_dir}",
@@ -914,8 +937,8 @@ def deploy(cfg: dict[str, Any]) -> int:
             if proc.poll() is None:
                 proc.kill()
         # Kill backup server if it was launched
-        if remote_backup_url:
-            if backup_proc and backup_proc.poll() is None:
+        for backup_proc in backup_procs:
+            if backup_proc.poll() is None:
                 backup_proc.terminate()
                 try:
                     backup_proc.wait(timeout=5)
@@ -924,7 +947,12 @@ def deploy(cfg: dict[str, Any]) -> int:
         return 1
 
     manifest = build_shared_manifest(
-        slurm_job_id, node_list, server_port, manifests_data, remote_backup_url,
+        slurm_job_id,
+        node_list,
+        server_port,
+        manifests_data,
+        remote_backup_url,
+        remote_backup_urls,
     )
 
     log(f"Head server URL: http://{node_list[0]}:{server_port}")
@@ -936,12 +964,13 @@ def deploy(cfg: dict[str, Any]) -> int:
         proc.wait()
 
     log("All node servers have exited.")
-    if backup_proc and backup_proc.poll() is None:
-        backup_proc.terminate()
-        try:
-            backup_proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            backup_proc.kill()
+    for backup_proc in backup_procs:
+        if backup_proc.poll() is None:
+            backup_proc.terminate()
+            try:
+                backup_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                backup_proc.kill()
     return 0
 
 
@@ -992,6 +1021,7 @@ def main() -> int:
             dist_init_addr=os.environ.get("DIST_INIT_ADDR", "localhost:28100"),
             head_node=os.environ.get("HEAD_NODE", "localhost"),
             remote_backup_url=os.environ.get("REMOTE_BACKUP_URL", ""),
+            remote_backup_urls=json.loads(os.environ.get("REMOTE_BACKUP_URLS", "[]")),
             server_pid_out=pid_holder,
         )
         return 0

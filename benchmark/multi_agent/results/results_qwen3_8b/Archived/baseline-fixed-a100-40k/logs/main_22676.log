@@ -1,0 +1,19 @@
+Checking assigned GPUs for pre-existing memory usage (threshold: 2048 MiB)...
+CUDA_VISIBLE_DEVICES=2,6
+  GPU 2 (GPU-fe850ea5-e46b-485a-71d6-e6101f0f21b0): used=0 MiB / total=81920 MiB
+  GPU 6 (GPU-11fa669d-0ad1-543c-cd92-84662f39482d): used=0 MiB / total=81920 MiB
+[2026-05-11 13:06:56] ============================================================
+[2026-05-11 13:06:56] EXPERIMENT  topology=DP2_PP1_TP1_N1  kv_backup=none
+[2026-05-11 13:06:56]   result_dir: /home/comp/25482351/sglang/benchmark/multi_agent/results/results_qwen3_8b/baseline-fixed-a100-40k
+[2026-05-11 13:06:56]   log_dir:    /home/comp/25482351/sglang/benchmark/multi_agent/logs
+[2026-05-11 13:06:56] Step 1: Start SGLang server subprocess...
+[2026-05-11 13:06:56]   Server PID: 3700948
+[2026-05-11 13:09:57]   Server ready at http://hkbugpusrv12:28200
+[2026-05-11 13:09:57] Step 2: Start injector and client subprocesses...
+[2026-05-11 13:09:57]   Injector PID: 3702700
+[2026-05-11 13:10:02]   Client PID: 3702706
+[2026-05-11 13:16:55]   Client exited (rc=0)
+[2026-05-11 13:16:55] Step 3: Generate plots...
+Warning: expected 6 agents, found 1.
+Saved plot to /home/comp/25482351/sglang/benchmark/multi_agent/results/results_qwen3_8b/baseline-fixed-a100-40k/figures/trace_log_profile.png
+[2026-05-11 13:16:59] Experiment complete. Results in /home/comp/25482351/sglang/benchmark/multi_agent/results/results_qwen3_8b/baseline-fixed-a100-40k

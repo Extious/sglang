@@ -1,0 +1,9 @@
+__MULTI_AGENT_CONTROL__ {"event":"injector_ready","control_url":"http://127.0.0.1:37535"}
+[2026-05-11T06:23:52] event {"event":"fault_scheduled","timestamp":"2026-05-11T06:23:52.940191+00:00","event_id":1,"trigger_kind":"job","trigger_count":6,"trigger_time_s":"","inject_delay":40.0,"dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"hkbugpusrv12","node_url":"http://hkbugpusrv12:28300","kill_pattern":"sglang::scheduler_DP0","job_id":4,"job":"request_4","worker_id":6}
+[2026-05-11T06:23:52] [fault #1] trigger=job -> dp0/pp0/tp0 on hkbugpusrv12 (delay=40.0s)
+[2026-05-11T06:24:32] event {"event":"fault_injected","timestamp":"2026-05-11T06:24:32.940438+00:00","event_id":1,"trigger_kind":"job","trigger_count":6,"trigger_time_s":"","dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"hkbugpusrv12","node_url":"http://hkbugpusrv12:28300","kill_pattern":"sglang::scheduler_DP0","method":"api","slurm_job_id":22711,"kv_backup":"host_backup"}
+[2026-05-11T06:24:32] POST http://hkbugpusrv12:28300/simulate_gpu_failure body=b'{"dp_rank": 0}'
+[2026-05-11T06:24:32] [fault #1] injected dp=0 on hkbugpusrv12
+[2026-05-11T06:24:32] event {"event":"gpu_failure_injected","timestamp":"2026-05-11T06:24:32.958335+00:00","event_id":1,"dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"hkbugpusrv12","node_url":"http://hkbugpusrv12:28300","kill_pattern":"sglang::scheduler_DP0","status":"injected_no_reaction"}
+[2026-05-11T06:24:32] [fault #1] waiting for job #12 to complete before recovery
+[2026-05-11T06:25:20] event {"event":"gpu_recovered","timestamp":"2026-05-11T06:25:20.951632+00:00","event_id":1,"dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"hkbugpusrv12","node_url":"http://hkbugpusrv12:28300","kill_pattern":"sglang::scheduler_DP0","method":"api","status":"recovered","recover_trigger":"after_job","recover_after_job":12}

@@ -244,7 +244,7 @@ else:
 
 logger = logging.getLogger(__name__)
 
-FAILOVER_REMOTE_BACKUP_FLUSH_TIMEOUT_S = 0.5
+FAILOVER_REMOTE_BACKUP_FLUSH_TIMEOUT_S = 3.0
 
 # Test retract decode for debugging purposes
 TEST_RETRACT = envs.SGLANG_TEST_RETRACT.get()
@@ -1966,19 +1966,26 @@ class Scheduler(
         for tokenized_req in recv_req:
             self.handle_generate_request(tokenized_req)
 
+    def _maybe_restore_host_backup(self, req: Req) -> bool:
+        if not (
+            req.is_failover_retried
+            and getattr(req, "kv_backup_strategy", "none") in ("host", "host_backup")
+            and hasattr(self.tree_cache, "import_host_checkpoints")
+        ):
+            return False
+
+        if req.host_backup_metadata:
+            self.tree_cache.import_host_checkpoints(req.host_backup_metadata)
+            req.host_backup_metadata = None
+        req.failover_prefetch_pending = False
+        return True
+
     def _prefetch_kvcache(self, req: Req):
+        if self._maybe_restore_host_backup(req):
+            req.init_next_round_input(self.tree_cache, cow_mamba=False)
+            return
+
         if self.enable_hicache_storage:
-            if (
-                req.is_failover_retried
-                and getattr(req, "kv_backup_strategy", "none") in ("host", "host_backup")
-                and hasattr(self.tree_cache, "import_host_checkpoints")
-            ):
-                if req.host_backup_metadata:
-                    self.tree_cache.import_host_checkpoints(req.host_backup_metadata)
-                    req.host_backup_metadata = None
-                req.init_next_round_input(self.tree_cache, cow_mamba=False)
-                req.failover_prefetch_pending = False
-                return
 
             req.init_next_round_input(self.tree_cache, cow_mamba=False)
             last_host_node = req.last_host_node
@@ -2036,6 +2043,18 @@ class Scheduler(
             if hasattr(self.tree_cache, "notify_remote_request_start"):
                 self.tree_cache.notify_remote_request_start(req)
             if req.is_failover_retried:
+                host_backup_metadata = getattr(req, "host_backup_metadata", None)
+                logger.info(
+                    "Failover retry queued: rid=%s kv_backup_strategy=%s "
+                    "host_backup_metadata_present=%s host_backup_metadata_entries=%d "
+                    "pre_failover_output_tokens=%d pre_failover_backed_up_tokens=%d",
+                    req.rid,
+                    getattr(req, "kv_backup_strategy", "none"),
+                    bool(host_backup_metadata),
+                    len(host_backup_metadata or []),
+                    int(getattr(req, "pre_failover_output_tokens", 0) or 0),
+                    int(getattr(req, "pre_failover_backed_up_tokens", 0) or 0),
+                )
                 self.retry_queue.append(req)
             else:
                 self.waiting_queue.append(req)
@@ -2290,14 +2309,7 @@ class Scheduler(
                 retry_remaining.append(req)
                 continue
 
-            if (
-                req.is_failover_retried
-                and getattr(req, "kv_backup_strategy", "none") in ("host", "host_backup")
-                and req.host_backup_metadata
-                and hasattr(self.tree_cache, "import_host_checkpoints")
-            ):
-                self.tree_cache.import_host_checkpoints(req.host_backup_metadata)
-                req.host_backup_metadata = None
+            self._maybe_restore_host_backup(req)
 
             if self.enable_hicache_storage:
                 if req.failover_prefetch_pending:
@@ -2608,6 +2620,13 @@ class Scheduler(
                     break
 
             if self.enable_hicache_storage:
+                if req.failover_prefetch_pending:
+                    self._prefetch_kvcache(req)
+                    if req.failover_prefetch_pending:
+                        # A failover retry may be merged into waiting_queue when
+                        # retry_queue shares the same priority policy. Keep it in
+                        # the queue until prefetch can actually be issued.
+                        continue
                 prefetch_done = self.tree_cache.check_prefetch_progress(req.rid)
                 if not prefetch_done:
                     # skip staging requests that are ongoing prefetch

@@ -1,0 +1,17 @@
+job_id,task_label,agent_role,rid,l1_match,l2_match,remote_match,remote_prefetch,reused_device,reused_host,reused_storage,is_failover_retried,pre_failover_output_tokens,pre_failover_backed_up_tokens
+1,fixed_request,fixed_client,01f8078a0f3c468880035fc55ee8080f,5,0,0,0,5,0,0,,,
+2,fixed_request,fixed_client,d51d95a5ba7d4719aeab80035ca06b9b,0,0,0,0,0,0,0,,,
+4,fixed_request,fixed_client,3374a352c3fb4d969b04e5e0a2dcef24,0,0,0,0,0,0,0,,,
+3,fixed_request,fixed_client,a03282e979404bbe90f442a85567689a,5,0,0,0,5,0,0,,,
+8,fixed_request,fixed_client,6fb23629107747f3ba6e8cf05bd30778,5,0,0,0,5,0,0,,,
+6,fixed_request,fixed_client,934e2cd5fe88435dbeb1674e8c25541b,5,0,0,0,5,0,0,,,
+7,fixed_request,fixed_client,a0c8117a58c44b9e9906c3a29cf793be,5,0,0,0,5,0,0,True,646,80000
+5,fixed_request,fixed_client,609d8e5db4c644a1af98b3b1bf806fde,5,0,0,0,5,0,0,True,646,80000
+10,fixed_request,fixed_client,8840412e9b2949b8a6651b0036ac7218,5,0,0,0,5,0,0,,,
+9,fixed_request,fixed_client,f300eca42d904e4aae2eaa3df3bc5e53,5,0,0,0,5,0,0,,,
+12,fixed_request,fixed_client,c190d522500540e58ef103270596ebd6,5,0,0,0,5,0,0,,,
+11,fixed_request,fixed_client,dd565c6751834bc19c5db25a13b3d03b,4,0,0,0,4,0,0,,,
+13,fixed_request,fixed_client,be5d6498c3cf41bd802f3a85194387cd,0,0,0,0,0,0,0,,,
+14,fixed_request,fixed_client,dba057035a4044f38cafde25b477567a,5,0,0,0,5,0,0,,,
+15,fixed_request,fixed_client,f9068f440cce410e8713a235c6636f78,5,0,0,0,5,0,0,,,
+16,fixed_request,fixed_client,9086cdba91064d8080ae09abfbb088a3,5,0,0,0,5,0,0,,,

@@ -1,0 +1,11 @@
+{
+    "client_mode": "fixed",
+    "fixed": {
+        "input_len": 120000,
+        "output_len": 2000,
+        "num_requests": 8,
+        "app_workers": 2,
+        "seed": 1,
+        "ignore_eos": 1
+    }
+}

@@ -16,6 +16,7 @@ Read path (restore): local query → TCP → remote backup server → TCP respon
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any, List, Optional
@@ -84,11 +85,32 @@ class RemoteBackupStorage(HiCacheStorage):
 
     supports_token_matching = True
 
+    @staticmethod
+    def _parse_remote_backup_urls(value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [str(x) for x in value if str(x).strip()]
+        if isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return []
+            if raw.startswith("["):
+                parsed = json.loads(raw)
+                if not isinstance(parsed, list):
+                    raise ValueError("remote_backup_urls JSON must be a list")
+                return [str(x) for x in parsed if str(x).strip()]
+            return [item.strip() for item in raw.split(",") if item.strip()]
+        raise TypeError(
+            f"remote_backup_urls must be list or str, got {type(value).__name__}"
+        )
+
     def __init__(self, storage_config: HiCacheStorageConfig, mem_pool_host):
         cfg = storage_config.extra_config or {}
         self.mem_pool_host = mem_pool_host
         self.page_size = mem_pool_host.page_size
         self.local_server: Optional[RemoteBackupServer] = None
+        self.clients_by_rank: dict[int, RemoteBackupClient] = {}
 
         remote_backup_port = cfg.get(
             "remote_backup_port",
@@ -97,6 +119,12 @@ class RemoteBackupStorage(HiCacheStorage):
         remote_backup_url = cfg.get(
             "remote_backup_url",
             os.environ.get("SGLANG_REMOTE_BACKUP_URL", ""),
+        )
+        remote_backup_urls = self._parse_remote_backup_urls(
+            cfg.get(
+                "remote_backup_urls",
+                os.environ.get("SGLANG_REMOTE_BACKUP_URLS", ""),
+            )
         )
         buffer_gb = cfg.get(
             "remote_backup_buffer_size_gb",
@@ -113,20 +141,39 @@ class RemoteBackupStorage(HiCacheStorage):
 
         # Client connection to remote server
         if mode == "client":
-            if not remote_backup_url:
+            if not remote_backup_urls and not remote_backup_url:
                 raise ValueError(
-                    "remote_backup_mode=client requires remote_backup_url in extra_config or env"
+                    "remote_backup_mode=client requires remote_backup_url(s) in extra_config or env"
                 )
-            self.client: Optional[RemoteBackupClient] = RemoteBackupClient(remote_backup_url)
-            logger.info(
-                "RemoteBackupStorage[dp_rank=%d]: client mode, connected to remote backup server %s, "
-                "local port %d, buffer %.1f GB, page_size=%d",
-                self._dp_rank,
-                remote_backup_url,
-                remote_backup_port,
-                buffer_gb,
-                self.page_size,
-            )
+            if remote_backup_urls:
+                self.clients_by_rank = {
+                    rank: RemoteBackupClient(url)
+                    for rank, url in enumerate(remote_backup_urls)
+                }
+                default_rank = int(self._dp_rank or 0)
+                self.client = self.clients_by_rank.get(default_rank) or next(
+                    iter(self.clients_by_rank.values())
+                )
+                logger.info(
+                    "RemoteBackupStorage[dp_rank=%d]: sharded client mode, %d backup shards, "
+                    "local rank routes to %s, buffer %.1f GB, page_size=%d",
+                    self._dp_rank,
+                    len(self.clients_by_rank),
+                    remote_backup_urls[min(default_rank, len(remote_backup_urls) - 1)],
+                    buffer_gb,
+                    self.page_size,
+                )
+            else:
+                self.client = RemoteBackupClient(remote_backup_url)
+                logger.info(
+                    "RemoteBackupStorage[dp_rank=%d]: client mode, connected to remote backup server %s, "
+                    "local port %d, buffer %.1f GB, page_size=%d",
+                    self._dp_rank,
+                    remote_backup_url,
+                    remote_backup_port,
+                    buffer_gb,
+                    self.page_size,
+                )
         else:
             # server or combined mode: connect back to self
             self_url = f"localhost:{remote_backup_port}"
@@ -147,10 +194,45 @@ class RemoteBackupStorage(HiCacheStorage):
     # ------------------------------------------------------------------
 
     def _resolve_lookup_dp_rank(self, lookup_dp_rank: Optional[int]) -> int:
-        # Remote backup reads intentionally query every DP-rank root. The
-        # scheduler may still pass a failover source rank, but that rank is no
-        # longer used to isolate match/prefetch lookup.
+        # In sharded mode, a specific source rank maps to a specific remote
+        # backup shard, so preserve the hint when we have one.
+        if self.clients_by_rank and lookup_dp_rank not in (None, REMOTE_BACKUP_ALL_DP_RANKS):
+            return int(lookup_dp_rank)
         return REMOTE_BACKUP_ALL_DP_RANKS
+
+    def _get_client_for_rank(self, dp_rank: int) -> Optional[RemoteBackupClient]:
+        if self.clients_by_rank:
+            return self.clients_by_rank.get(int(dp_rank))
+        return self.client
+
+    def _select_best_shard_for_tokens(
+        self, token_ids: List[int], start_page: int
+    ) -> tuple[int, int, int]:
+        best_source = REMOTE_BACKUP_NO_SOURCE_DP_RANK
+        best_data = 0
+        best_navigable = 0
+        for rank, client in self.clients_by_rank.items():
+            source_dp_rank, data_count, navigable = client.match_prefix_from_with_source(
+                rank, token_ids, start_page
+            )
+            if data_count == 0 and navigable == 0:
+                continue
+            if (
+                data_count > best_data
+                or (data_count == best_data and navigable > best_navigable)
+                or (
+                    data_count == best_data
+                    and navigable == best_navigable
+                    and (
+                        best_source == REMOTE_BACKUP_NO_SOURCE_DP_RANK
+                        or source_dp_rank < best_source
+                    )
+                )
+            ):
+                best_source = source_dp_rank
+                best_data = data_count
+                best_navigable = navigable
+        return best_source, best_data, best_navigable
 
     def match_prefix_from(
         self,
@@ -169,6 +251,19 @@ class RemoteBackupStorage(HiCacheStorage):
                 query_dp_rank, token_ids, start_page
             )
             buf_pages = self.local_server.buffer.page_count
+        elif self.clients_by_rank:
+            if query_dp_rank == REMOTE_BACKUP_ALL_DP_RANKS:
+                source_dp_rank, data_count, navigable = self._select_best_shard_for_tokens(
+                    token_ids, start_page
+                )
+            else:
+                client = self._get_client_for_rank(query_dp_rank)
+                if client is None:
+                    return 0, 0
+                source_dp_rank, data_count, navigable = client.match_prefix_from_with_source(
+                    query_dp_rank, token_ids, start_page
+                )
+            buf_pages = -1
         elif self.client is not None:
             source_dp_rank, data_count, navigable = self.client.match_prefix_from_with_source(
                 query_dp_rank, token_ids, start_page
@@ -206,6 +301,31 @@ class RemoteBackupStorage(HiCacheStorage):
             raw_pages = self.local_server.get_pages_by_tokens(
                 query_dp_rank, token_ids, start_page, count
             )
+        elif self.clients_by_rank:
+            if query_dp_rank == REMOTE_BACKUP_ALL_DP_RANKS:
+                source_dp_rank, _data_count, _navigable = self._select_best_shard_for_tokens(
+                    token_ids, start_page
+                )
+                if source_dp_rank == REMOTE_BACKUP_NO_SOURCE_DP_RANK:
+                    raw_pages = [None] * count
+                else:
+                    client = self._get_client_for_rank(source_dp_rank)
+                    raw_pages = (
+                        client.get_pages_by_tokens(
+                            source_dp_rank, token_ids, start_page, count
+                        )
+                        if client is not None
+                        else [None] * count
+                    )
+            else:
+                client = self._get_client_for_rank(query_dp_rank)
+                raw_pages = (
+                    client.get_pages_by_tokens(
+                        query_dp_rank, token_ids, start_page, count
+                    )
+                    if client is not None
+                    else [None] * count
+                )
         elif self.client is not None:
             raw_pages = self.client.get_pages_by_tokens(
                 query_dp_rank, token_ids, start_page, count
@@ -246,8 +366,9 @@ class RemoteBackupStorage(HiCacheStorage):
         """
         if self.local_server is not None:
             return self.local_server.query_request_range(dp_rank, rid, generation)
-        elif self.client is not None:
-            return self.client.query_request_range(dp_rank, rid, generation)
+        client = self._get_client_for_rank(dp_rank)
+        if client is not None:
+            return client.query_request_range(dp_rank, rid, generation)
         return 0, 0
 
     def get_pages_by_request(
@@ -264,12 +385,13 @@ class RemoteBackupStorage(HiCacheStorage):
             raw_pages = self.local_server.get_pages_by_request(
                 dp_rank, rid, generation, page_start, count
             )
-        elif self.client is not None:
-            raw_pages = self.client.get_pages_by_request(
+        else:
+            client = self._get_client_for_rank(dp_rank)
+            if client is None:
+                return [False] * count
+            raw_pages = client.get_pages_by_request(
                 dp_rank, rid, generation, page_start, count
             )
-        else:
-            return [False] * count
 
         none_count = sum(1 for r in raw_pages if r is None)
         if none_count > 0:
@@ -299,8 +421,10 @@ class RemoteBackupStorage(HiCacheStorage):
         """
         if self.local_server is not None and self.local_server.request_aware:
             self.local_server.start_request(dp_rank, request_id, generation)
-        elif self.client is not None:
-            self.client.start_request(request_id, dp_rank, generation)
+        else:
+            client = self._get_client_for_rank(dp_rank)
+            if client is not None:
+                client.start_request(request_id, dp_rank, generation)
 
     def finish_request(
         self, request_id: str, dp_rank: int, generation: int, reason: str
@@ -312,8 +436,10 @@ class RemoteBackupStorage(HiCacheStorage):
         reason_code = _REASON_STR_TO_CODE.get(reason, LEASE_REASON_NORMAL)
         if self.local_server is not None and self.local_server.request_aware:
             self.local_server.finish_request(dp_rank, request_id, generation, reason_code)
-        elif self.client is not None:
-            self.client.finish_request(request_id, dp_rank, generation, reason_code)
+        else:
+            client = self._get_client_for_rank(dp_rank)
+            if client is not None:
+                client.finish_request(request_id, dp_rank, generation, reason_code)
 
     def _serialize_pages(
         self, keys: List[str], host_indices: torch.Tensor
@@ -381,7 +507,10 @@ class RemoteBackupStorage(HiCacheStorage):
                     self._dp_rank, rid, generation, page_start, pages
                 )
             else:
-                results = self.client.put_pages_by_request(
+                client = self._get_client_for_rank(int(self._dp_rank or 0))
+                if client is None:
+                    return [False] * len(keys)
+                results = client.put_pages_by_request(
                     self._dp_rank, rid, generation, page_start, pages
                 )
             ok_count = sum(1 for r in results if r)
@@ -414,7 +543,10 @@ class RemoteBackupStorage(HiCacheStorage):
                     generation,
                 )
             else:
-                results = self.client.put_pages_tokens_v2(
+                client = self._get_client_for_rank(int(self._dp_rank or 0))
+                if client is None:
+                    return [False] * len(keys)
+                results = client.put_pages_tokens_v2(
                     self._dp_rank,
                     extra_info.full_token_ids,
                     extra_info.page_start,
@@ -423,7 +555,10 @@ class RemoteBackupStorage(HiCacheStorage):
                     generation,
                 )
         else:
-            results = self.client.put_pages_tokens(
+            client = self._get_client_for_rank(int(self._dp_rank or 0))
+            if client is None:
+                return [False] * len(keys)
+            results = client.put_pages_tokens(
                 self._dp_rank,
                 extra_info.full_token_ids,
                 extra_info.page_start,

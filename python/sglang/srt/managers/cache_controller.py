@@ -508,7 +508,7 @@ class HiCacheController:
                 0, int(0.8 * (self.mem_pool_host.size - self.mem_pool_device.size))
             )
             # granularity of batch storage IO operations, in number of pages
-            self.storage_batch_size = 128
+            self.storage_batch_size = 64
             # tracking the number of tokens locked in prefetching, updated by the main scheduler thread
             self.prefetch_tokens_occupied = 0
 

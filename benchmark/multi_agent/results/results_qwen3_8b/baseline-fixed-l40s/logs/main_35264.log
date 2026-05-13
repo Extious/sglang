@@ -1,0 +1,15 @@
+[2026-05-11 03:04:19] ============================================================
+[2026-05-11 03:04:19] EXPERIMENT  topology=DP2_PP1_TP1_N1  kv_backup=none
+[2026-05-11 03:04:19]   result_dir: /home/comp/zhanzhao/sglang/benchmark/multi_agent/results/results_qwen3_8b/baseline-fixed-l40s
+[2026-05-11 03:04:19]   log_dir:    /home/comp/zhanzhao/sglang/benchmark/multi_agent/logs
+[2026-05-11 03:04:19] Step 1: Start SGLang server subprocess...
+[2026-05-11 03:04:19]   Server PID: 1108009
+[2026-05-11 03:05:35]   Server ready at http://gpu20:28000
+[2026-05-11 03:05:35] Step 2: Start injector and client subprocesses...
+[2026-05-11 03:05:35]   Injector PID: 1108439
+[2026-05-11 03:05:35]   Client PID: 1108442
+[2026-05-11 03:09:26]   Client exited (rc=0)
+[2026-05-11 03:09:26] Step 3: Generate plots...
+Warning: expected 6 agents, found 1.
+Saved plot to /home/comp/zhanzhao/sglang/benchmark/multi_agent/results/results_qwen3_8b/baseline-fixed-l40s/figures/trace_log_profile.png
+[2026-05-11 03:09:28] Experiment complete. Results in /home/comp/zhanzhao/sglang/benchmark/multi_agent/results/results_qwen3_8b/baseline-fixed-l40s

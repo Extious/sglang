@@ -1,9 +1,0 @@
-__MULTI_AGENT_CONTROL__ {"event":"injector_ready","control_url":"http://127.0.0.1:43393"}
-[2026-05-10T15:14:04] event {"event":"fault_scheduled","timestamp":"2026-05-10T15:14:04.357726+00:00","event_id":1,"trigger_kind":"timeline","trigger_count":"","trigger_time_s":58.986101388931274,"inject_delay":0.0,"dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"gpu21","node_url":"http://gpu21:28000","kill_pattern":"sglang::scheduler_DP0"}
-[2026-05-10T15:14:04] [fault #1] trigger=timeline -> dp0/pp0/tp0 on gpu21 (delay=0.0s)
-[2026-05-10T15:14:04] event {"event":"fault_injected","timestamp":"2026-05-10T15:14:04.357995+00:00","event_id":1,"trigger_kind":"timeline","trigger_count":"","trigger_time_s":58.986101388931274,"dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"gpu21","node_url":"http://gpu21:28000","kill_pattern":"sglang::scheduler_DP0","method":"api","slurm_job_id":35255,"kv_backup":"none"}
-[2026-05-10T15:14:04] POST http://gpu21:28000/simulate_gpu_failure body=b'{"dp_rank": 0}'
-[2026-05-10T15:14:04] [fault #1] injected dp=0 on gpu21
-[2026-05-10T15:14:04] event {"event":"gpu_failure_injected","timestamp":"2026-05-10T15:14:04.361771+00:00","event_id":1,"dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"gpu21","node_url":"http://gpu21:28000","kill_pattern":"sglang::scheduler_DP0","status":"injected_no_reaction"}
-[2026-05-10T15:14:04] [fault #1] waiting for job #12 to complete before recovery
-[2026-05-10T15:18:14] event {"event":"gpu_recovered","timestamp":"2026-05-10T15:18:14.090337+00:00","event_id":1,"dp_rank":0,"pp_rank":0,"tp_rank":0,"node":"gpu21","node_url":"http://gpu21:28000","kill_pattern":"sglang::scheduler_DP0","method":"api","status":"recovered","recover_trigger":"after_job","recover_after_job":12}

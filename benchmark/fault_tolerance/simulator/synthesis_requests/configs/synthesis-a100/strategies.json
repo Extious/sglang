@@ -1,0 +1,13 @@
+{
+  "strategies": {
+    "baseline": {
+      "backup_policy": "none"
+    },
+    "host_backup": {
+      "backup_policy": "host"
+    },
+    "remote_backup": {
+      "backup_policy": "remote_backup"
+    }
+  }
+}

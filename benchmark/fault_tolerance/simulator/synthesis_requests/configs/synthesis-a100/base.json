@@ -1,0 +1,41 @@
+{
+  "name": "synthesis-a100",
+  "server": {
+    "model_path": "Qwen/Qwen3-8B",
+    "dp_size": 2,
+    "tp_size": 1,
+    "pp_size": 1,
+    "accelerator_name": "a100_sxm",
+    "host": "127.0.0.1",
+    "port": 30000
+  },
+  "workload": {
+    "input_len": 20000,
+    "output_len": 1000,
+    "num_requests": 32,
+    "app_workers": 4,
+    "request_rate": "inf",
+    "shared_prefix_len": 1024,
+    "seed": 1
+  },
+  "failure": {
+    "enabled": true,
+    "inject_after_job": 10,
+    "recover_after_job": 20,
+    "delay": 5,
+    "dp_rank": 0
+  },
+  "predictor": {
+    "name": "aiconfigurator",
+    "database_mode": "SILICON",
+    "prefill_scale_factor": 1.0,
+    "decode_scale_factor": 1.0
+  },
+  "platform": {
+    "disk_read_bandwidth_gb": 8,
+    "disk_write_bandwidth_gb": 8,
+    "memory_read_bandwidth_gb": 64,
+    "memory_write_bandwidth_gb": 64,
+    "num_device_per_node": 8
+  }
+}

@@ -12,6 +12,8 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
 import json
 import logging
 import math
@@ -21,23 +23,26 @@ from pathlib import Path
 from typing import Any, List, Optional, Set, Union
 
 import torch
-from transformers import PretrainedConfig
 
 from sglang.srt.environ import envs
-from sglang.srt.layers.quantization import QUANTIZATION_METHODS
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import is_hip, is_sm100_supported, retry
-from sglang.srt.utils.hf_transformers_utils import (
-    get_config,
-    get_context_length,
-    get_generation_config,
-    get_hf_text_config,
-    get_sparse_attention_config,
-)
 from sglang.srt.utils.runai_utils import ObjectStorageModel, is_runai_obj_uri
 from sglang.utils import is_in_ci
 
 logger = logging.getLogger(__name__)
+
+
+def _hf_transformers_utils():
+    from sglang.srt.utils import hf_transformers_utils
+
+    return hf_transformers_utils
+
+
+def _quantization_methods():
+    from sglang.srt.layers.quantization import QUANTIZATION_METHODS
+
+    return QUANTIZATION_METHODS
 
 
 class AttentionArch(IntEnum):
@@ -136,15 +141,16 @@ class ModelConfig:
         kwargs = {}
         if override_config_file and override_config_file.strip():
             kwargs["_configuration_file"] = override_config_file.strip()
-        self.hf_config = get_config(
+        hf_utils = _hf_transformers_utils()
+        self.hf_config = hf_utils.get_config(
             self.model_path,
             trust_remote_code=trust_remote_code,
             revision=revision,
             model_override_args=self.model_override_args,
             **kwargs,
         )
-        self.hf_text_config = get_hf_text_config(self.hf_config)
-        self.hf_generation_config = get_generation_config(
+        self.hf_text_config = hf_utils.get_hf_text_config(self.hf_config)
+        self.hf_generation_config = hf_utils.get_generation_config(
             self.model_path,
             trust_remote_code=trust_remote_code,
             revision=revision,
@@ -378,7 +384,9 @@ class ModelConfig:
 
     def _derive_context_length(self, context_length: int):
         is_draft_model = self.is_draft_model
-        derived_context_len = get_context_length(self.hf_text_config)
+        derived_context_len = _hf_transformers_utils().get_context_length(
+            self.hf_text_config
+        )
 
         if context_length is not None:
             if context_length > derived_context_len:
@@ -714,6 +722,8 @@ class ModelConfig:
             # in hf `config.json` but has a standalone `hf_quant_config.json` in the root directory
             # example: https://huggingface.co/nvidia/Llama-3.1-8B-Instruct-FP8/tree/main
             # example: https://huggingface.co/Barrrrry/DeepSeek-R1-W4AFP8/tree/main
+            if os.getenv("SGLANG_SIMULATOR_SKIP_REMOTE_QUANT_CONFIG") == "1":
+                return quant_cfg
             is_local = os.path.exists(self.model_path)
             if not is_local:
                 # Conditional import based on SGLANG_USE_MODELSCOPE environment variable
@@ -918,7 +928,6 @@ class ModelConfig:
 
     # adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/config.py
     def _verify_quantization(self) -> None:
-        supported_quantization = [*QUANTIZATION_METHODS]
         rocm_supported_quantization = [
             "awq",
             "gptq",
@@ -989,7 +998,7 @@ class ModelConfig:
             ).lower()
 
             # Detect which checkpoint is it
-            for _, method in QUANTIZATION_METHODS.items():
+            for _, method in _quantization_methods().items():
                 quantization_override = method.override_quantization_method(
                     quant_cfg, self.quantization
                 )
@@ -1042,6 +1051,7 @@ class ModelConfig:
                 )
 
         if self.quantization is not None:
+            supported_quantization = [*_quantization_methods()]
             if self.quantization not in supported_quantization:
                 raise ValueError(
                     f"Unknown quantization method: {self.quantization}. Must "
@@ -1065,7 +1075,9 @@ class ModelConfig:
     def _verify_dual_chunk_attention_config(self) -> None:
         if hasattr(self.hf_config, "dual_chunk_attention_config"):
             # Try loading the sparse attention config
-            sparse_attn_config = get_sparse_attention_config(self.model_path)
+            sparse_attn_config = _hf_transformers_utils().get_sparse_attention_config(
+                self.model_path
+            )
             if not sparse_attn_config:
                 return
             self.hf_config.dual_chunk_attention_config["sparse_attention_config"] = (

@@ -1,0 +1,13 @@
+{
+  "experiment_name": "synthesis-a100-smoke",
+  "description": "Small smoke config for quick GPU validation.",
+  "model_path": "Qwen/Qwen3-8B",
+  "host": "127.0.0.1",
+  "port": 30000,
+  "scheduler": {
+    "tp_size": 1,
+    "pp_size": 1,
+    "dp_size": 1
+  },
+  "extra_args": []
+}

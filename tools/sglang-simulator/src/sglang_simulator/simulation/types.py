@@ -32,18 +32,38 @@ class SimulationMode(Enum):
 @dataclass
 class RequestStats:
     rid: str = ""
+    job_id: str = ""
+    worker_id: str = ""
+    assigned_dp_rank: int = 0
+    attempt: int = 0
+    backup_policy: str = "none"
+    status: str = "running"
+    is_failover_retried: bool = False
+    failure_impacted: bool = False
+    failure_time_s: float = -1
+    recovery_time_s: float = -1
     last_event_time: float = 1.0
     input_length: int = 1
     output_length: int = 1
     final_reused_tokens: int = 0
     prefetch_complete_tokens: int = 0
+    pre_failover_output_tokens: int = 0
+    pre_failover_backed_up_tokens: int = 0
+    retry_prefill_tokens: int = 0
     queue_start: float = -1
     queue_end: float = -1
     created_time: float = -1
+    queue_time_s: float = 0
+    prefetch_time_s: float = 0
+    backup_time_s: float = 0
+    inference_time_s: float = 0
+    prefill_inference_time_s: float = 0
+    decode_inference_time_s: float = 0
+    failover_penalty_s: float = 0
     gen_token_latencies: list[float] = field(default_factory=list)
 
     def is_complete(self) -> bool:
-        return True
+        return self.status == "completed" or bool(self.gen_token_latencies)
 
 
 def _bandwidth_property(gb_attr: str):

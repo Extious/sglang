@@ -71,6 +71,8 @@ class ScheduleBatch:
 
 
 class InferTimePredictor(ABC):
+    name = "base"
+
     def __init__(
         self,
         model: ModelInfo,

@@ -1,13 +1,13 @@
-from typing import Dict, Type
+from __future__ import annotations
 
-from transformers import PretrainedConfig, ProcessorMixin
+from typing import Any, Dict, Type
 
 # Useful for registering a custom processor different from Hugging Face's default.
-_CUSTOMIZED_MM_PROCESSOR: Dict[str, Type[ProcessorMixin]] = dict()
+_CUSTOMIZED_MM_PROCESSOR: Dict[str, Type[Any]] = dict()
 
 
 def register_customized_processor(
-    processor_class: Type[ProcessorMixin],
+    processor_class: Type[Any],
 ):
     """Class decorator that maps a config class's model_type field to a customized processor class.
 
@@ -23,7 +23,7 @@ def register_customized_processor(
         ```
     """
 
-    def decorator(config_class: PretrainedConfig):
+    def decorator(config_class: Any):
         if not hasattr(config_class, "model_type"):
             raise ValueError(
                 f"Class {config_class.__name__} with register_customized_processor should "

@@ -339,6 +339,9 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
         self.failover_failed_dp_by_rid: Dict[str, int] = {}
         self.failover_active_dp_by_rid: Dict[str, int] = {}
         self.completed_failover_failed_dp_by_rid: Dict[str, int] = {}
+        self.notified_failed_dp_ranks: set[int] = set()
+        self.deferred_failover_snapshots_by_worker: Dict[str, deque] = {}
+        self.failover_worker_by_rid: Dict[str, str] = {}
         self.event_loop = None
         self.asyncio_tasks = set()
 
@@ -1416,7 +1419,91 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
 
     async def simulate_gpu_recovery(self, obj: SimulateGpuRecoveryReqInput):
         self.auto_create_handle_loop()
+        if hasattr(self, "notified_failed_dp_ranks"):
+            self.notified_failed_dp_ranks.discard(int(obj.dp_rank))
         await self.send_to_scheduler.send_pyobj(obj)
+
+    def _notify_failed_dp_rank_once(self, dp_rank: int):
+        notified = getattr(self, "notified_failed_dp_ranks", None)
+        if notified is None:
+            notified = set()
+            self.notified_failed_dp_ranks = notified
+
+        dp_rank = int(dp_rank)
+        if dp_rank in notified:
+            return
+        notified.add(dp_rank)
+        self.send_to_scheduler.send_pyobj(SimulateGpuFailureReqInput(dp_rank=dp_rank))
+
+    def _failover_snapshot_worker_key_and_seq(self, snap):
+        sp = getattr(snap, "sampling_params", None)
+        custom_params = None
+        if isinstance(sp, dict):
+            custom_params = sp.get("custom_params")
+        else:
+            custom_params = getattr(sp, "custom_params", None)
+        simulation = (
+            custom_params.get("simulation")
+            if isinstance(custom_params, dict)
+            else None
+        )
+        if not isinstance(simulation, dict) or not simulation.get(
+            "parallel_worker_client"
+        ):
+            return None, None
+        worker_id = str(simulation.get("worker_id", "1"))
+        worker_seq = int(simulation.get("worker_seq", 0) or 0)
+        return worker_id, worker_seq
+
+    def _select_ordered_failover_snapshots(self, snapshots):
+        grouped = {}
+        selected = []
+        for snap in snapshots:
+            worker_id, worker_seq = self._failover_snapshot_worker_key_and_seq(snap)
+            if worker_id is None:
+                selected.append(snap)
+                continue
+            grouped.setdefault(worker_id, []).append((worker_seq, snap))
+
+        deferred = getattr(self, "deferred_failover_snapshots_by_worker", None)
+        if deferred is None:
+            deferred = {}
+            self.deferred_failover_snapshots_by_worker = deferred
+
+        for worker_id, entries in grouped.items():
+            entries.sort(key=lambda item: item[0])
+            selected.append(entries[0][1])
+            remaining = [snap for _, snap in entries[1:]]
+            if remaining:
+                deferred.setdefault(worker_id, deque()).extend(remaining)
+        return selected
+
+    def _dispatch_deferred_failover_snapshot(self, completed_rid: str):
+        deferred = getattr(self, "deferred_failover_snapshots_by_worker", None)
+        if not deferred:
+            return
+        worker_map = getattr(self, "failover_worker_by_rid", {})
+        worker_id = worker_map.pop(completed_rid, None)
+        if worker_id is None:
+            return
+        queue = deferred.get(worker_id)
+        if not queue:
+            deferred.pop(worker_id, None)
+            return
+        next_snapshot = queue.popleft()
+        if not queue:
+            deferred.pop(worker_id, None)
+        failed_dp_rank = self.failover_failed_dp_by_rid.get(completed_rid)
+        if failed_dp_rank is None:
+            failed_dp_rank = self.completed_failover_failed_dp_by_rid.get(
+                completed_rid, 0
+            )
+        self._handle_failover_batch(
+            FailoverBatchReqInput(
+                failed_dp_rank=int(failed_dp_rank),
+                snapshots=[next_snapshot],
+            )
+        )
 
     def _handle_failover_batch(self, failover: FailoverBatchReqInput):
         """Reconstruct failed requests from their original inputs and re-dispatch."""
@@ -1442,7 +1529,9 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
             requests=snapshot_payload,
         )
 
-        for snap in failover.snapshots:
+        self._notify_failed_dp_rank_once(failover.failed_dp_rank)
+
+        for snap in self._select_ordered_failover_snapshots(failover.snapshots):
             state = self.rid_to_state.get(snap.rid)
             if state is None and not getattr(snap, "origin_input_ids", None):
                 logger.warning(
@@ -1454,7 +1543,9 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
             snapshot_input_ids = list(getattr(snap, "origin_input_ids", None) or [])
             if not snapshot_input_ids:
                 snapshot_input_ids = list(getattr(orig_req, "input_ids", []) or [])
-            sp = getattr(orig_req, "sampling_params", None)
+            sp = getattr(snap, "sampling_params", None)
+            if sp is None:
+                sp = getattr(orig_req, "sampling_params", None)
             if isinstance(sp, dict):
                 snapshot_orig_max = getattr(snap, "original_max_new_tokens", None)
                 orig_max = int(
@@ -1526,6 +1617,11 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
 
             self.pending_failover_rids.add(snap.rid)
             self.failover_failed_dp_by_rid[snap.rid] = int(failover.failed_dp_rank)
+            worker_id, _ = self._failover_snapshot_worker_key_and_seq(snap)
+            if worker_id is not None:
+                if not hasattr(self, "failover_worker_by_rid"):
+                    self.failover_worker_by_rid = {}
+                self.failover_worker_by_rid[snap.rid] = worker_id
             self.send_to_scheduler.send_pyobj(retried_req)
 
         append_failover_event(
@@ -1891,6 +1987,7 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
                 self.failover_active_dp_by_rid.pop(rid, None)
                 if rid in self.failover_failed_dp_by_rid:
                     self.completed_failover_failed_dp_by_rid[rid] = self.failover_failed_dp_by_rid.pop(rid)
+                self._dispatch_deferred_failover_snapshot(rid)
 
                 # Mark ongoing LoRA request as finished.
                 if self.server_args.enable_lora and state.obj.lora_path:
@@ -2456,6 +2553,10 @@ class TokenizerManager(TokenizerCommunicatorMixin, TokenizerManagerScoreMixin):
         state.event.set()
 
     def update_active_ranks(self, ranks: ActiveRanksOutput):
+        if hasattr(self, "notified_failed_dp_ranks"):
+            for dp_rank, is_active in enumerate(ranks.status):
+                if is_active:
+                    self.notified_failed_dp_ranks.discard(dp_rank)
         self.send_to_scheduler.send_pyobj(ranks)
 
     def _handle_open_session_req_output(self, recv_obj):

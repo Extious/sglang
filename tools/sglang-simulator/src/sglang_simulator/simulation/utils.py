@@ -2,7 +2,6 @@ import numpy as np
 from sglang_simulator.simulation.types import RequestStats, SchedulerConfig
 from sglang_simulator.spec.accelerator import AcceleratorInfo
 from sglang_simulator.spec.model import ModelInfo
-from sglang_simulator.time_predictor.aiconfigurator import get_perf_model
 
 
 def calc_kv_cache_cell_elems(model_info: ModelInfo, tp_size: int, pp_size: int) -> int:
@@ -27,6 +26,8 @@ def calc_kv_cache_per_layer_elems(
 def estimate_kv_cache_pool_capacity(
     model: ModelInfo, device: AcceleratorInfo, scheduler_config: SchedulerConfig
 ) -> int:
+    from sglang_simulator.time_predictor.aiconfigurator import get_perf_model
+
     perf_model = get_perf_model(scheduler_config, model)
     weights = 0
     for op in perf_model.context_ops:
@@ -59,9 +60,15 @@ def calc_metrics(requests: list[RequestStats]) -> dict:
     total_reused_tokens = 0
     total_disk_hit_tokens = 0
     queue_durs = []
+    measured_requests = 0
     for req in requests:
+        if req.status == "failed_over":
+            continue
         if not req.is_complete():
             continue
+        if not req.gen_token_latencies:
+            continue
+        measured_requests += 1
         completed += 1
         ttfts.append(req.gen_token_latencies[0])
         queue_durs.append(req.queue_end - req.queue_start)
@@ -76,12 +83,12 @@ def calc_metrics(requests: list[RequestStats]) -> dict:
         total_reused_tokens += req.final_reused_tokens
         total_disk_hit_tokens += req.prefetch_complete_tokens
     return {
-        "num_requests": len(requests),
+        "num_requests": measured_requests,
         "completed": completed,
         "total_input": total_input,
         "total_output": total_output,
         "duration": total_dur_s,
-        "request_throughput": len(requests) / total_dur_s,
+        "request_throughput": measured_requests / total_dur_s,
         "input_throughput": total_input / total_dur_s,
         "output_throughput": total_output / total_dur_s,
         "total_throughput": (total_input + total_output) / total_dur_s,

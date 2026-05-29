@@ -13,6 +13,8 @@
 # ==============================================================================
 """Utilities for Huggingface Transformers."""
 
+from __future__ import annotations
+
 import contextlib
 import json
 import logging
@@ -26,114 +28,207 @@ from typing import Any, Dict, List, Optional, Type, Union
 import torch
 from huggingface_hub import snapshot_download
 
-from sglang.srt.utils import get_bool_env_var
 from sglang.srt.utils.runai_utils import ObjectStorageModel, is_runai_obj_uri
 
-# Compatibility shim: flash-attn-4 registers a bare ``flash_attn`` namespace
-# that makes ``is_flash_attn_2_available()`` return True, but lacks the v2 API
-# (``flash_attn_func``, etc.).  HuggingFace remote model code (e.g. Kimi-VL)
-# guarded by that check will crash with ImportError at module load time.
-# Force it to False when the real v2 API is absent.
-try:
-    import flash_attn as _flash_attn_mod
-
-    if not hasattr(_flash_attn_mod, "flash_attn_func"):
-        import transformers.utils as _hf_utils
-        import transformers.utils.import_utils as _hf_import_utils
-
-        _hf_import_utils.is_flash_attn_2_available = lambda: False
-        _hf_utils.is_flash_attn_2_available = lambda: False
-    del _flash_attn_mod
-except ImportError:
-    pass
-
-# Conditional import based on SGLANG_USE_MODELSCOPE environment variable
-if get_bool_env_var("SGLANG_USE_MODELSCOPE"):
-    from modelscope import AutoConfig, GenerationConfig
-else:
-    from transformers import AutoConfig, GenerationConfig
-
-from transformers import (
-    AutoProcessor,
-    AutoTokenizer,
-    PretrainedConfig,
-    PreTrainedTokenizer,
-    PreTrainedTokenizerBase,
-    PreTrainedTokenizerFast,
-)
-from transformers.models.auto.modeling_auto import MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
-
-from sglang.srt.configs import (
-    AfmoeConfig,
-    BailingHybridConfig,
-    ChatGLMConfig,
-    DbrxConfig,
-    DeepseekVL2Config,
-    DotsOCRConfig,
-    DotsVLMConfig,
-    ExaoneConfig,
-    FalconH1Config,
-    GraniteMoeHybridConfig,
-    JetNemotronConfig,
-    JetVLMConfig,
-    KimiK25Config,
-    KimiLinearConfig,
-    KimiVLConfig,
-    LongcatFlashConfig,
-    MultiModalityConfig,
-    NemotronH_Nano_VL_V2_Config,
-    NemotronHConfig,
-    Olmo3Config,
-    Qwen3_5Config,
-    Qwen3_5MoeConfig,
-    Qwen3NextConfig,
-    Step3p5Config,
-    Step3VLConfig,
-)
-from sglang.srt.configs.deepseek_ocr import DeepseekVLV2Config
-from sglang.srt.configs.internvl import InternVLChatConfig
 from sglang.srt.connector import create_remote_connector
 from sglang.srt.multimodal.customized_mm_processor_utils import _CUSTOMIZED_MM_PROCESSOR
-from sglang.srt.utils import is_remote_url, logger, lru_cache_frozenset, mistral_utils
+from sglang.srt.utils import (
+    get_bool_env_var,
+    is_remote_url,
+    logger,
+    lru_cache_frozenset,
+)
 from sglang.srt.utils.patch_tokenizer import patch_tokenizer
 
-_CONFIG_REGISTRY: List[Type[PretrainedConfig]] = [
-    AfmoeConfig,
-    BailingHybridConfig,
-    ChatGLMConfig,
-    DbrxConfig,
-    ExaoneConfig,
-    DeepseekVL2Config,
-    MultiModalityConfig,
-    KimiVLConfig,
-    InternVLChatConfig,
-    Step3VLConfig,
-    LongcatFlashConfig,
-    Olmo3Config,
-    KimiLinearConfig,
-    Qwen3NextConfig,
-    FalconH1Config,
-    GraniteMoeHybridConfig,
-    DotsVLMConfig,
-    DotsOCRConfig,
-    NemotronH_Nano_VL_V2_Config,
-    NemotronHConfig,
-    DeepseekVLV2Config,
-    Qwen3_5Config,
-    Qwen3_5MoeConfig,
-    JetNemotronConfig,
-    JetVLMConfig,
-    KimiK25Config,
-    Step3p5Config,
-]
+_TRANSFORMERS_COMPONENT_CACHE: Dict[str, Any] = {}
+_FLASH_ATTN_COMPAT_CHECKED = False
 
-_CONFIG_REGISTRY = {
-    config_cls.model_type: config_cls for config_cls in _CONFIG_REGISTRY
+
+def _ensure_flash_attn_compat() -> None:
+    """Patch HF flash-attn detection lazily to keep module import cheap."""
+    global _FLASH_ATTN_COMPAT_CHECKED
+    if _FLASH_ATTN_COMPAT_CHECKED:
+        return
+    _FLASH_ATTN_COMPAT_CHECKED = True
+
+    # Compatibility shim: flash-attn-4 registers a bare ``flash_attn`` namespace
+    # that makes ``is_flash_attn_2_available()`` return True, but lacks the v2 API
+    # (``flash_attn_func``, etc.). HuggingFace remote model code guarded by that
+    # check will crash with ImportError at module load time.
+    try:
+        import flash_attn as flash_attn_mod
+    except ImportError:
+        return
+
+    if hasattr(flash_attn_mod, "flash_attn_func"):
+        return
+
+    import transformers.utils as hf_utils
+    import transformers.utils.import_utils as hf_import_utils
+
+    hf_import_utils.is_flash_attn_2_available = lambda: False
+    hf_utils.is_flash_attn_2_available = lambda: False
+
+
+def _cached_component(name: str, loader):
+    if name not in _TRANSFORMERS_COMPONENT_CACHE:
+        _TRANSFORMERS_COMPONENT_CACHE[name] = loader()
+    return _TRANSFORMERS_COMPONENT_CACHE[name]
+
+
+def _auto_config_cls():
+    def load():
+        if get_bool_env_var("SGLANG_USE_MODELSCOPE"):
+            from modelscope import AutoConfig as cls
+        else:
+            _ensure_flash_attn_compat()
+            from transformers.models.auto.configuration_auto import AutoConfig as cls
+
+        return cls
+
+    return _cached_component("AutoConfig", load)
+
+
+def _generation_config_cls():
+    def load():
+        if get_bool_env_var("SGLANG_USE_MODELSCOPE"):
+            from modelscope import GenerationConfig as cls
+        else:
+            from transformers.generation.configuration_utils import (
+                GenerationConfig as cls,
+            )
+
+        return cls
+
+    return _cached_component("GenerationConfig", load)
+
+
+def _pretrained_config_cls():
+    def load():
+        from transformers.configuration_utils import PretrainedConfig as cls
+
+        return cls
+
+    return _cached_component("PretrainedConfig", load)
+
+
+def _auto_tokenizer_cls():
+    def load():
+        _ensure_flash_attn_compat()
+        from transformers.models.auto.tokenization_auto import AutoTokenizer as cls
+
+        return cls
+
+    return _cached_component("AutoTokenizer", load)
+
+
+def _auto_processor_cls():
+    def load():
+        _ensure_flash_attn_compat()
+        from transformers.models.auto.processing_auto import AutoProcessor as cls
+
+        return cls
+
+    return _cached_component("AutoProcessor", load)
+
+
+def _pretrained_tokenizer_cls():
+    def load():
+        from transformers.tokenization_utils import PreTrainedTokenizer as cls
+
+        return cls
+
+    return _cached_component("PreTrainedTokenizer", load)
+
+
+def _pretrained_tokenizer_base_cls():
+    def load():
+        from transformers.tokenization_utils_base import PreTrainedTokenizerBase as cls
+
+        return cls
+
+    return _cached_component("PreTrainedTokenizerBase", load)
+
+
+def _pretrained_tokenizer_fast_cls():
+    def load():
+        from transformers.tokenization_utils_fast import PreTrainedTokenizerFast as cls
+
+        return cls
+
+    return _cached_component("PreTrainedTokenizerFast", load)
+
+
+class _LazyTransformerComponent:
+    def __init__(self, loader):
+        self._loader = loader
+
+    def __getattr__(self, name: str):
+        return getattr(self._loader(), name)
+
+    def __call__(self, *args, **kwargs):
+        return self._loader()(*args, **kwargs)
+
+
+AutoConfig = _LazyTransformerComponent(_auto_config_cls)
+GenerationConfig = _LazyTransformerComponent(_generation_config_cls)
+PretrainedConfig = _LazyTransformerComponent(_pretrained_config_cls)
+AutoProcessor = _LazyTransformerComponent(_auto_processor_cls)
+AutoTokenizer = _LazyTransformerComponent(_auto_tokenizer_cls)
+
+_CONFIG_REGISTRY: Dict[str, tuple[str, str]] = {
+    "afmoe": ("sglang.srt.configs.afmoe", "AfmoeConfig"),
+    "bailing_hybrid": ("sglang.srt.configs.bailing_hybrid", "BailingHybridConfig"),
+    "chatglm": ("sglang.srt.configs.chatglm", "ChatGLMConfig"),
+    "dbrx": ("sglang.srt.configs.dbrx", "DbrxConfig"),
+    "exaone": ("sglang.srt.configs.exaone", "ExaoneConfig"),
+    "deepseek_vl_v2": ("sglang.srt.configs.deepseekvl2", "DeepseekVL2Config"),
+    "multi_modality": ("sglang.srt.configs.janus_pro", "MultiModalityConfig"),
+    "kimi_vl": ("sglang.srt.configs.kimi_vl", "KimiVLConfig"),
+    "internvl_chat": ("sglang.srt.configs.internvl", "InternVLChatConfig"),
+    "step3_vl": ("sglang.srt.configs.step3_vl", "Step3VLConfig"),
+    "longcat_flash": ("sglang.srt.configs.longcat_flash", "LongcatFlashConfig"),
+    "olmo3": ("sglang.srt.configs.olmo3", "Olmo3Config"),
+    "kimi_linear": ("sglang.srt.configs.kimi_linear", "KimiLinearConfig"),
+    "qwen3_next": ("sglang.srt.configs.qwen3_next", "Qwen3NextConfig"),
+    "falcon_h1": ("sglang.srt.configs.falcon_h1", "FalconH1Config"),
+    "granitemoehybrid": (
+        "sglang.srt.configs.granitemoehybrid",
+        "GraniteMoeHybridConfig",
+    ),
+    "dots_vlm": ("sglang.srt.configs.dots_vlm", "DotsVLMConfig"),
+    "dots_ocr": ("sglang.srt.configs.dots_ocr", "DotsOCRConfig"),
+    "NemotronH_Nano_VL_V2": (
+        "sglang.srt.configs.nano_nemotron_vl",
+        "NemotronH_Nano_VL_V2_Config",
+    ),
+    "nemotron_h": ("sglang.srt.configs.nemotron_h", "NemotronHConfig"),
+    "deepseek-ocr": ("sglang.srt.configs.deepseek_ocr", "DeepseekVLV2Config"),
+    "qwen3_5": ("sglang.srt.configs.qwen3_5", "Qwen3_5Config"),
+    "qwen3_5_moe": ("sglang.srt.configs.qwen3_5", "Qwen3_5MoeConfig"),
+    "jet_nemotron": ("sglang.srt.configs.jet_nemotron", "JetNemotronConfig"),
+    "jet_vlm": ("sglang.srt.configs.jet_vlm", "JetVLMConfig"),
+    "kimi_k25": ("sglang.srt.configs.kimi_k25", "KimiK25Config"),
+    "step3p5": ("sglang.srt.configs.step3p5", "Step3p5Config"),
 }
+_CONFIG_CLASS_CACHE: Dict[str, Type[PretrainedConfig]] = {}
 
-for name, cls in _CONFIG_REGISTRY.items():
+
+def _get_registered_config_cls(model_type: str) -> Optional[Type[PretrainedConfig]]:
+    if model_type in _CONFIG_CLASS_CACHE:
+        return _CONFIG_CLASS_CACHE[model_type]
+    entry = _CONFIG_REGISTRY.get(model_type)
+    if entry is None:
+        return None
+
+    import importlib
+
+    module_name, class_name = entry
+    cls = getattr(importlib.import_module(module_name), class_name)
+    _CONFIG_CLASS_CACHE[model_type] = cls
     with contextlib.suppress(ValueError):
-        AutoConfig.register(name, cls)
+        AutoConfig.register(model_type, cls)
+    return cls
 
 
 def download_from_hf(
@@ -293,6 +388,8 @@ def _load_mistral_large_3_for_causal_LM(
     trust_remote_code: bool = False,
     revision: Optional[str] = None,
 ):
+    from sglang.srt.utils import mistral_utils
+
     # first get the local path
     local_path = download_from_hf(model_path)
     # then load the config file in json
@@ -329,7 +426,7 @@ def _is_deepseek_ocr2_model(config: PretrainedConfig) -> bool:
     return auto_map.get("AutoModel") == "modeling_deepseekocr2.DeepseekOCR2ForCausalLM"
 
 
-def _override_deepseek_ocr_v_head_dim(config: DeepseekVLV2Config) -> None:
+def _override_deepseek_ocr_v_head_dim(config) -> None:
     # FIXME: deepseek-ocr's v_head_dim is set to 0 in its config file.
     # https://huggingface.co/deepseek-ai/DeepSeek-OCR/blob/main/config.json#L116
     if config.text_config.v_head_dim == 0:
@@ -368,7 +465,8 @@ def _ensure_clean_up_tokenization_compat() -> None:
     ``PreTrainedTokenizerBase`` in v4 but removed in v5. Patch it back
     so existing HuggingFace Hub tokenizer code keeps working.
     """
-    if hasattr(PreTrainedTokenizerBase, "clean_up_tokenization"):
+    tokenizer_base_cls = _pretrained_tokenizer_base_cls()
+    if hasattr(tokenizer_base_cls, "clean_up_tokenization"):
         return
 
     @staticmethod
@@ -387,12 +485,7 @@ def _ensure_clean_up_tokenization_compat() -> None:
         )
         return out_string
 
-    PreTrainedTokenizerBase.clean_up_tokenization = clean_up_tokenization
-
-
-# Apply immediately so all code paths (get_tokenizer, get_processor,
-# and any external callers) benefit without needing an explicit call.
-_ensure_clean_up_tokenization_compat()
+    tokenizer_base_cls.clean_up_tokenization = clean_up_tokenization
 
 
 def _ensure_is_torch_fx_available_compat() -> None:
@@ -409,9 +502,6 @@ def _ensure_is_torch_fx_available_compat() -> None:
         return
 
     _import_utils.is_torch_fx_available = lambda: True
-
-
-_ensure_is_torch_fx_available_compat()
 
 
 def normalize_rope_scaling_compat(config: "PretrainedConfig") -> None:
@@ -509,7 +599,9 @@ def get_config(
             model, trust_remote_code=trust_remote_code, revision=revision
         )
     else:
-        _ensure_llama_flash_attention2_compat()
+        if trust_remote_code:
+            _ensure_llama_flash_attention2_compat()
+            _ensure_is_torch_fx_available_compat()
         try:
             config = AutoConfig.from_pretrained(
                 model, trust_remote_code=trust_remote_code, revision=revision, **kwargs
@@ -541,8 +633,9 @@ def get_config(
                     **kwargs,
                 )
                 model_type = config_dict.get("model_type")
-                if model_type in _CONFIG_REGISTRY:
-                    config = _CONFIG_REGISTRY[model_type].from_dict(config_dict)
+                config_cls = _get_registered_config_cls(model_type)
+                if config_cls is not None:
+                    config = config_cls.from_dict(config_dict)
                     config._name_or_path = model
                 else:
                     raise
@@ -592,16 +685,19 @@ def get_config(
         # Temporary hack for load deepseek-ocr2
         config.model_type = "deepseek-ocr"
         config.update({"architectures": ["DeepseekOCRForCausalLM"]})
-        config = DeepseekVLV2Config.from_pretrained(model, revision=revision)
+        config_cls = _get_registered_config_cls("deepseek-ocr")
+        assert config_cls is not None
+        config = config_cls.from_pretrained(model, revision=revision)
         _override_v_head_dim_if_zero(config)
         config.update({"architectures": ["DeepseekOCRForCausalLM"]})
         setattr(config, "_name_or_path", model)
-    elif config.model_type in _CONFIG_REGISTRY:
+    elif _get_registered_config_cls(config.model_type) is not None:
         model_type = config.model_type
         if model_type == "deepseek_vl_v2":
             if _is_deepseek_ocr_model(config) or _is_deepseek_ocr2_model(config):
                 model_type = "deepseek-ocr"
-        config_class = _CONFIG_REGISTRY[model_type]
+        config_class = _get_registered_config_cls(model_type)
+        assert config_class is not None
         config = config_class.from_pretrained(model, revision=revision)
 
         if _is_deepseek_ocr_model(config):
@@ -630,6 +726,10 @@ def get_config(
 
     # Special architecture mapping check for GGUF models
     if is_gguf:
+        from transformers.models.auto.modeling_auto import (
+            MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,
+        )
+
         if config.model_type not in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES:
             raise RuntimeError(f"Can't get gguf config for {config.model_type}.")
         model_type = MODEL_FOR_CAUSAL_LM_MAPPING_NAMES[config.model_type]
@@ -753,7 +853,7 @@ def _patch_is_base_mistral_in_ci():
         _is_base_mistral_patched = True  # don't warn repeatedly
         return
 
-    from transformers import PreTrainedTokenizerFast
+    from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
 
     if hasattr(PreTrainedTokenizerFast, "_patch_mistral_regex"):
 
@@ -813,6 +913,9 @@ def get_tokenizer(
         client.pull_files(ignore_pattern=["*.pt", "*.safetensors", "*.bin"])
         tokenizer_name = client.get_local_dir()
 
+    _ensure_clean_up_tokenization_compat()
+    if trust_remote_code:
+        _ensure_is_torch_fx_available_compat()
     _patch_is_base_mistral_in_ci()
 
     try:
@@ -869,7 +972,7 @@ def get_tokenizer(
     _fix_v5_tokenizer_components(tokenizer, tokenizer_name, tokenizer_revision)
     _fix_v5_add_bos_eos_token(tokenizer, tokenizer_name, tokenizer_revision)
 
-    if not isinstance(tokenizer, PreTrainedTokenizerFast):
+    if not isinstance(tokenizer, _pretrained_tokenizer_fast_cls()):
         warnings.warn(
             "Using a slow tokenizer. This might cause a significant "
             "slowdown. Consider using a fast tokenizer instead."
@@ -1015,7 +1118,9 @@ def _fix_v5_add_bos_eos_token(tokenizer, model_name_or_path, revision=None):
         # Restoring add_eos_token for fast tokenizers makes sglang diverge from
         # the HF reference (which doesn't restore it), breaking embedding models
         # like intfloat/e5-mistral-7b-instruct (cosine similarity drops to ~0.33).
-        if attr == "add_eos_token" and isinstance(tokenizer, PreTrainedTokenizerFast):
+        if attr == "add_eos_token" and isinstance(
+            tokenizer, _pretrained_tokenizer_fast_cls()
+        ):
             config_val = _V4_DEFAULTS["add_eos_token"]  # False
         current_val = getattr(tokenizer, attr, None)
         if current_val != config_val:
@@ -1109,7 +1214,7 @@ def _fix_added_tokens_encoding(tokenizer):
 
 # Some models doesn't have an available processor, e.g.: InternVL
 def get_tokenizer_from_processor(processor):
-    if isinstance(processor, PreTrainedTokenizerBase):
+    if isinstance(processor, _pretrained_tokenizer_base_cls()):
         return processor
     return processor.tokenizer
 
@@ -1126,7 +1231,8 @@ def _build_processor_manually(
     components.
     """
     import transformers
-    from transformers import AutoImageProcessor, AutoTokenizer
+    from transformers.models.auto.image_processing_auto import AutoImageProcessor
+    from transformers.models.auto.tokenization_auto import AutoTokenizer
     from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
     # Resolve processor class from auto_map — check both the model config
@@ -1202,7 +1308,9 @@ def get_processor(
             revision=revision,
         )
     else:
-        _ensure_llama_flash_attention2_compat()
+        if trust_remote_code:
+            _ensure_llama_flash_attention2_compat()
+            _ensure_is_torch_fx_available_compat()
         config = AutoConfig.from_pretrained(
             tokenizer_name,
             trust_remote_code=trust_remote_code,
@@ -1227,6 +1335,7 @@ def get_processor(
     if config.model_type not in {"llava", "clip"}:
         kwargs["use_fast"] = use_fast
     try:
+        _ensure_clean_up_tokenization_compat()
         if "InternVL3_5" in tokenizer_name:
             processor = AutoTokenizer.from_pretrained(
                 tokenizer_name,
@@ -1286,7 +1395,7 @@ def get_processor(
     # and the model is a vision model (pixtral), wrap it in a proper PixtralProcessor
     # so that image data is actually processed through the image processor.
     if (
-        isinstance(processor, PreTrainedTokenizerBase)
+        isinstance(processor, _pretrained_tokenizer_base_cls())
         and getattr(config, "model_type", None) == "pixtral"
     ):
         from transformers.models.pixtral.image_processing_pixtral import (

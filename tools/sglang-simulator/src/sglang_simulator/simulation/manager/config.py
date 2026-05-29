@@ -1,17 +1,12 @@
+from __future__ import annotations
+
 import json
 from typing import Optional
 
 from sglang_simulator.simulation.manager.env import Envs
+from sglang_simulator.simulation.manager.failure import FailureConfig
 from sglang_simulator.simulation.types import PlatformConfig, SchedulerConfig
-from sglang_simulator.simulation.utils import (
-    calc_kv_cache_cell_elems,
-    calc_kv_cache_per_layer_elems,
-)
 from sglang_simulator.spec import AcceleratorInfo, DataType, ModelInfo
-from sglang_simulator.time_predictor import (
-    AIConfiguratorTimePredictor,
-    InferTimePredictor,
-)
 from sglang_simulator.utils import get_logger
 
 logger = get_logger()
@@ -24,6 +19,8 @@ class ConfigManager:
     _platform_config: Optional[PlatformConfig] = None
     _scheduler_config: Optional[SchedulerConfig] = None
     _raw_config: Optional[dict] = None
+    _failure_config: Optional[FailureConfig] = None
+    _benchmark_config: Optional[dict] = None
 
     @classmethod
     def _get_raw_config(cls) -> dict:
@@ -38,6 +35,8 @@ class ConfigManager:
         cls._model_info = None
         cls._platform_config = None
         cls._scheduler_config = None
+        cls._failure_config = None
+        cls._benchmark_config = None
 
     @classmethod
     def set_model_info(cls, model: ModelInfo):
@@ -119,6 +118,8 @@ class ConfigManager:
 
     @classmethod
     def get_kv_cache_bytes(cls) -> int:
+        from sglang_simulator.simulation.utils import calc_kv_cache_cell_elems
+
         model = cls._model_info
         scheduler_config = cls._scheduler_config
         return (
@@ -130,6 +131,8 @@ class ConfigManager:
 
     @classmethod
     def get_kv_cache_bytes_per_layer(cls) -> int:
+        from sglang_simulator.simulation.utils import calc_kv_cache_per_layer_elems
+
         model = cls._model_info
         scheduler_config = cls._scheduler_config
         return (
@@ -142,6 +145,34 @@ class ConfigManager:
     @classmethod
     def get_scheduler_config(cls):
         return cls._scheduler_config
+
+    @classmethod
+    def get_failure_config(cls) -> FailureConfig:
+        if cls._failure_config is None:
+            cls._failure_config = FailureConfig.from_dict(
+                cls._get_raw_config().get("failure", {})
+            )
+        return cls._failure_config
+
+    @classmethod
+    def get_benchmark_config(cls) -> dict:
+        if cls._benchmark_config is None:
+            raw = cls._get_raw_config().get("benchmark", {})
+            cls._benchmark_config = raw if isinstance(raw, dict) else {}
+        return cls._benchmark_config
+
+    @classmethod
+    def get_predictor_config(cls) -> dict:
+        raw = cls._get_raw_config().get("predictor", {})
+        if not isinstance(raw, dict):
+            return {"name": "aiconfigurator"}
+
+        predictor_config = dict(raw)
+        name = predictor_config.get("name")
+        if not isinstance(name, str) or not name.strip():
+            predictor_config["name"] = "aiconfigurator"
+
+        return predictor_config
 
     @classmethod
     def _parse_server_args(cls, server_args: dict, backend: str) -> SchedulerConfig:
@@ -159,21 +190,43 @@ class ConfigManager:
     @classmethod
     def get_inference_time_predictor(
         cls, model: ModelInfo, hw: AcceleratorInfo, sched_config: SchedulerConfig
-    ) -> InferTimePredictor:
-        config = cls._get_raw_config()
-        predictor_config = config.get("predictor", {})
-        if predictor_config.get("name") == "aiconfigurator":
+    ) -> "InferTimePredictor":
+        predictor_config = cls.get_predictor_config()
+        predictor_name = predictor_config["name"]
+
+        if predictor_name == "heuristic":
+            from sglang_simulator.time_predictor.heuristic import HeuristicTimePredictor
+
+            return HeuristicTimePredictor(model, hw, sched_config)
+
+        if predictor_name == "aiconfigurator":
             database_mode = predictor_config.get("database_mode", "SILICON")
             prefill_scale_factor = predictor_config.get("prefill_scale_factor", 1)
             decode_scale_factor = predictor_config.get("decode_scale_factor", 1)
-            return AIConfiguratorTimePredictor(
-                model,
-                hw=hw,
-                config=sched_config,
-                database_path=predictor_config.get("database_path"),
-                database_mode=database_mode,
-                prefill_scale_factor=prefill_scale_factor,
-                decode_scale_factor=decode_scale_factor,
-            )
-        else:
-            raise ValueError(f"Unknown predictor name: {predictor_config.get('name')}")
+            try:
+                from sglang_simulator.time_predictor.aiconfigurator import (
+                    AIConfiguratorTimePredictor,
+                )
+
+                return AIConfiguratorTimePredictor(
+                    model,
+                    hw=hw,
+                    config=sched_config,
+                    database_path=predictor_config.get("database_path"),
+                    database_mode=database_mode,
+                    prefill_scale_factor=prefill_scale_factor,
+                    decode_scale_factor=decode_scale_factor,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "AIConfigurator predictor unavailable (%s). "
+                    "Falling back to heuristic predictor.",
+                    exc,
+                )
+                from sglang_simulator.time_predictor.heuristic import (
+                    HeuristicTimePredictor,
+                )
+
+                return HeuristicTimePredictor(model, hw, sched_config)
+
+        raise ValueError(f"Unknown predictor name: {predictor_name}")

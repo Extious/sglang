@@ -17,13 +17,12 @@ class C_HiCacheController(BaseHook):
     @staticmethod
     def calc_prefetch_pages(
         required_pages: int, page_size_byte: int, max_dur: float, bandwidth: float
-    ) -> tuple[float, float]:
+    ) -> tuple[int, float]:
         _prefetch_dur = required_pages * page_size_byte / bandwidth
         if _prefetch_dur > max_dur:
-            _completed_pages = max(max_dur * bandwidth / page_size_byte, 1)
+            _completed_pages = int(max(max_dur * bandwidth / page_size_byte, 1))
             return _completed_pages, max_dur
-        else:
-            return required_pages, _prefetch_dur
+        return int(required_pages), _prefetch_dur
 
     @classmethod
     def hook(cls, target):
@@ -83,7 +82,9 @@ class C_HiCacheController(BaseHook):
                     )
                 )
                 if completed_tokens < storage_hit_count - operation.completed_tokens:
-                    operation.completed_tokens += completed_tokens
+                    operation.completed_tokens = int(
+                        operation.completed_tokens
+                    ) + int(completed_tokens)
                     remain_dur = 0
                 else:
                     operation.completed_tokens = int(storage_hit_count)
@@ -130,8 +131,7 @@ class C_HiCacheController(BaseHook):
                         )
                     )
                     if completed_tokens < storage_hit_count:
-                        # Continue to prefetch data next time.
-                        operation.completed_tokens = completed_tokens
+                        operation.completed_tokens = int(completed_tokens)
                         setattr(
                             self,
                             "chunked_prefetch_operation",

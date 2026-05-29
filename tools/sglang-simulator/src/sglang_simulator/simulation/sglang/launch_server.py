@@ -1,42 +1,40 @@
 import argparse
 import dataclasses
+import faulthandler
 import os
 import sys
 from typing import Optional
 
-import sglang_simulator.hook as sglang_simulator_hook
-import torch
-from sglang_simulator.simulation.sglang import (
-    cache_controller,
-    hicache_storage,
-    hiradix_cache,
-    mem_cache_allocator,
-    mem_pool_host,
-    model_runner,
-    scheduler,
-    sgl_kernel_hook,
-)
-from sglang_simulator.utils import get_logger
 
-# hook the sglang implementation
-if not torch.cuda.is_available():
-    # CPU Platform
-    sglang_simulator_hook.install_module_hooks(
-        [sgl_kernel_hook.M_SGLangKernelLoadUtilHook]
+def _maybe_enable_stack_dump() -> None:
+    interval = os.getenv("SGLANG_SIMULATOR_STACK_DUMP_INTERVAL")
+    if not interval:
+        return
+
+    try:
+        interval_s = int(interval)
+    except ValueError:
+        return
+    if interval_s <= 0:
+        return
+
+    output_dir = os.getenv("SGLANG_SIMULATOR_OUTPUT_DIR", "/tmp/sglang_simulator")
+    os.makedirs(output_dir, exist_ok=True)
+    stack_path = os.path.join(output_dir, "server_stack.log")
+    stack_file = open(stack_path, "a", buffering=1)
+    faulthandler.enable(file=stack_file, all_threads=True)
+    faulthandler.dump_traceback_later(
+        interval_s,
+        repeat=True,
+        file=stack_file,
+        exit=False,
     )
-sglang_simulator_hook.install_class_hooks(
-    [
-        scheduler.C_SchedulerHook,
-        model_runner.C_ModelRunnerHook,
-        hicache_storage.C_StorageBackendFactory,
-        cache_controller.C_HiCacheController,
-        hiradix_cache.C_HiRadixCacheHook,
-        mem_cache_allocator.C_PagedTokenToKVPoolAllocatorHook,
-        mem_pool_host.C_MHATokenToKVPoolHostHook,
-        mem_pool_host.C_HostKVCacheHook,
-    ]
-)
 
+
+_maybe_enable_stack_dump()
+
+from sglang_simulator.simulation.sglang.subprocess_entry import sim_run_scheduler_process
+from sglang_simulator.utils import get_logger
 
 logger = get_logger("sgl_simulator")
 
@@ -84,6 +82,9 @@ if __name__ == "__main__":
         os.environ["SGLANG_SIMULATOR_CONFIG_PATH"] = simulation_args.sim_config_path
 
     try:
-        launch_server(server_args)
+        launch_server(
+            server_args,
+            run_scheduler_process_func=sim_run_scheduler_process,
+        )
     finally:
         kill_process_tree(os.getpid(), include_parent=False)

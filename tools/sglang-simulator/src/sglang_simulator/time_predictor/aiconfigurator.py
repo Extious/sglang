@@ -29,14 +29,14 @@ from sglang_simulator.utils import get_logger
 
 # Map the common data types to AIConfigurator data types.
 MAP_DTYPE_TO_GEMMQuantMode = {
-    DataType.FP16: GEMMQuantMode.float16,
-    DataType.BF16: GEMMQuantMode.float16,
+    DataType.FP16: GEMMQuantMode.bfloat16,
+    DataType.BF16: GEMMQuantMode.bfloat16,
     DataType.FP8: GEMMQuantMode.fp8_block,
     DataType.INT8: GEMMQuantMode.int8_wo,
     DataType.FP4: GEMMQuantMode.nvfp4,
     DataType.INT4: GEMMQuantMode.int4_wo,
-    DataType.FP16_TENSOR: GEMMQuantMode.float16,
-    DataType.BF16_TENSOR: GEMMQuantMode.float16,
+    DataType.FP16_TENSOR: GEMMQuantMode.bfloat16,
+    DataType.BF16_TENSOR: GEMMQuantMode.bfloat16,
     DataType.FP8_TENSOR: GEMMQuantMode.fp8,
     DataType.INT8_TENSOR: GEMMQuantMode.int8_wo,
     DataType.FP4_TENSOR: GEMMQuantMode.nvfp4,
@@ -44,21 +44,21 @@ MAP_DTYPE_TO_GEMMQuantMode = {
 }
 
 MAP_DTYPE_TO_KVCacheQuantMode = {
-    DataType.FP16: KVCacheQuantMode.float16,
-    DataType.BF16: KVCacheQuantMode.float16,
+    DataType.FP16: KVCacheQuantMode.bfloat16,
+    DataType.BF16: KVCacheQuantMode.bfloat16,
     DataType.FP8: KVCacheQuantMode.fp8,
     DataType.INT8: KVCacheQuantMode.int8,
 }
 
 MAP_DTYPE_TO_FMHAQuantMode = {
-    DataType.FP16: FMHAQuantMode.float16,
-    DataType.BF16: FMHAQuantMode.float16,
+    DataType.FP16: FMHAQuantMode.bfloat16,
+    DataType.BF16: FMHAQuantMode.bfloat16,
     DataType.FP8: FMHAQuantMode.fp8,
 }
 
 MAP_DTYPE_TO_MoEQuantMode = {
-    DataType.FP16: MoEQuantMode.float16,
-    DataType.BF16: MoEQuantMode.float16,
+    DataType.FP16: MoEQuantMode.bfloat16,
+    DataType.BF16: MoEQuantMode.bfloat16,
     DataType.FP8: MoEQuantMode.fp8,
     DataType.INT8: MoEQuantMode.fp8,
     DataType.FP4: MoEQuantMode.nvfp4,
@@ -84,16 +84,16 @@ def get_perf_model(sched_config: SchedulerConfig, model: ModelInfo) -> models.Ba
         moe_ep_size=sched_config.ep_size,
         attention_dp_size=sched_config.tp_size // sched_config.dp_size,
         gemm_quant_mode=MAP_DTYPE_TO_GEMMQuantMode.get(
-            sched_config.data_type, GEMMQuantMode.float16
+            sched_config.data_type, GEMMQuantMode.bfloat16
         ),
         moe_quant_mode=MAP_DTYPE_TO_MoEQuantMode.get(
-            sched_config.data_type, MoEQuantMode.float16
+            sched_config.data_type, MoEQuantMode.bfloat16
         ),
         kvcache_quant_mode=MAP_DTYPE_TO_KVCacheQuantMode.get(
-            sched_config.kv_cache_data_type, KVCacheQuantMode.float16
+            sched_config.kv_cache_data_type, KVCacheQuantMode.bfloat16
         ),
         fmha_quant_mode=MAP_DTYPE_TO_FMHAQuantMode.get(
-            sched_config.kv_cache_data_type, FMHAQuantMode.float16
+            sched_config.kv_cache_data_type, FMHAQuantMode.bfloat16
         ),
         comm_quant_mode=MAP_DTYPE_TO_CommQunatMode.get(
             sched_config.data_type, CommQuantMode.half
@@ -109,6 +109,8 @@ def get_perf_model(sched_config: SchedulerConfig, model: ModelInfo) -> models.Ba
 
 
 class AIConfiguratorTimePredictor(InferTimePredictor):
+    name = "aiconfigurator"
+
     def __init__(
         self,
         model: ModelInfo,

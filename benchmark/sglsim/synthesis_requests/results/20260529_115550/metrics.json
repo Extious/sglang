@@ -1,0 +1,17 @@
+{
+  "completed": 64,
+  "failed": 0,
+  "duration": 242.93885698914528,
+  "total_input": 1624832,
+  "total_output": 65536,
+  "request_throughput": 0.2634407718599729,
+  "input_throughput": 6688.234315980992,
+  "output_throughput": 269.76335038461224,
+  "total_throughput": 6957.997666365603,
+  "mean_e2e_latency_ms": 108288.9192237053,
+  "median_e2e_latency_ms": 106245.24977523834,
+  "p90_e2e_latency_ms": 107570.09239513427,
+  "p99_e2e_latency_ms": 211712.06108300015,
+  "max_e2e_latency_ms": 212546.45876213908,
+  "backend": "sglang"
+}

@@ -1,0 +1,53 @@
+{
+  "backend": "sglang",
+  "execution_mode": "online",
+  "benchmark": {
+    "suite": "synthesis-a100-dp2",
+    "workload": "synthesis_requests",
+    "execution_mode": "online",
+    "compare_target": "sglsim"
+  },
+  "experiment": {
+    "timestamp": "20260529_115550",
+    "name": "synthesis-a100-dp2"
+  },
+  "server": {
+    "experiment_name": "synthesis-a100-dp2",
+    "model_path": "Qwen/Qwen3-8B",
+    "host": "127.0.0.1",
+    "port": 30000,
+    "scheduler": {
+      "tp_size": 1,
+      "pp_size": 1,
+      "dp_size": 2
+    },
+    "extra_args": []
+  },
+  "deploy": {
+    "model_path": "Qwen/Qwen3-8B",
+    "dp_size": 2,
+    "tp_size": 1,
+    "pp_size": 1,
+    "host": "127.0.0.1",
+    "port": 30000,
+    "extra_args": []
+  },
+  "workload": {
+    "dataset_name": "generated-shared-prefix",
+    "seed": 1,
+    "request_rate": "inf",
+    "max_concurrency": 32,
+    "gsp_num_groups": 8,
+    "gsp_prompts_per_group": 8,
+    "gsp_system_prompt_len": 4096,
+    "gsp_question_len": 20000,
+    "gsp_output_len": 1024,
+    "gsp_range_ratio": 1.0,
+    "gsp_fast_prepare": false,
+    "gsp_send_routing_key": true,
+    "gsp_num_turns": 1,
+    "gsp_ordered": false,
+    "num_prompts": null,
+    "num_requests": 64
+  }
+}

@@ -30,7 +30,7 @@ class SchedulerRuntimeCheckerMixin:
             return False
 
         drain_fn = getattr(tree_cache, "check_hicache_events", None)
-        if callable(drain_fn):
+        if self.enable_hierarchical_cache and callable(drain_fn):
             drain_fn()
 
         for dict_name in (

@@ -11,63 +11,85 @@ benchmark/sglsim/synthesis_requests/
 ├── client.py / server.py / utils.py
 ├── cache_store.py / progress.py
 ├── config/
-│   ├── synthesis-a100/
-│   └── synthesis-a100-smoke/
+│   ├── client.json
+│   └── server.json
 ├── cache/
 ├── logs/
-└── results/<suite>/online/YYYYMMDD_HHMMSS/
+└── results/YYYYMMDD_HHMMSS/
 ```
 
-## Run (real GPU)
+## Run
 
 From sglang repo root:
 
 ```bash
 pip install transformers numpy tqdm
+python -m benchmark.sglsim.synthesis_requests.run
+```
+
+Custom config directory:
+
+```bash
 python -m benchmark.sglsim.synthesis_requests.run \
-  --config-dir benchmark/sglsim/synthesis_requests/config/synthesis-a100-smoke
+  --config-dir benchmark/sglsim/synthesis_requests/config
 ```
 
 If the server is already up:
 
 ```bash
-python -m benchmark.sglsim.synthesis_requests.run \
-  --config-dir benchmark/sglsim/synthesis_requests/config/synthesis-a100-smoke \
-  --skip-server
+python -m benchmark.sglsim.synthesis_requests.run --skip-server
 ```
 
-Outputs under `results/<suite>/online/<timestamp>/`:
+Outputs under `results/<timestamp>/`:
 
 - `server_config.json`
 - `metrics.json`
 - `request_details.csv`
 - `server.log`
 
-Client progress and cache hits: `logs/client.log`. Shared workload cache: `cache/`.
+## client.json
 
-## client.json (GSP)
+Same fields as sglsim `benchmark/synthesis_requests/config/client.json`.
 
-Same fields as sglsim `benchmark/synthesis_requests/config/client.json`:
+| Field | SGLang CLI | Default |
+|-------|------------|---------|
+| `request_rate` | `--request-rate` | `"inf"` |
+| `max_concurrency` | `--max-concurrency` | `32` |
+| `gsp_num_groups` | `--gsp-num-groups` | `8` |
+| `gsp_prompts_per_group` | `--gsp-prompts-per-group` | `16` |
+| `gsp_system_prompt_len` | `--gsp-system-prompt-len` | `4096` |
+| `gsp_question_len` | `--gsp-question-len` | `20000` |
+| `gsp_output_len` | `--gsp-output-len` | `1024` |
+| `gsp_range_ratio` | `--gsp-range-ratio` | `0.8` |
+| `gsp_fast_prepare` | `--gsp-fast-prepare` | `false` |
+| `gsp_send_routing_key` | `--gsp-send-routing-key` | `false` |
+| `gsp_num_turns` | `--gsp-num-turns` | `1` |
+| `gsp_ordered` | `--gsp-ordered` | `false` |
+| `seed` | `--seed` | `1` |
 
-| Field | Default (smoke) |
-|-------|-----------------|
-| `request_rate` | `"inf"` (burst; use `max_concurrency`) |
-| `max_concurrency` | `4` |
-| `gsp_num_groups` | `2` |
-| `gsp_prompts_per_group` | `4` |
-| `gsp_system_prompt_len` | `512` |
-| `gsp_question_len` | `1024` |
-| `gsp_output_len` | `128` |
+Total requests: `gsp_num_groups * gsp_prompts_per_group` (128 with defaults).
 
-`synthesis-a100`: 64 groups x 1 prompt, ~20k question / 2k output tokens.
+## server.json
+
+GPU deploy fields only (no simulator `platform` / `predictor` / `cache`):
+
+| Field | Description |
+|-------|-------------|
+| `experiment_name` | Run label in `server_config.json` |
+| `model_path` | HuggingFace model for `sglang.launch_server` |
+| `host` / `port` | HTTP bind address |
+| `scheduler.tp_size` / `pp_size` / `dp_size` | Parallelism for launch |
+| `extra_args` | Extra CLI flags appended to `launch_server` |
+
+Match `scheduler` sizes with sglsim when comparing runs. sglsim may use `dp_size > 1`; set the same here if your GPU setup supports it.
 
 ## Compare simulator vs GPU
 
 ```bash
 python -m benchmark.sglsim.synthesis_requests.compare \
   --sim-request-details /path/to/sglsim/benchmark/synthesis_requests/results/.../request_details.csv \
-  --real-request-details benchmark/sglsim/synthesis_requests/results/synthesis-a100-smoke/online/.../request_details.csv \
-  --real-metrics benchmark/sglsim/synthesis_requests/results/synthesis-a100-smoke/online/.../metrics.json
+  --real-request-details benchmark/sglsim/synthesis_requests/results/.../request_details.csv \
+  --real-metrics benchmark/sglsim/synthesis_requests/results/.../metrics.json
 ```
 
-Ratio `sim/real` < 1 means the simulator is faster than GPU (typical for offline logical clock).
+Ratio `sim/real` < 1 means the simulator is faster than GPU.

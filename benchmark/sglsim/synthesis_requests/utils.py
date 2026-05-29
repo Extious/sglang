@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 
 BENCHMARK_DIR = Path(__file__).resolve().parent
-DEFAULT_CONFIG_DIR = BENCHMARK_DIR / "config" / "synthesis-a100-smoke"
+DEFAULT_CONFIG_DIR = BENCHMARK_DIR / "config"
 DEFAULT_RESULTS_ROOT = BENCHMARK_DIR / "results"
 LOGS_DIR = BENCHMARK_DIR / "logs"
 CLIENT_LOG_PATH = LOGS_DIR / "client.log"
@@ -200,9 +200,9 @@ def load_server_config(path: Path) -> ServerConfig:
     )
 
 
-def new_run_dir(results_root: Path, *, suite_name: str) -> Path:
+def new_run_dir(results_root: Path) -> Path:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir = Path(results_root) / suite_name / "online" / stamp
+    run_dir = Path(results_root) / stamp
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir
 

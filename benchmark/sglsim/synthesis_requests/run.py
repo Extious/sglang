@@ -48,7 +48,7 @@ def run_experiment(
 ) -> Path:
     client_cfg, server_cfg = load_config_dir(config_dir)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir = new_run_dir(results_root, suite_name=server_cfg.experiment_name)
+    run_dir = new_run_dir(results_root)
 
     runner_log = setup_file_logger(
         "sglang.benchmark.sglsim.synthesis_requests.runner",

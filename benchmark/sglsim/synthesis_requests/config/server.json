@@ -1,5 +1,5 @@
 {
-  "experiment_name": "synthesis-a100-dp2",
+  "experiment_name": "synthesis-a100-dp2-hicache-fa3",
   "model_path": "Qwen/Qwen3-8B",
   "host": "127.0.0.1",
   "port": 30000,
@@ -10,6 +10,11 @@
   },
   "attention_backend": "fa3",
   "extra_args": [
-    "--enable-cache-report"
+    "--enable-cache-report",
+    "--enable-hierarchical-cache",
+    "--hicache-ratio",
+    "2",
+    "--decode-attention-backend",
+    "fa3"
   ]
 }

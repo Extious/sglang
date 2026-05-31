@@ -8,5 +8,6 @@
     "pp_size": 1,
     "dp_size": 2
   },
+  "attention_backend": "flash_attention",
   "extra_args": ["--enable-cache-report"]
 }

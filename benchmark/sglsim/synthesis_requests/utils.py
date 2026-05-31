@@ -59,6 +59,7 @@ class ServerConfig:
     pp_size: int
     raw: dict[str, Any]
     experiment_name: str = "synthesis"
+    attention_backend: str = "flash_attention"
     extra_args: tuple[str, ...] = ()
 
 
@@ -196,6 +197,7 @@ def load_server_config(path: Path) -> ServerConfig:
         experiment_name=str(
             raw.get("experiment_name", raw.get("name", "synthesis"))
         ),
+        attention_backend=str(raw.get("attention_backend", "flash_attention")),
         extra_args=_parse_extra_args(raw.get("extra_args")),
     )
 
@@ -241,6 +243,7 @@ def write_run_config(
             "pp_size": server.pp_size,
             "host": server.host,
             "port": server.port,
+            "attention_backend": server.attention_backend,
             "extra_args": list(server.extra_args),
         },
         "workload": workload,

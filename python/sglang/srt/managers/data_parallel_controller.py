@@ -146,6 +146,7 @@ class DataParallelController:
 
         # Dispatch method
         self.round_robin_counter = 0
+        self.routing_key_to_rank: dict[str, int] = {}
         dispatch_lookup = {
             LoadBalanceMethod.ROUND_ROBIN: self.round_robin_scheduler,
             LoadBalanceMethod.FOLLOW_BOOTSTRAP_ROOM: self.follow_bootstrap_room_scheduler,
@@ -581,10 +582,42 @@ class DataParallelController:
                 return rank
         return None
 
+    def _resolve_routing_key_dp_rank(
+        self, req: Req, exclude: Optional[set] = None
+    ) -> Optional[int]:
+        routing_key = getattr(req, "routing_key", None)
+        if not routing_key:
+            return None
+
+        exclude = exclude or set()
+        mapped_rank = self.routing_key_to_rank.get(routing_key)
+        if (
+            mapped_rank is not None
+            and 0 <= mapped_rank < len(self.workers)
+            and self.status[mapped_rank]
+            and mapped_rank not in exclude
+        ):
+            return mapped_rank
+
+        for _ in range(len(self.workers)):
+            rank = self.round_robin_counter
+            self.round_robin_counter = (self.round_robin_counter + 1) % len(
+                self.workers
+            )
+            if self.status[rank] and rank not in exclude:
+                self.routing_key_to_rank[routing_key] = rank
+                return rank
+        return None
+
     def maybe_external_dp_rank_routing(self, req: Req, exclude: Optional[set] = None):
+        exclude = exclude or set()
+        if getattr(req, "routed_dp_rank", None) is None:
+            resolved_rank = self._resolve_routing_key_dp_rank(req, exclude)
+            if resolved_rank is not None:
+                req.routed_dp_rank = resolved_rank
+
         routed_dp_rank = getattr(req, "routed_dp_rank", None)
         if routed_dp_rank is not None:
-            exclude = exclude or set()
             if (
                 routed_dp_rank < 0
                 or routed_dp_rank >= len(self.workers)

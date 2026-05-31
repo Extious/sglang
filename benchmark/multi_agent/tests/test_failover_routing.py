@@ -147,6 +147,7 @@ def _controller(*, failed=(), total_tokens=(100, 0), total_requests=(0, 0)):
     controller.workers = [_Worker(), _Worker()]
     controller.status = [True, True]
     controller.round_robin_counter = 0
+    controller.routing_key_to_rank = {}
     controller.dp_budget = DPBudget(2)
     controller.dp_budget.total_tokens = list(total_tokens)
     controller.dp_budget.total_requests = list(total_requests)
@@ -185,6 +186,34 @@ class FailoverRoutingTest(unittest.TestCase):
         self.assertIsNone(
             budget.dispatch(LoadBalanceMethod.TOTAL_TOKENS, exclude={0, 1})
         )
+
+    def test_routing_key_affinity_pins_same_key_to_same_rank(self):
+        controller = _controller()
+        req_a = SimpleNamespace(
+            routed_dp_rank=None, routing_key="group-1", rid="a"
+        )
+        req_b = SimpleNamespace(
+            routed_dp_rank=None, routing_key="group-1", rid="b"
+        )
+
+        controller.round_robin_scheduler(req_a)
+        controller.round_robin_scheduler(req_b)
+
+        self.assertEqual(req_a.routed_dp_rank, req_b.routed_dp_rank)
+        self.assertEqual(len(controller.workers[req_a.routed_dp_rank].sent), 2)
+
+    def test_routing_key_reassigns_when_mapped_rank_failed(self):
+        controller = _controller(failed={0})
+        controller.routing_key_to_rank["group-1"] = 0
+        req = SimpleNamespace(
+            routed_dp_rank=None, routing_key="group-1", rid="retry"
+        )
+
+        controller.round_robin_scheduler(req)
+
+        self.assertEqual(req.routed_dp_rank, 1)
+        self.assertEqual(controller.routing_key_to_rank["group-1"], 1)
+        self.assertEqual(controller.workers[1].sent, [req])
 
 
 if __name__ == "__main__":

@@ -10,6 +10,8 @@
   },
   "attention_backend": "fa3",
   "extra_args": [
+    "--mem-fraction-static",
+    "0.5",
     "--enable-cache-report",
     "--enable-hierarchical-cache",
     "--hicache-ratio",

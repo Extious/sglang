@@ -455,6 +455,13 @@ def _cache_hit_tokens_from_usage(usage: dict[str, Any]) -> int:
     return 0
 
 
+def _load_back_tokens_from_usage(usage: dict[str, Any]) -> int:
+    details = usage.get("cached_tokens_details")
+    if isinstance(details, dict):
+        return int(details.get("host", 0) or 0)
+    return 0
+
+
 def response_to_detail_row(
     rid: str,
     response: dict[str, Any],
@@ -473,6 +480,7 @@ def response_to_detail_row(
         usage.get("completion_tokens", prepared_output_len) or 0
     )
     cache_hit_tokens = _cache_hit_tokens_from_usage(usage)
+    load_back_tokens = _load_back_tokens_from_usage(usage)
     return RequestDetailRow(
         rid=rid,
         status=status,
@@ -486,7 +494,7 @@ def response_to_detail_row(
         input_length=prompt_tokens or prepared_prompt_len,
         output_length=completion_tokens or prepared_output_len,
         cache_hit_tokens=cache_hit_tokens,
-        load_back_tokens=0,
+        load_back_tokens=load_back_tokens,
         prefetch_complete_tokens=0,
         e2e_latency_s=e2e_latency_s,
         ttft_ms=0.0,

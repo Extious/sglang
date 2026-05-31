@@ -66,6 +66,7 @@ def build_chat_payload(
         "max_completion_tokens": int(output_len),
         "stream": False,
         "ignore_eos": True,
+        "return_cached_tokens_details": True,
         "user": rid,
     }
 

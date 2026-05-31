@@ -67,7 +67,23 @@ Same fields as sglsim `benchmark/synthesis_requests/config/client.json`.
 | `gsp_ordered` | `--gsp-ordered` | `false` |
 | `seed` | `--seed` | `1` |
 
-Total requests: `gsp_num_groups * gsp_prompts_per_group` (128 with defaults).
+Total sessions: `gsp_num_groups * gsp_prompts_per_group` (30 with current defaults: 15×2).
+
+## Request paths
+
+| Mode | API | When |
+|------|-----|------|
+| Single-turn (`gsp_num_turns=1`) | `POST /v1/completions` | Default; same as before |
+| Multi-turn (`gsp_num_turns>1`) | `POST /v1/chat/completions` | Sequential turns per session, aligned with SGLang `bench_serving` + `sglang-oai-chat` |
+
+Multi-turn behavior (same as `sglsim/benchmark/synthesis_requests`):
+
+- Workload: `turn_prompts = [f"{system}\n\n{q0}"] + q[1:]` stored as `list[str]` per session.
+- Client: for each session, turns run **serially**; `messages` grows with user/assistant pairs.
+- Turn 0 user content = system + first question; later turns = question only.
+- Each HTTP call uses rid `{session_rid}-t{turn}`; `request_details.csv` has **one row per turn**.
+- `gsp_fast_prepare` is ignored for multi-turn (full message text is sent).
+- `gsp_send_routing_key: true` sends `X-SMG-Routing-Key` on every turn (same key per group).
 
 ## server.json
 
@@ -82,6 +98,12 @@ GPU deploy fields only (no simulator `platform` / `predictor` / `cache`):
 | `extra_args` | Extra CLI flags appended to `launch_server` |
 
 Match `scheduler` sizes with sglsim when comparing runs. sglsim may use `dp_size > 1`; set the same here if your GPU setup supports it.
+
+## Notes
+
+- `gsp_fast_prepare: true` sets `prompt_len=1` when generating; POST uses `input_len` (single-turn only).
+- Real GPU runs need `Authorization: Bearer EMPTY_API_KEY` (set automatically in `client.py`).
+- After changing `gsp_num_turns` or other GSP fields, delete matching entries under `cache/` or use a new `seed` so prepared workload is regenerated.
 
 ## Compare simulator vs GPU
 

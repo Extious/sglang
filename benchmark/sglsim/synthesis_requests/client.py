@@ -38,6 +38,36 @@ class PreparedRequest:
     output_len: int
     body: bytes
     routing_key: str | None = None
+    turn_prompts: tuple[str, ...] | None = None
+    model_path: str = ""
+
+    @property
+    def is_multi_turn(self) -> bool:
+        return self.turn_prompts is not None and len(self.turn_prompts) > 1
+
+
+def _turn_prompts_from_workload(req: WorkloadRequest) -> tuple[str, ...] | None:
+    if isinstance(req.prompt, list) and len(req.prompt) > 1:
+        return tuple(req.prompt)
+    return None
+
+
+def build_chat_payload(
+    *,
+    model_path: str,
+    messages: list[dict[str, str]],
+    output_len: int,
+    rid: str,
+) -> dict[str, Any]:
+    return {
+        "model": model_path,
+        "messages": messages,
+        "temperature": 0.0,
+        "max_completion_tokens": int(output_len),
+        "stream": False,
+        "ignore_eos": True,
+        "user": rid,
+    }
 
 
 def build_prepared_requests_from_workload(
@@ -45,15 +75,32 @@ def build_prepared_requests_from_workload(
     client: ClientConfig,
     server: ServerConfig,
 ) -> list[PreparedRequest]:
-    if client.gsp_num_turns > 1:
+    if client.gsp_num_turns > 1 and client.gsp_fast_prepare:
         logger.warning(
-            "gsp_num_turns=%d; HTTP client sends the first turn only",
+            "gsp_num_turns=%d with gsp_fast_prepare; multi-turn uses chat messages "
+            "instead of input_len",
             client.gsp_num_turns,
         )
 
     model_path = server.model_path
     prepared: list[PreparedRequest] = []
     for req in workload:
+        turn_prompts = _turn_prompts_from_workload(req)
+        if turn_prompts is not None:
+            prepared.append(
+                PreparedRequest(
+                    rid=req.rid,
+                    prompt=turn_prompts[0],
+                    prompt_len=int(req.prompt_len),
+                    output_len=req.output_len,
+                    body=b"",
+                    routing_key=req.routing_key,
+                    turn_prompts=turn_prompts,
+                    model_path=model_path,
+                )
+            )
+            continue
+
         turn_prompt = req.first_turn_prompt
         payload: dict[str, Any] = {
             "model": model_path,
@@ -77,6 +124,7 @@ def build_prepared_requests_from_workload(
                 output_len=req.output_len,
                 body=json.dumps(payload, ensure_ascii=True).encode("utf-8"),
                 routing_key=req.routing_key,
+                model_path=model_path,
             )
         )
     return prepared
@@ -162,25 +210,24 @@ def wait_for_server_ready(
     raise TimeoutError(message)
 
 
-def post_completions_sync(
-    host: str,
-    port: int,
-    prepared: PreparedRequest,
+def _post_json_sync(
+    url: str,
+    body: bytes,
     *,
+    routing_key: str | None,
     timeout_s: float = 7200.0,
 ) -> tuple[dict[str, Any], float, str]:
-    url = f"{_base_url(host, port)}/v1/completions"
     headers = {
         "Content-Type": "application/json",
         "Authorization": "Bearer EMPTY_API_KEY",
     }
-    if prepared.routing_key:
-        headers[ROUTING_KEY_HEADER] = prepared.routing_key
+    if routing_key:
+        headers[ROUTING_KEY_HEADER] = routing_key
     start = time.perf_counter()
     try:
         req = urllib.request.Request(
             url,
-            data=prepared.body,
+            data=body,
             method="POST",
             headers=headers,
         )
@@ -198,29 +245,149 @@ def post_completions_sync(
         return {}, e2e_latency_s, str(exc)[:500]
 
 
+def post_completions_sync(
+    host: str,
+    port: int,
+    prepared: PreparedRequest,
+    *,
+    timeout_s: float = 7200.0,
+) -> tuple[dict[str, Any], float, str]:
+    url = f"{_base_url(host, port)}/v1/completions"
+    return _post_json_sync(
+        url,
+        prepared.body,
+        routing_key=prepared.routing_key,
+        timeout_s=timeout_s,
+    )
+
+
+def post_chat_completions_sync(
+    host: str,
+    port: int,
+    *,
+    body: bytes,
+    routing_key: str | None,
+    timeout_s: float = 7200.0,
+) -> tuple[dict[str, Any], float, str]:
+    url = f"{_base_url(host, port)}/v1/chat/completions"
+    return _post_json_sync(
+        url,
+        body,
+        routing_key=routing_key,
+        timeout_s=timeout_s,
+    )
+
+
+def _assistant_content(response: dict[str, Any]) -> str:
+    choices = response.get("choices") or []
+    if not choices:
+        return ""
+    message = choices[0].get("message") or {}
+    content = message.get("content")
+    return content if isinstance(content, str) else ""
+
+
+def run_multi_turn_session_sync(
+    host: str,
+    port: int,
+    prepared: PreparedRequest,
+    *,
+    timeout_s: float = 7200.0,
+) -> list[tuple[str, dict[str, Any], float, str]]:
+    if prepared.turn_prompts is None:
+        raise ValueError("run_multi_turn_session_sync requires turn_prompts")
+    messages: list[dict[str, str]] = []
+    outputs: list[tuple[str, dict[str, Any], float, str]] = []
+    for turn_idx, turn_prompt in enumerate(prepared.turn_prompts):
+        turn_rid = f"{prepared.rid}-t{turn_idx}"
+        messages.append({"role": "user", "content": turn_prompt})
+        payload = build_chat_payload(
+            model_path=prepared.model_path,
+            messages=messages,
+            output_len=prepared.output_len,
+            rid=turn_rid,
+        )
+        body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+        response, e2e_latency_s, error = post_chat_completions_sync(
+            host,
+            port,
+            body=body,
+            routing_key=prepared.routing_key,
+            timeout_s=timeout_s,
+        )
+        outputs.append((turn_rid, response, e2e_latency_s, error))
+        if error:
+            break
+        messages.append(
+            {"role": "assistant", "content": _assistant_content(response)}
+        )
+    return outputs
+
+
 async def _bounded_post(
     host: str,
     port: int,
     prepared: PreparedRequest,
     semaphore: asyncio.Semaphore | None,
-) -> RequestDetailRow:
-    if semaphore is not None:
-        async with semaphore:
-            response, e2e_latency_s, error = await asyncio.to_thread(
-                post_completions_sync, host, port, prepared
+    progress: dict[str, int] | None = None,
+) -> list[RequestDetailRow]:
+    async def _run() -> list[RequestDetailRow]:
+        if prepared.is_multi_turn:
+            turn_outputs = await asyncio.to_thread(
+                run_multi_turn_session_sync, host, port, prepared
             )
-    else:
+            rows = []
+            for turn_rid, response, e2e_latency_s, error in turn_outputs:
+                rows.append(
+                    response_to_detail_row(
+                        turn_rid,
+                        response,
+                        e2e_latency_s,
+                        prepared_prompt_len=prepared.prompt_len,
+                        prepared_output_len=prepared.output_len,
+                        error=error,
+                    )
+                )
+            return rows
         response, e2e_latency_s, error = await asyncio.to_thread(
             post_completions_sync, host, port, prepared
         )
-    return response_to_detail_row(
-        prepared.rid,
-        response,
-        e2e_latency_s,
-        prepared_prompt_len=prepared.prompt_len,
-        prepared_output_len=prepared.output_len,
-        error=error,
-    )
+        return [
+            response_to_detail_row(
+                prepared.rid,
+                response,
+                e2e_latency_s,
+                prepared_prompt_len=prepared.prompt_len,
+                prepared_output_len=prepared.output_len,
+                error=error,
+            )
+        ]
+
+    if semaphore is not None:
+        async with semaphore:
+            rows = await _run()
+    else:
+        rows = await _run()
+
+    if progress is not None:
+        progress["done"] += 1
+        logger.info(
+            "Completed %d/%d sessions (rid=%s turns=%d)",
+            progress["done"],
+            progress["total"],
+            prepared.rid,
+            len(rows),
+        )
+    return rows
+
+
+def _rid_sort_key(rid: str) -> tuple[Any, ...]:
+    if "-t" in rid:
+        base, turn = rid.rsplit("-t", 1)
+        turn_key: Any = int(turn) if turn.isdigit() else turn
+        base_key: Any = int(base) if base.isdigit() else base
+        return (base_key, turn_key)
+    return (int(rid) if rid.isdigit() else rid, 0)
 
 
 async def _run_client_async(
@@ -233,18 +400,20 @@ async def _run_client_async(
     semaphore = (
         asyncio.Semaphore(max_concurrency) if max_concurrency is not None else None
     )
-    tasks: list[asyncio.Task[RequestDetailRow]] = []
+    progress = {"done": 0, "total": len(prepared_requests)}
+    tasks: list[asyncio.Task[list[RequestDetailRow]]] = []
     for prepared in prepared_requests:
         tasks.append(
             asyncio.create_task(
-                _bounded_post(host, port, prepared, semaphore),
+                _bounded_post(host, port, prepared, semaphore, progress),
                 name=f"gsp-rid-{prepared.rid}",
             )
         )
     if not tasks:
         return []
-    rows = await asyncio.gather(*tasks)
-    rows.sort(key=lambda row: int(row.rid) if row.rid.isdigit() else row.rid)
+    nested = await asyncio.gather(*tasks)
+    rows = [row for session_rows in nested for row in session_rows]
+    rows.sort(key=lambda row: _rid_sort_key(row.rid))
     return list(rows)
 
 
@@ -254,10 +423,12 @@ def run_client(
     prepared_requests: list[PreparedRequest],
     client: ClientConfig,
 ) -> list[RequestDetailRow]:
+    multi_turn = sum(1 for p in prepared_requests if p.is_multi_turn)
     logger.info(
-        "Running bench_serving-style client requests=%d request_rate=inf "
-        "max_concurrency=%s",
+        "Running bench_serving-style client sessions=%d multi_turn_sessions=%d "
+        "request_rate=inf max_concurrency=%s",
         len(prepared_requests),
+        multi_turn,
         client.max_concurrency,
     )
     rows = asyncio.run(
@@ -268,5 +439,5 @@ def run_client(
             max_concurrency=client.max_concurrency,
         )
     )
-    logger.info("Completed %d requests", len(rows))
+    logger.info("Completed %d detail rows (%d sessions)", len(rows), len(prepared_requests))
     return rows

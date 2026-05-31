@@ -47,6 +47,7 @@ if [ -z "${REPO_ROOT}" ]; then
 fi
 
 VENV_DIR="${SGLANG_VENV:-${REPO_ROOT}/.venv}"
+export PATH="${VENV_DIR}/bin:${PATH}"
 CONFIG_DIR="${REPO_ROOT}/benchmark/sglsim/synthesis_requests/config"
 LOG_DIR="${REPO_ROOT}/benchmark/sglsim/synthesis_requests/logs"
 mkdir -p "${LOG_DIR}"
@@ -87,7 +88,7 @@ echo "job_id=${JOB_ID}"
 nvidia-smi -L || true
 
 cd "${REPO_ROOT}"
-"${VENV_DIR}/bin/python" -m pip install -q transformers numpy tqdm 2>/dev/null || true
+"${VENV_DIR}/bin/python" -m pip install -q transformers numpy tqdm ninja 2>/dev/null || true
 "${VENV_DIR}/bin/python" -m benchmark.sglsim.synthesis_requests.run \
     --config-dir "${CONFIG_DIR}" \
     --log-level info

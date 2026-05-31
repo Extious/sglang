@@ -59,7 +59,7 @@ class ServerConfig:
     pp_size: int
     raw: dict[str, Any]
     experiment_name: str = "synthesis"
-    attention_backend: str = "flash_attention"
+    attention_backend: str = "fa3"
     extra_args: tuple[str, ...] = ()
 
 
@@ -197,7 +197,7 @@ def load_server_config(path: Path) -> ServerConfig:
         experiment_name=str(
             raw.get("experiment_name", raw.get("name", "synthesis"))
         ),
-        attention_backend=str(raw.get("attention_backend", "flash_attention")),
+        attention_backend=str(raw.get("attention_backend", "fa3")),
         extra_args=_parse_extra_args(raw.get("extra_args")),
     )
 

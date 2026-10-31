@@ -103,6 +103,7 @@ class TestMambaBoundaryMaskReuse(unittest.TestCase):
                 )
                 scheduler.process_input_requests = MagicMock()
                 scheduler._engine_paused = False
+                scheduler.aegiskv = None
                 scheduler.running_batch = batch
                 scheduler.is_disable_overlap_for_batch = MagicMock(return_value=False)
                 scheduler.run_batch = MagicMock(return_value=result)

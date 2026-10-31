@@ -14,6 +14,8 @@ from sglang.srt.managers.communicator import FanOutCommunicator
 from sglang.srt.managers.io_struct import (
     AddExternalCorpusReqInput,
     AddExternalCorpusReqOutput,
+    AegisKVControlReqInput,
+    AegisKVControlReqOutput,
     AttachHiCacheStorageReqInput,
     AttachHiCacheStorageReqOutput,
     BeginWeightUpdateReqInput,
@@ -125,6 +127,7 @@ _COMMUNICATOR_SPECS = [
     ("slow_down", SlowDownReqOutput),
     ("pd_role_switch", PdRoleSwitchReqOutput),
     ("flush_cache", FlushCacheReqOutput),
+    ("aegiskv_control", AegisKVControlReqOutput),
     ("add_external_corpus", AddExternalCorpusReqOutput),
     ("remove_external_corpus", RemoveExternalCorpusReqOutput),
     ("list_external_corpora", ListExternalCorporaReqOutput),
@@ -328,6 +331,12 @@ class TokenizerControlMixin:
         if result.success and self.mm_processor is not None:
             self.mm_processor.clear_preprocess_cache()
         return result
+
+    async def aegiskv_control(
+        self: TokenizerManager, obj: AegisKVControlReqInput
+    ) -> AegisKVControlReqOutput:
+        self.auto_create_handle_loop()
+        return (await self.aegiskv_control_communicator(obj))[0]
 
     async def clear_hicache_storage(self: TokenizerManager) -> ClearHiCacheReqOutput:
         """Clear the hierarchical cache storage."""

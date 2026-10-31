@@ -67,6 +67,8 @@ class SchedulerInvariantChecker:
     # The chunked-prefill request parked between chunks is in neither batch;
     # its uncached tokens must still be counted.
     get_chunked_req: Callable = field(default=lambda: None)
+    # Pool slots held outside both the allocator and the tree (AegisKV regions).
+    get_external_held_tokens: Callable[[], int] = field(default=lambda: 0)
     count_req_pool_leak_warnings: int = 0
     count_memory_leak_warnings: int = 0
     recent_busy_msgs: Deque[str] = field(
@@ -338,7 +340,9 @@ class SchedulerInvariantChecker:
         ps = self.pool_stats_observer.get_pool_stats()
         full_uncached, swa_uncached = self._get_total_uncached_sizes()
 
-        full_leak, full_msg = self._check_full_pool(ps, uncached=full_uncached)
+        full_leak, full_msg = self._check_full_pool(
+            ps, uncached=full_uncached + self.get_external_held_tokens()
+        )
 
         swa_leak, swa_msg = False, ""
         if self.is_hybrid_swa:
@@ -504,7 +508,9 @@ class SchedulerInvariantChecker:
         has_leak = False
         messages = []
 
-        full_leak, full_msg = self._check_full_pool(ps, uncached=uncached)
+        full_leak, full_msg = self._check_full_pool(
+            ps, uncached=uncached + self.get_external_held_tokens()
+        )
         has_leak |= full_leak
         messages.append(full_msg)
 

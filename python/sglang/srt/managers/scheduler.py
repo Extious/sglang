@@ -28,6 +28,8 @@ from functools import partial
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Deque, Dict, List, Optional, Set, Tuple, Union
 
+import orjson
+
 from sglang.srt.runtime_context import (
     SpawnRanks,
     attention_backends,
@@ -67,6 +69,7 @@ try:
     )
 except ImportError:
     initialize_mamba_selective_state_update_backend = None
+from sglang.srt.aegiskv.worker import AegisKVWorker
 from sglang.srt.beam_search.coordinator import BeamCoordinator
 from sglang.srt.configs.model_config import (
     ModelConfig,
@@ -122,6 +125,8 @@ from sglang.srt.managers.io_struct import (
     ActiveRanksOutput,
     AddExternalCorpusReqInput,
     AddExternalCorpusReqOutput,
+    AegisKVControlReqInput,
+    AegisKVControlReqOutput,
     AttachHiCacheStorageReqInput,
     AttachHiCacheStorageReqOutput,
     BatchTokenizedEmbeddingReqInput,
@@ -681,6 +686,7 @@ class Scheduler(
         self.init_weight_updater()
 
         # Init request dispatcher
+        self.maybe_init_aegiskv()
         self.init_request_dispatcher()
 
         # Init LoRA drainer for fair scheduling
@@ -1715,6 +1721,43 @@ class Scheduler(
                 self.truncation_align_size, dsa_index_kpool
             )
 
+    def maybe_init_aegiskv(self) -> None:
+        """Construct the AegisKV data plane when --enable-aegiskv is set."""
+        self.aegiskv: Optional[AegisKVWorker] = None
+        if not get_memory().enable_aegiskv:
+            return
+        self.aegiskv = AegisKVWorker(
+            tree_cache=self.tree_cache,
+            token_to_kv_pool_allocator=self.token_to_kv_pool_allocator,
+            req_to_token_pool=self.req_to_token_pool,
+            max_total_num_tokens=self.max_total_num_tokens,
+            page_size=self.page_size,
+            forward_stream=self.forward_stream,
+            get_running_batch=lambda: self.running_batch,
+            get_last_batch=lambda: self.last_batch,
+            get_chunked_req=lambda: self.chunked_req,
+            get_waiting_queue_len=lambda: len(self.waiting_queue),
+        )
+
+    def handle_aegiskv_control(
+        self, recv_req: AegisKVControlReqInput
+    ) -> AegisKVControlReqOutput:
+        """Run one AegisKV data-plane op and return its JSON result."""
+        if self.aegiskv is None:
+            return AegisKVControlReqOutput(
+                success=False, message="Server started without --enable-aegiskv"
+            )
+        try:
+            result = self.aegiskv.handle_control(
+                op=recv_req.op, args=orjson.loads(recv_req.args_json)
+            )
+        except Exception as e:
+            logger.exception("AegisKV op %s failed", recv_req.op)
+            return AegisKVControlReqOutput(success=False, message=repr(e))
+        return AegisKVControlReqOutput(
+            success=True, result_json=orjson.dumps(result).decode()
+        )
+
     def init_request_dispatcher(self):
         self._request_dispatcher = TypeBasedDispatcher(
             [
@@ -1723,6 +1766,7 @@ class Scheduler(
                 (BatchTokenizedGenerateReqInput, self.handle_batch_generate_request),
                 (BatchTokenizedEmbeddingReqInput, self.handle_batch_embedding_request),
                 (FlushCacheReqInput, self.flush_wrapper.handle),
+                (AegisKVControlReqInput, self.handle_aegiskv_control),
                 (ClearHiCacheReqInput, self.clear_hicache_storage_wrapped),
                 (AttachHiCacheStorageReqInput, self.attach_hicache_storage_wrapped),
                 (DetachHiCacheStorageReqInput, self.detach_hicache_storage_wrapped),
@@ -1914,6 +1958,8 @@ class Scheduler(
             if self._engine_paused:
                 self._record_scheduler_state_for_paused_engine()
                 continue
+            if self.aegiskv is not None:
+                self.aegiskv.on_step()
 
             # Get the next batch to run
             plan = self.get_next_batch_to_run(
@@ -1958,6 +2004,8 @@ class Scheduler(
             if self._engine_paused:
                 self._record_scheduler_state_for_paused_engine()
                 continue
+            if self.aegiskv is not None:
+                self.aegiskv.on_step()
 
             # Get the next batch to run
             plan = self.get_next_batch_to_run(
@@ -2376,6 +2424,9 @@ class Scheduler(
             get_last_batch=lambda: self.last_batch,
             get_running_batch=lambda: self.running_batch,
             get_chunked_req=lambda: self.chunked_req,
+            get_external_held_tokens=lambda: (
+                self.aegiskv.held_tokens() if self.aegiskv is not None else 0
+            ),
             scheduler_stage_metrics=self.scheduler_stage_metrics,
         )
 

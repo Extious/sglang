@@ -1760,6 +1760,18 @@ class FlushCacheReqOutput(BaseReq, kw_only=True):
     message: str = ""
 
 
+class AegisKVControlReqInput(BaseReq, kw_only=True):
+    op: str
+    # JSON object; the op-specific schema lives in sglang.srt.aegiskv.worker.
+    args_json: str = "{}"
+
+
+class AegisKVControlReqOutput(BaseReq, kw_only=True):
+    success: bool
+    message: str = ""
+    result_json: str = "{}"
+
+
 class AddExternalCorpusReqInput(BaseReq, kw_only=True):
     corpus_id: Optional[str] = None
     file_path: Optional[str] = None

@@ -1002,6 +1002,24 @@ async def flush_cache(timeout: float = Query(0.0, ge=0.0)):
     )
 
 
+@app.post("/aegiskv/control")
+@auth_level(AuthLevel.ADMIN_OPTIONAL)
+async def aegiskv_control(request: Request):
+    """Run one AegisKV data-plane op; body is {"op": str, "args": object}."""
+    from sglang.srt.managers.io_struct import AegisKVControlReqInput
+
+    body = await request.json()
+    obj = AegisKVControlReqInput(
+        op=body["op"], args_json=orjson.dumps(body.get("args", {})).decode()
+    )
+    ret = await _global_state.tokenizer_manager.aegiskv_control(obj)
+    return Response(
+        content=ret.result_json if ret.success else ret.message,
+        media_type="application/json" if ret.success else "text/plain",
+        status_code=200 if ret.success else HTTPStatus.BAD_REQUEST,
+    )
+
+
 @app.post("/add_external_corpus")
 @auth_level(AuthLevel.ADMIN_OPTIONAL)
 async def add_external_corpus(request: Request):

@@ -243,6 +243,19 @@ class Memory(msgspec.Struct):
     ] = None
 
     # -------------------------------------------------------------------------
+    # AegisKV
+    # -------------------------------------------------------------------------
+    enable_aegiskv: A[
+        bool,
+        (
+            "Enable the AegisKV data plane behind POST /aegiskv/control: "
+            "checkpoint running requests' KV into peer-owned DRAM arenas, hold "
+            "peer replicas in this worker's KV pool, and import a backup into "
+            "the radix cache on takeover. Requires --page-size 1."
+        ),
+    ] = False
+
+    # -------------------------------------------------------------------------
     # FlexKV
     # -------------------------------------------------------------------------
     enable_flexkv: A[

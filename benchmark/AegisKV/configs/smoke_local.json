@@ -1,0 +1,22 @@
+{
+  "name": "smoke_local",
+  "policy": "rebuild",
+  "model_path": "/home/comp/zhanzhao/MoonKVSim/benchmark/AegisKV/experiments/native-sparse/runtime-20260914/MiniCPM4.1-8B",
+  "out_dir": "/home/comp/zhanzhao/aegiskv-runs/smoke_local",
+  "gpus": [
+    0,
+    1
+  ],
+  "base_port": 31100,
+  "mem_fraction_static": 0.88,
+  "context_length": 8192,
+  "chunked_prefill_size": 4096,
+  "python": "/home/comp/zhanzhao/sglang/.venv/bin/python",
+  "dram_backup_tokens": 20000,
+  "staging_tokens": 20000,
+  "extra_server_args": [
+    "--trust-remote-code",
+    "--cuda-graph-backend-prefill",
+    "disabled"
+  ]
+}

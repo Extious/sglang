@@ -160,6 +160,7 @@ def summarize(nofail: dict, runs: List[str]) -> dict:
 
 
 def _plot(summaries: List[dict], out: str) -> None:
+    """Single-column 2x2 figure: critical-path recovery, Workflow impact, cost."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -167,59 +168,92 @@ def _plot(summaries: List[dict], out: str) -> None:
 
     plt.rcParams.update(
         {
-            "font.size": 8,
-            "axes.labelsize": 8,
-            "xtick.labelsize": 7,
-            "ytick.labelsize": 7,
+            "font.size": 7,
+            "axes.labelsize": 7,
+            "xtick.labelsize": 6.5,
+            "ytick.labelsize": 6.5,
+            "hatch.linewidth": 0.5,
             "pdf.fonttype": 42,
             "ps.fonttype": 42,
         }
     )
     names = [POLICY_LABELS.get(s["policy"], s["policy"]) for s in summaries]
+    # Hatches stay distinguishable in grayscale and do not read as data points.
     styles = {
-        "rebuild": ("#bdbdbd", ""),
-        "lumen": ("#6baed6", "//"),
-        "hbm_replica": ("#fd8d3c", ".."),
-        "aegiskv": ("#31a354", "xx"),
+        "rebuild": ("#d9d9d9", ""),
+        "lumen": ("#9ecae1", "////"),
+        "hbm_replica": ("#fdae6b", "\\\\"),
+        "aegiskv": ("#41ab5d", "xxxx"),
     }
+    crit = lambda s, k: [r[k] for r in s["victims"] if r["critical"]]  # noqa: E731
     panels = [
         (
+            "(a) Critical-path victims",
             "First resumed\ntoken (s)",
-            lambda s: [r["first_output_s"] for r in s["victims"]],
+            lambda s: crit(s, "first_output_s"),
+            True,
         ),
-        ("Added WCT of\naffected Workflows (s)", lambda s: s["added_wct"]),
+        ("(b) Affected Workflows", "Added WCT (s)", lambda s: s["added_wct"], True),
         (
-            "Restored KV, critical-\npath victims (%)",
-            lambda s: [100 * r["coverage"] for r in s["victims"] if r["critical"]],
+            "(c) Critical-path victims",
+            "KV restored (%)",
+            lambda s: [100 * v for v in crit(s, "coverage")],
+            True,
         ),
-        ("Peer-HBM backup,\nmean (GiB)", lambda s: [s["hbm_gib"]]),
+        (
+            "(d) Backup footprint",
+            "Peer HBM, mean (GiB)",
+            lambda s: [s["hbm_gib"]],
+            False,
+        ),
     ]
-    fig, axes = plt.subplots(1, len(panels), figsize=(7.0, 1.8))
-    for ax, (ylabel, get) in zip(axes, panels):
+    fig, axes = plt.subplots(2, 2, figsize=(3.4, 3.0))
+    for ax, (title, ylabel, get, points) in zip(axes.flat, panels):
         for i, s in enumerate(summaries):
             color, hatch = styles.get(s["policy"], ("#999999", ""))
             vals = np.array([v for v in get(s) if v is not None and not np.isnan(v)])
+            height = vals.mean() if len(vals) else 0.0
             ax.bar(
                 i,
-                vals.mean() if len(vals) else 0.0,
+                height,
                 color=color,
                 hatch=hatch,
                 edgecolor="black",
-                linewidth=0.6,
+                linewidth=0.5,
                 width=0.7,
             )
-            if len(vals) > 1:
-                jitter = (np.arange(len(vals)) % 7 - 3) * 0.05
-                ax.scatter(i + jitter, vals, s=3, color="black", zorder=3, linewidths=0)
+            if points and len(vals) > 1:
+                jitter = (np.arange(len(vals)) % 5 - 2) * 0.06
+                ax.scatter(
+                    i + jitter, vals, s=2.5, color="black", zorder=3, linewidths=0
+                )
+            if not points:
+                ax.annotate(
+                    f"{height:.1f}",
+                    (i, height),
+                    xytext=(0, 1.5),
+                    textcoords="offset points",
+                    ha="center",
+                    va="bottom",
+                    fontsize=6,
+                )
         ax.set_xticks(range(len(summaries)))
         ax.set_xticklabels(names, rotation=30, ha="right")
         ax.set_ylabel(ylabel)
+        ax.set_title(title, fontsize=7, loc="left", pad=3)
+        ax.axhline(0, color="black", linewidth=0.5)
         ax.grid(axis="y", linewidth=0.3, alpha=0.6)
         ax.set_axisbelow(True)
-    fig.tight_layout(w_pad=0.8)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    axes[1, 1].set_ylim(0, max(1.0, max(s["hbm_gib"] for s in summaries) * 1.25))
+    fig.tight_layout(pad=0.3, w_pad=0.6, h_pad=0.6)
     for ext in ("pdf", "png"):
         fig.savefig(
-            os.path.join(out, f"failure_comparison.{ext}"), dpi=300, bbox_inches="tight"
+            os.path.join(out, f"failure_comparison.{ext}"),
+            dpi=300,
+            bbox_inches="tight",
+            pad_inches=0.02,
         )
     plt.close(fig)
 

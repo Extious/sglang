@@ -1,0 +1,13 @@
+# Environment for the BLSC A100-PCIE-40GB nodes (aarch64 Kunpeng-920, driver 535).
+# SGLang v0.5.21 needs CUDA 13; the A100 runs it through NVIDIA's forward-compat
+# user-space driver (cuda-compat-13-0) on the R535 kernel driver.
+AEGIS=${AEGIS:-$HOME/aegis}
+export PATH=$AEGIS/env/bin:$AEGIS/cuda13/bin:$PATH
+export CUDA_HOME=$AEGIS/cuda13
+export LD_LIBRARY_PATH=$AEGIS/compat/usr/local/cuda-13.0/compat:$AEGIS/cuda13/lib:${LD_LIBRARY_PATH:-}
+export SGLANG_JIT_CACHE_DIR=$AEGIS/jitcache
+export TRITON_CACHE_DIR=$AEGIS/triton_cache
+export TORCHINDUCTOR_CACHE_DIR=$AEGIS/inductor_cache
+export TMPDIR=$AEGIS/tmp
+export HF_HUB_OFFLINE=1
+mkdir -p $TMPDIR $SGLANG_JIT_CACHE_DIR $TRITON_CACHE_DIR

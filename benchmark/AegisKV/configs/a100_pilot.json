@@ -3,24 +3,41 @@
   "policy": "aegiskv",
   "model_path": "/home/bingxing2/home/scx8333/aegis/models/MiniCPM4.1-8B-AutoAWQ",
   "out_dir": "/home/bingxing2/home/scx8333/aegis/runs/pilot",
-  "gpus": [0, 1, 2, 3],
+  "gpus": [
+    0,
+    1,
+    2,
+    3
+  ],
   "base_port": 31000,
   "mem_fraction_static": 0.85,
   "context_length": 40960,
   "chunked_prefill_size": 8192,
-  "extra_server_args": ["--trust-remote-code", "--cuda-graph-backend-prefill", "disabled",
-                        "--enable-priority-scheduling", "--disable-priority-preemption"],
+  "extra_server_args": [
+    "--trust-remote-code",
+    "--cuda-graph-backend-prefill",
+    "disabled",
+    "--enable-priority-scheduling",
+    "--disable-priority-preemption"
+  ],
   "python": "/home/bingxing2/home/scx8333/aegis/env/bin/python",
   "num_workflows": 16,
   "concurrency": 8,
   "input_len": 16384,
-  "output_lens": {"A": 256, "B": 256, "C": 768, "D": 256, "E": 256, "F": 256},
+  "output_lens": {
+    "A": 256,
+    "B": 256,
+    "C": 768,
+    "D": 256,
+    "E": 256,
+    "F": 256
+  },
   "stagger_s": 2.0,
   "fail_worker": 1,
   "fail_fraction": 0.35,
   "rejoin_after_s": 60.0,
   "dram_backup_tokens": 131072,
-  "staging_tokens": 262144,
-  "hbm_quota_tokens": 262144,
+  "staging_tokens": 460000,
+  "hbm_quota_tokens": 460000,
   "resident_layers": -1
 }

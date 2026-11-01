@@ -99,6 +99,12 @@ class Cluster:
         bin_dir = os.path.dirname(os.path.abspath(self.cfg.python))
         env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
         env.update(self.cfg.worker_env)
+        # Workers compiling the same Triton kernel into one shared (NFS) cache
+        # race on its files; give each its own subdirectory.
+        if "TRITON_CACHE_DIR" in env:
+            env["TRITON_CACHE_DIR"] = os.path.join(
+                env["TRITON_CACHE_DIR"], f"w{worker.index}"
+            )
         os.makedirs(self.cfg.out_dir, exist_ok=True)
         worker.log_path = os.path.join(
             self.cfg.out_dir, f"worker{worker.index}_g{worker.generation}.log"

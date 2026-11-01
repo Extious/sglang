@@ -12,5 +12,5 @@ cd "$BRANCH_DIR/benchmark/AegisKV"
 nvidia-smi --query-gpu=index,name,memory.used --format=csv,noheader
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-}"
 # sbatch --export splits on commas, so SUITE uses colons.
-python -m harness.run --config "$CONFIG" --suite "${SUITE//:/,}" --warmup "${WARMUP:-0}" --out-dir "$OUT"
+PYTHONPATH="$AEGIS_MASTER_SITE" python -m harness.run --config "$CONFIG" --suite "${SUITE//:/,}" --warmup "${WARMUP:-0}" --out-dir "$OUT"
 echo "SUITE_EXIT=$?"

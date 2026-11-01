@@ -17,8 +17,10 @@ so every download below resumes and retries.
 5. SGLang dependencies: the `dependencies` of `python/pyproject.toml` minus `torchcodec`,
    `llguidance`, `tilelang` and `cuda-tile` (no aarch64 wheels; unused here), installed
    with `pipget.sh -r deps.txt --only-binary :all:`; then `pip install --no-deps -e python`.
-6. Host compiler: JIT kernels need C++20; `env.sh` uses the site gcc 13.2.
-7. Model: `hfget.sh openbmb/MiniCPM4.1-8B-AutoAWQ ~/aegis/models/MiniCPM4.1-8B-AutoAWQ`.
-8. Prebuild the Marlin GEMM for sm80 on the login node: `python scripts/blsc/prebuild_jit.py`.
+6. Master-only packages: `pip install --no-deps --target ~/aegis/master_site scikit-learn`
+   (not in the shared env; see env.sh).
+7. Host compiler: JIT kernels need C++20; `env.sh` uses the site gcc 13.2.
+8. Model: `hfget.sh openbmb/MiniCPM4.1-8B-AutoAWQ ~/aegis/models/MiniCPM4.1-8B-AutoAWQ`.
+9. Prebuild the Marlin GEMM for sm80 on the login node: `python scripts/blsc/prebuild_jit.py`.
 
 `envcheck.sbatch` checks one GPU; `run_suite.sbatch` runs an experiment suite.

@@ -98,6 +98,8 @@ class Cluster:
         # JIT kernels invoke `ninja`; take it from the interpreter's environment.
         bin_dir = os.path.dirname(os.path.abspath(self.cfg.python))
         env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        # PYTHONPATH carries master-only packages; workers set theirs in worker_env.
+        env.pop("PYTHONPATH", None)
         env.update(self.cfg.worker_env)
         # Workers compiling the same Triton kernel into one shared (NFS) cache
         # race on its files; give each its own subdirectory.

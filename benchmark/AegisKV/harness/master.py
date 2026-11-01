@@ -165,7 +165,9 @@ class Master:
         self.region_slots_used[w] = 0
 
     async def run(self) -> None:
-        connector = aiohttp.TCPConnector(limit=0)
+        # No keep-alive: a restarted Worker reuses its port, and pooled
+        # connections to the dead process would fail on reuse.
+        connector = aiohttp.TCPConnector(limit=0, force_close=True)
         timeout = aiohttp.ClientTimeout(total=None, sock_read=600)
         async with aiohttp.ClientSession(connector=connector, timeout=timeout) as s:
             self.session = s
@@ -271,14 +273,22 @@ class Master:
         self.log_event(
             "call_submit", call=call.key, exec=call.exec_w, holder=call.holder
         )
+        transient = 0
         while True:
             try:
                 await self._stream(call)
                 break
             except WorkerDied as e:
-                if self.alive(call.exec_w):
+                if not self.alive(call.exec_w):
+                    await self._recover(call)
+                    continue
+                # A live Worker's connection broke; resubmit the accepted tokens.
+                transient += 1
+                if transient > 3:
                     raise RuntimeError(f"{call.key}: live worker broke: {e}") from e
-                await self._recover(call)
+                self.log_event("transient_error", call=call.key, error=str(e))
+                await self.release_protection(call)
+                call.attempt += 1
         call.t_done = self.now()
         self.running.pop(call.key, None)
         await self.release_protection(call)
@@ -391,7 +401,8 @@ class Master:
 
     async def _release_import(self, w: int, import_id: str) -> None:
         try:
-            await self._rpc(self.cluster.workers[w].url,
+            await self._rpc(
+                self.cluster.workers[w].url,
                 "release_import",
                 {"import_id": import_id},
             )
@@ -429,7 +440,8 @@ class Master:
             "max_tokens": max_tokens,
         }
         try:
-            await self._rpc(self.cluster.workers[call.exec_w].url,
+            await self._rpc(
+                self.cluster.workers[call.exec_w].url,
                 "protect",
                 {"rid": f"{call.key}#a{call.attempt}", "targets": [spec]},
             )
@@ -498,7 +510,8 @@ class Master:
         self.region_slots_used[holder] += estimate
         prot.region_id = region_id
         try:
-            res = await self._rpc(holder_url,
+            res = await self._rpc(
+                holder_url,
                 "reserve_region",
                 {
                     "region_id": region_id,
@@ -508,11 +521,17 @@ class Master:
             )
         except (ControlError, WorkerDied):
             res = {}
-        if not res.get("reserved") or call.prot is not prot or prot.region_id != region_id:
+        if (
+            not res.get("reserved")
+            or call.prot is not prot
+            or prot.region_id != region_id
+        ):
             self.region_slots_used[holder] -= estimate
             prot.region_id = ""
             if res.get("reserved"):
-                self._spawn(self._rpc(holder_url, "free_region", {"region_id": region_id}))
+                self._spawn(
+                    self._rpc(holder_url, "free_region", {"region_id": region_id})
+                )
             return False
         prot.region_layers, prot.region_slots = layers, res["num_slots"]
         prot.region_committed = prot.region_requested = 0
@@ -535,7 +554,8 @@ class Master:
             return
         if self.alive(prot.holder):
             try:
-                await self._rpc(self.cluster.workers[prot.holder].url,
+                await self._rpc(
+                    self.cluster.workers[prot.holder].url,
                     "free_region",
                     {"region_id": prot.region_id},
                 )
@@ -565,12 +585,14 @@ class Master:
         holder_url = self.cluster.workers[prot.holder].url
         try:
             if self.alive(exec_w):
-                await self._rpc(self.cluster.workers[exec_w].url,
+                await self._rpc(
+                    self.cluster.workers[exec_w].url,
                     "unprotect",
                     {"target_ids": target_ids},
                 )
             if prot.has_region and self.alive(prot.holder):
-                await self._rpc(holder_url, "free_region", {"region_id": prot.region_id}
+                await self._rpc(
+                    holder_url, "free_region", {"region_id": prot.region_id}
                 )
         except (ControlError, WorkerDied):
             pass
@@ -607,7 +629,8 @@ class Master:
             self._target_owner.pop(tid, None)
         if self.alive(call.exec_w):
             try:
-                await self._rpc(self.cluster.workers[call.exec_w].url,
+                await self._rpc(
+                    self.cluster.workers[call.exec_w].url,
                     "unprotect",
                     {"target_ids": target_ids},
                 )
@@ -652,7 +675,9 @@ class Master:
                 future.set_result(state)
 
     async def _advance_regions(self) -> None:
-        await asyncio.gather(*(self._advance_region(c) for c in list(self.running.values())))
+        await asyncio.gather(
+            *(self._advance_region(c) for c in list(self.running.values()))
+        )
 
     async def _advance_region(self, call: Call) -> None:
         prot = call.prot
@@ -734,8 +759,7 @@ class Master:
         for other in self.cluster.workers:
             if other.alive:
                 try:
-                    await self._rpc(other.url, "drop_arena", {"path": arena}
-                    )
+                    await self._rpc(other.url, "drop_arena", {"path": arena})
                 except (ControlError, WorkerDied):
                     pass
         for call in self.running.values():

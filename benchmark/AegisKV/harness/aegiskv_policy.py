@@ -16,10 +16,12 @@ first L layers.
 
 from __future__ import annotations
 
+import asyncio
 import collections
 from typing import Any, Deque, Dict, List, Tuple
 
 from harness.cost_model import RecoveryProfile
+from harness.master import NUM_LAYERS
 from harness.policy import Policy
 from harness.tracker import Tracker
 
@@ -43,7 +45,12 @@ class AegisKVPolicy(Policy):
             model_path=cfg.tracker_path,
             role_prior=self._role_prior(cfg),
         )
-        self.resident_layers = cfg.resident_layers
+        # -1 selects L from the profiled zero-wait depth at the input length.
+        self.resident_layers = (
+            self.profile.resident_depth(n=cfg.input_len)
+            if cfg.resident_layers < 0
+            else cfg.resident_layers
+        )
         self._demand: Dict[int, Deque[int]] = collections.defaultdict(
             lambda: collections.deque(maxlen=_DEMAND_WINDOW)
         )
@@ -92,27 +99,42 @@ class AegisKVPolicy(Policy):
     async def _apply(
         self, master: Any, plans: List[Tuple[Any, bool, int]], slack: Dict[str, float]
     ) -> None:
-        for call, zero, prefix in plans:
-            if not master.alive(call.holder):
-                continue
-            prot = call.prot
-            if prefix == 0:
-                if prot is not None:
-                    await master.release_protection(call)
-                continue
-            if prot is None or not prot.has_dram or prot.max_tokens != prefix:
-                ok = await master.protect_dram(call, prefix)
-                if not ok and zero:
-                    if await self._evict_positive(master, call.holder, slack):
-                        await master.protect_dram(call, prefix)
-            prot = call.prot
-            if prot is None:
-                continue
-            if zero and not prot.has_region and self.resident_layers > 0:
-                if self._region_fits(master, call):
-                    await master.add_region(call, self.resident_layers)
-            elif not zero and prot.has_region:
+        # Coroutines start in plan order and allocate before their first await,
+        # so zero-slack calls still get DRAM first.
+        await asyncio.gather(
+            *(
+                self._apply_one(master, call, zero, prefix, slack)
+                for call, zero, prefix in plans
+                if master.alive(call.holder)
+            )
+        )
+
+    async def _apply_one(
+        self, master: Any, call: Any, zero: bool, prefix: int, slack: Dict[str, float]
+    ) -> None:
+        prot = call.prot
+        if prefix == 0:
+            if prot is not None:
+                await master.release_protection(call)
+            return
+        if prot is None or not prot.has_dram or prot.max_tokens != prefix:
+            ok = await master.protect_dram(call, prefix)
+            if not ok and zero and await self._evict_positive(master, call.holder, slack):
+                await master.protect_dram(call, prefix)
+        prot = call.prot
+        if prot is None:
+            return
+        if not zero:
+            if prot.has_region:
                 await master.drop_region(call)
+            return
+        # HBM and DRAM together must cover the prefix: without a DRAM checkpoint
+        # the region has to hold every layer.
+        layers = self.resident_layers if prot.has_dram else NUM_LAYERS
+        if prot.has_region and prot.region_layers and prot.region_layers < layers:
+            await master.drop_region(call)
+        if layers > 0 and not call.prot.has_region and self._region_fits(master, call, layers):
+            await master.add_region(call, layers)
 
     async def _evict_positive(
         self, master: Any, holder: int, slack: Dict[str, float]
@@ -135,8 +157,9 @@ class AegisKVPolicy(Policy):
     # Adapter
     # ------------------------------------------------------------------ #
 
-    def _region_slots(self, call: Any) -> int:
-        return -(-self.resident_layers * call.total_len // 32)
+    @staticmethod
+    def _region_slots(call: Any, layers: int) -> int:
+        return -(-layers * call.total_len // NUM_LAYERS)
 
     def _quota(self, master: Any, w: int) -> int:
         stats = master.stats.get(w)
@@ -150,11 +173,10 @@ class AegisKVPolicy(Policy):
         reserve = int(self.cfg.hbm_reserve_fraction * total)
         return max(0, min(self.cfg.hbm_quota_tokens, total - forecast - reserve))
 
-    def _region_fits(self, master: Any, call: Any) -> bool:
+    def _region_fits(self, master: Any, call: Any, layers: int) -> bool:
         w = call.holder
-        return master.region_slots_used[w] + self._region_slots(
-            call
-        ) <= self._quotas.get(w, 0)
+        need = self._region_slots(call, layers)
+        return master.region_slots_used[w] + need <= self._quotas.get(w, 0)
 
     async def _adapt(self, master: Any) -> None:
         for worker in master.cluster.workers:

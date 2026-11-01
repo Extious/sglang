@@ -32,20 +32,28 @@ def _dataset(paths):
     return np.array(xs), np.array(ys)
 
 
+def train(results, output: str) -> dict:
+    x, y = _dataset(results)
+    model = HistGradientBoostingRegressor(max_iter=300, max_leaf_nodes=31)
+    model.fit(x, y)
+    with open(output, "wb") as f:
+        pickle.dump(model, f)
+    report = {
+        "samples": len(y),
+        "train_mae_s": float(np.mean(np.abs(model.predict(x) - y))),
+        "mean_s": float(y.mean()),
+    }
+    with open(output + ".json", "w") as f:
+        json.dump(report, f)
+    return report
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--results", nargs="+", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
-    x, y = _dataset(args.results)
-    model = HistGradientBoostingRegressor(max_iter=300, max_leaf_nodes=31)
-    model.fit(x, y)
-    mae = float(np.mean(np.abs(model.predict(x) - y)))
-    with open(args.output, "wb") as f:
-        pickle.dump(model, f)
-    print(
-        json.dumps({"samples": len(y), "train_mae_s": mae, "mean_s": float(y.mean())})
-    )
+    print(json.dumps(train(args.results, args.output)))
 
 
 if __name__ == "__main__":

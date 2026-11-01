@@ -18,6 +18,7 @@ import time
 from typing import List, Tuple
 
 import aiohttp
+import msgspec
 import numpy as np
 from harness import workload
 from harness.client import control, generate_stream
@@ -119,34 +120,43 @@ def _fit(prefill, imports) -> RecoveryProfile:
     )
 
 
+async def collect_profile(
+    cluster: Cluster, *, output: str, max_len: int
+) -> RecoveryProfile:
+    """Profile on the first two live Workers of an already started cluster."""
+    w0, w1 = cluster.workers[:2]
+    lengths = [n for n in LENGTHS if n + max(SUFFIXES) <= max_len]
+    async with aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=None)
+    ) as session:
+        for w in (w0, w1):
+            await control(session, w.url, "reset", {})
+            await control(session, w.url, "map_arenas", {"paths": [w1.arena_path]})
+        # Warm up kernels and JIT caches before timing.
+        await _prefill_samples(session, w0.url, [1024])
+        prefill = await _prefill_samples(session, w0.url, lengths)
+        imports = await _import_samples(session, w0, w1, lengths)
+        for w in (w0, w1):
+            await _flush(session, w.url)
+    profile = _fit(prefill, imports)
+    record = {
+        **msgspec.to_builtins(profile),
+        "samples": {"prefill": prefill, "import": imports},
+        "resident_depth": {n: profile.resident_depth(n=n) for n in lengths},
+    }
+    with open(output, "w") as f:
+        json.dump(record, f, indent=2)
+    logging.info("profile: %s", json.dumps({k: v for k, v in record.items() if k != "samples"}))
+    return profile
+
+
 async def _main(cfg: ExperimentConfig, output: str) -> None:
     cluster = Cluster(cfg, run_tag=f"profile_{int(time.time())}")
     try:
         await cluster.start_all()
-        w0, w1 = cluster.workers[:2]
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=None)
-        ) as session:
-            # Warm up kernels and JIT caches before timing.
-            await _prefill_samples(session, w0.url, [1024])
-            prefill = await _prefill_samples(session, w0.url, LENGTHS)
-            imports = await _import_samples(session, w0, w1, LENGTHS)
+        await collect_profile(cluster, output=output, max_len=cfg.context_length)
     finally:
         cluster.shutdown()
-    profile = _fit(prefill, imports)
-    record = {
-        **json.loads(
-            json.dumps(
-                profile,
-                default=lambda o: {f: getattr(o, f) for f in o.__struct_fields__},
-            )
-        ),
-        "samples": {"prefill": prefill, "import": imports},
-        "resident_depth": {n: profile.resident_depth(n=n) for n in LENGTHS},
-    }
-    with open(output, "w") as f:
-        json.dump(record, f, indent=2)
-    print(json.dumps(record, indent=2))
 
 
 def main() -> None:

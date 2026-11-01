@@ -33,6 +33,9 @@ _ZERO_SLACK_S = 1e-3
 _PREFIX_ROUND = 2048
 # Demand forecast window for the Adapter prior, in poll ticks.
 _DEMAND_WINDOW = 200
+# Window for each Worker's recent prefill slowdown, in seconds of run time.
+# Arbitrary; long enough to hold about a dozen calls per Worker.
+_SLOWDOWN_WINDOW_S = 60.0
 
 
 class AegisKVPolicy(Policy):
@@ -56,6 +59,7 @@ class AegisKVPolicy(Policy):
         )
         self._last_slack: Dict[str, float] = {}
         self._quotas: Dict[int, int] = {}
+        self._slowdown: Dict[int, float] = {}
 
     def _role_prior(self, cfg: Any) -> Dict[str, float]:
         # Fallback when no GBDT is trained: prefill plus a nominal 30 ms/token decode.
@@ -73,9 +77,22 @@ class AegisKVPolicy(Policy):
         info["slack"] = self._last_slack.get(call.key)
         return info
 
+    def _slowdowns(self, master: Any) -> Dict[int, float]:
+        """P95 of observed first-token time over profiled unloaded prefill, per Worker."""
+        ratios: Dict[int, List[float]] = collections.defaultdict(list)
+        horizon = master.now() - _SLOWDOWN_WINDOW_S
+        for call in master.calls.values():
+            if call.t_first and call.t_submit >= horizon and not call.failures:
+                base = self.profile.prefill(len(call.prompt), 0)
+                ratios[call.exec_w].append((call.t_first - call.t_submit) / base)
+        return {
+            w: max(1.0, sorted(r)[int(0.95 * (len(r) - 1))]) for w, r in ratios.items()
+        }
+
     async def tick(self, master: Any) -> None:
         slack = self.tracker.slack(master)
         self._last_slack = slack
+        self._slowdown = self._slowdowns(master)
         self._quotas = {w: self._quota(master, w) for w in master.stats}
         plans = self._plan(master, slack)
         await self._apply(master, plans, slack)
@@ -91,7 +108,11 @@ class AegisKVPolicy(Policy):
             if zero:
                 prefix = call.total_len
             else:
-                prefix = self.profile.min_prefix(n=call.history_len, slack=s)
+                prefix = self.profile.min_prefix(
+                    n=call.history_len,
+                    slack=s,
+                    slowdown=self._slowdown.get(call.holder, 1.0),
+                )
                 if prefix > 0:
                     prefix = min(
                         call.total_len, -(-prefix // _PREFIX_ROUND) * _PREFIX_ROUND

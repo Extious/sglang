@@ -41,15 +41,21 @@ class RecoveryProfile(msgspec.Struct, kw_only=True):
     def restore(self, d: int) -> float:
         return self.r0 + self.r1 * d if d > 0 else 0.0
 
-    def recovery_delay(self, n: int, d: int) -> float:
-        """T^D(n, d): restore a d-token prefix, recompute the other n - d tokens."""
-        return self.q0 + self.restore(d) + self.prefill(n - d, d)
+    def recovery_delay(self, n: int, d: int, slowdown: float = 1.0) -> float:
+        """T^D(n, d): restore a d-token prefix, recompute the other n - d tokens.
 
-    def min_prefix(self, *, n: int, slack: float, step: int = 1024) -> int:
+        `slowdown` scales the profiled (unloaded) recompute by the retry
+        Worker's recent contention, as in the paper's takeover estimate.
+        """
+        return self.q0 + self.restore(d) + slowdown * self.prefill(n - d, d)
+
+    def min_prefix(
+        self, *, n: int, slack: float, slowdown: float = 1.0, step: int = 1024
+    ) -> int:
         """Smallest checkpoint prefix d whose recovery fits the slack (Eq. 5)."""
-        best, best_cost = n, self.recovery_delay(n, n)
+        best, best_cost = n, self.recovery_delay(n, n, slowdown)
         for d in list(range(0, n, step)) + [n]:
-            cost = self.recovery_delay(n, d)
+            cost = self.recovery_delay(n, d, slowdown)
             if cost <= slack:
                 return d
             if cost < best_cost:

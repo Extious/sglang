@@ -369,7 +369,10 @@ class Master:
             # The holder adopts or frees the region as part of the import.
             self.region_slots_used[prot.holder] -= prot.region_slots
             prot.region_id = ""
-        state = await future
+        state = ack.get("state")
+        if state is None or state["status"] == "copying":
+            state = await future
+        self._import_waiters.pop(import_id, None)
         record.update(
             import_id=import_id,
             import_status=state["status"],

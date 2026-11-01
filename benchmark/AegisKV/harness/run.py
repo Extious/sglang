@@ -18,7 +18,7 @@ import asyncio
 import logging
 import os
 import time
-from typing import List
+from typing import List, Optional
 
 import msgspec
 
@@ -37,17 +37,33 @@ async def _ensure_alive(cluster: Cluster) -> None:
         await cluster.wait_ready(worker)
 
 
-def _entry_config(cfg: ExperimentConfig, entry: str, out_dir: str) -> ExperimentConfig:
-    """`nofail`, `<policy>`, or `<policy>@<worker>` to choose the failed Worker."""
+def _entry_config(
+    cfg: ExperimentConfig, entry: str, out_dir: str, makespan: Optional[float]
+) -> ExperimentConfig:
+    """`nofail`, `<policy>`, `<policy>@<worker>` or `<policy>@<worker>/<pct>`.
+
+    `<pct>` fails the Worker at that percentage of the No-Failure makespan.
+    """
     if entry == "nofail":
         return msgspec.structs.replace(
             cfg, policy="rebuild", out_dir=out_dir, fail_worker=None, fail_at_s=None
         )
-    policy, _, worker = entry.partition("@")
-    fail_worker = int(worker) if worker else cfg.fail_worker
+    policy, _, where = entry.partition("@")
+    worker, _, pct = where.partition("/")
+    fail_at = cfg.fail_at_s
+    if pct:
+        fail_at = round(float(pct) / 100 * makespan, 1)
     return msgspec.structs.replace(
-        cfg, policy=policy, out_dir=out_dir, fail_worker=fail_worker
+        cfg,
+        policy=policy,
+        out_dir=out_dir,
+        fail_worker=int(worker) if worker else cfg.fail_worker,
+        fail_at_s=fail_at,
     )
+
+
+def _out_name(entry: str) -> str:
+    return entry.replace("@", "_w").replace("/", "_p")
 
 
 async def _prepare(
@@ -69,7 +85,9 @@ async def _prepare(
     raise ValueError(entry)
 
 
-async def _main(cfg: ExperimentConfig, suite: List[str], warmup: int) -> None:
+async def _main(
+    cfg: ExperimentConfig, suite: List[str], warmup: int, makespan: Optional[float]
+) -> None:
     cluster = Cluster(cfg, run_tag=f"{cfg.name}_{os.getpid()}")
     try:
         t = time.monotonic()
@@ -77,7 +95,7 @@ async def _main(cfg: ExperimentConfig, suite: List[str], warmup: int) -> None:
         logging.info("workers ready in %.1fs", time.monotonic() - t)
         if warmup:
             warm = msgspec.structs.replace(
-                _entry_config(cfg, "nofail", os.path.join(cfg.out_dir, "warmup")),
+                _entry_config(cfg, "nofail", os.path.join(cfg.out_dir, "warmup"), None),
                 num_workflows=warmup,
                 seed=cfg.seed + 1000,
             )
@@ -92,7 +110,7 @@ async def _main(cfg: ExperimentConfig, suite: List[str], warmup: int) -> None:
                 logging.info("RUN_DONE %s", entry)
                 continue
             run_cfg = _entry_config(
-                cfg, entry, os.path.join(cfg.out_dir, entry.replace("@", "_w"))
+                cfg, entry, os.path.join(cfg.out_dir, _out_name(entry)), makespan
             )
             os.makedirs(run_cfg.out_dir, exist_ok=True)
             run_cfg.dump(os.path.join(run_cfg.out_dir, "config.json"))
@@ -101,8 +119,11 @@ async def _main(cfg: ExperimentConfig, suite: List[str], warmup: int) -> None:
             master = Master(cfg=run_cfg, cluster=cluster, policy=policy)
             await master.run()
             logging.info("RUN_DONE %s in %.1fs", entry, time.monotonic() - t)
-            if entry == "nofail" and cfg.fail_fraction is not None:
+            if entry == "nofail":
                 makespan = max(end for _, end in master.workflow_times.values())
+                with open(os.path.join(cfg.out_dir, "makespan_s.txt"), "w") as f:
+                    f.write(f"{makespan:.3f}\n")
+            if entry == "nofail" and cfg.fail_fraction is not None:
                 cfg = msgspec.structs.replace(
                     cfg, fail_at_s=round(cfg.fail_fraction * makespan, 1)
                 )
@@ -122,6 +143,9 @@ def main() -> None:
     parser.add_argument(
         "--fail-at", type=float, default=None, help="fixed failure time (s)"
     )
+    parser.add_argument(
+        "--makespan", type=float, default=None, help="No-Failure makespan for /<pct>"
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     cfg = ExperimentConfig.load(args.config)
@@ -131,7 +155,7 @@ def main() -> None:
         cfg = msgspec.structs.replace(cfg, fail_at_s=args.fail_at, fail_fraction=None)
     suite = args.suite.split(",") if args.suite else [cfg.policy]
     os.makedirs(cfg.out_dir, exist_ok=True)
-    asyncio.run(_main(cfg, suite, args.warmup))
+    asyncio.run(_main(cfg, suite, args.warmup, args.makespan))
 
 
 if __name__ == "__main__":

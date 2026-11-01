@@ -4,6 +4,7 @@ quota; takeover adopts the replica without copying."""
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from harness.policy import Policy
@@ -18,17 +19,18 @@ class HbmReplicaPolicy(Policy):
         self.quota_tokens = cfg.hbm_quota_tokens
 
     async def tick(self, master: Any) -> None:
+        admitted = []
         for call in sorted(master.running.values(), key=lambda c: c.t_submit):
             if (call.prot is not None and call.prot.has_region) or not master.alive(
                 call.holder
             ):
                 continue
-            if (
-                master.region_slots_used[call.holder] + call.total_len
-                > self.quota_tokens
-            ):
+            need = master.region_slots_used[call.holder] + call.total_len
+            if need > self.quota_tokens:
                 continue
-            await master.add_region(call, NUM_LAYERS)
+            # add_region counts its slots before the first await, keeping the quota.
+            admitted.append(asyncio.ensure_future(master.add_region(call, NUM_LAYERS)))
+        await asyncio.gather(*admitted)
 
 
 def make(cfg: Any) -> HbmReplicaPolicy:

@@ -148,7 +148,9 @@ async def collect_profile(
     }
     with open(output, "w") as f:
         json.dump(record, f, indent=2)
-    logging.info("profile: %s", json.dumps({k: v for k, v in record.items() if k != "samples"}))
+    logging.info(
+        "profile: %s", json.dumps({k: v for k, v in record.items() if k != "samples"})
+    )
     return profile
 
 

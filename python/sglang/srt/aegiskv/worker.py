@@ -161,10 +161,21 @@ class AegisKVWorker:
     # ------------------------------------------------------------------ #
 
     def handle_control(self, *, op: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        if op == "batch":
+            # Each control message costs one scheduler iteration; a batch runs
+            # many ops in one, and one failing op does not abort the others.
+            return {"results": [self._run_one(item) for item in args["ops"]]}
         handler = self._ops.get(op)
         if handler is None:
             raise ValueError(f"Unknown AegisKV op {op!r}")
         return handler(args)
+
+    def _run_one(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            return {"ok": True, "result": self.handle_control(op=item["op"], args=item["args"])}
+        except Exception as e:
+            logger.exception("AegisKV op %s failed", item["op"])
+            return {"ok": False, "error": repr(e)}
 
     def on_step(self) -> None:
         """Retire finished copies, then launch due checkpoint increments."""

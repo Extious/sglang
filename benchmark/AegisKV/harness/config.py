@@ -43,6 +43,8 @@ class ExperimentConfig(msgspec.Struct, kw_only=True):
     # One fail-stop Worker failure; None disables it.
     fail_worker: Optional[int] = None
     fail_at_s: Optional[float] = None
+    # If set, a suite's `nofail` run fixes fail_at_s = fraction * its makespan.
+    fail_fraction: Optional[float] = None
     rejoin_after_s: float = 60.0
 
     # Backup capacity per holder Worker, in token slots (all layers per slot).

@@ -37,7 +37,7 @@
   "fail_fraction": 0.35,
   "rejoin_after_s": 60.0,
   "dram_backup_tokens": 131072,
-  "staging_tokens": 460000,
+  "staging_tokens": 200000,
   "hbm_quota_tokens": 460000,
   "resident_layers": -1
 }

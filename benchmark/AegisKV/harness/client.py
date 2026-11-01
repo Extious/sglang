@@ -38,12 +38,14 @@ async def generate_stream(
     rid: str,
     input_ids: List[int],
     max_new_tokens: int,
+    priority: int = 0,
 ) -> AsyncIterator[Dict[str, Any]]:
     """Yield stream chunks; each carries the cumulative `output_ids`."""
     payload = {
         "rid": rid,
         "input_ids": input_ids,
         "stream": True,
+        "priority": priority,
         "sampling_params": {
             "temperature": 0.0,
             "max_new_tokens": max_new_tokens,

@@ -116,6 +116,14 @@ class Cluster:
             worker.proc.wait()
         self._remove_arena(worker)
 
+    async def kill_async(self, worker: Worker) -> None:
+        """`kill` without blocking the event loop while CUDA tears down."""
+        worker.alive = False
+        if worker.proc is not None and worker.proc.poll() is None:
+            os.killpg(worker.proc.pid, signal.SIGKILL)
+            await asyncio.to_thread(worker.proc.wait)
+        self._remove_arena(worker)
+
     def shutdown(self) -> None:
         for worker in self.workers:
             self.kill(worker)

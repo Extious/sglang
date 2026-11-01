@@ -135,6 +135,7 @@ class Master:
         self._stage_owner: Dict[str, tuple] = {}
         self._import_waiters: Dict[str, asyncio.Future] = {}
         self._stopped = False
+        self._bg_tasks: set = set()
         self._seq = 0
         self.fail_time: Optional[float] = None
         os.makedirs(cfg.out_dir, exist_ok=True)
@@ -168,7 +169,13 @@ class Master:
             self.session = s
             for w in range(len(self.cluster.workers)):
                 self._reset_pools(w)
-                await control(s, self.cluster.workers[w].url, "reset", {})
+                url = self.cluster.workers[w].url
+                await control(s, url, "reset", {})
+                # Runs reuse the same prompts; a warm radix cache would leak hits.
+                async with s.post(f"{url}/flush_cache") as resp:
+                    if resp.status != 200:
+                        raise RuntimeError(f"flush_cache on {url}: {await resp.text()}")
+            await self._map_arenas()
             self.t0 = time.monotonic()
             poller = asyncio.create_task(self._poll_loop())
             injector = asyncio.create_task(self._failure_injector())
@@ -178,6 +185,7 @@ class Master:
                 self._stopped = True
                 injector.cancel()
                 await asyncio.gather(poller, injector, return_exceptions=True)
+                await asyncio.gather(*self._bg_tasks, return_exceptions=True)
         self._write_results()
 
     # ------------------------------------------------------------------ #
@@ -284,6 +292,8 @@ class Master:
             rid=f"{call.key}#a{call.attempt}",
             input_ids=call.prompt + base,
             max_new_tokens=remaining,
+            # Takeover resumptions jump the retry Worker's queue (no preemption).
+            priority=1 if call.attempt > 0 else 0,
         ):
             new = chunk.get("output_ids") or []
             if not new:
@@ -540,11 +550,45 @@ class Master:
             prot.staging_offset, prot.staging_capacity = -1, 0
 
     async def release_protection(self, call: Call) -> None:
-        if call.prot is None:
-            return
-        await self.drop_region(call)
-        await self.unprotect_dram(call)
-        call.prot = None
+        """Detach the call's backups now; Worker-side frees run in the background."""
+        prot, call.prot = call.prot, None
+        if prot is not None:
+            self._spawn(self._release_backup(prot, call.exec_w))
+
+    async def _release_backup(self, prot: Protection, exec_w: int) -> None:
+        target_ids = [f"{prot.tag}#d", f"{prot.tag}#s"]
+        for tid in target_ids:
+            self._target_owner.pop(tid, None)
+        holder_url = self.cluster.workers[prot.holder].url
+        try:
+            if self.alive(exec_w):
+                await control(
+                    self.session,
+                    self.cluster.workers[exec_w].url,
+                    "unprotect",
+                    {"target_ids": target_ids},
+                )
+            if prot.has_region and self.alive(prot.holder):
+                await control(
+                    self.session, holder_url, "free_region", {"region_id": prot.region_id}
+                )
+        except (ControlError, WorkerDied):
+            pass
+        if prot.has_region and self.alive(prot.holder):
+            self.region_slots_used[prot.holder] -= prot.region_slots
+        # Arena slots return to the pool only after the source stopped writing them.
+        if self.cluster.workers[prot.holder].arena_path == prot.arena:
+            if prot.has_dram:
+                self.dram_pools[prot.holder].free(prot.dram_offset, prot.dram_capacity)
+            if prot.staging_offset >= 0:
+                self.staging_pools[prot.holder].free(
+                    prot.staging_offset, prot.staging_capacity
+                )
+
+    def _spawn(self, coro: Any) -> None:
+        task = asyncio.create_task(coro)
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
 
     async def _unprotect_targets(self, call: Call, target_ids: List[str]) -> None:
         for tid in target_ids:
@@ -654,14 +698,25 @@ class Master:
         lost_arena = worker.arena_path
         victims = [c.key for c in self.running.values() if c.exec_w == worker.index]
         self.log_event("failure", worker=worker.index, victims=victims)
-        self.cluster.kill(worker)
+        await self.cluster.kill_async(worker)
         await self._drop_lost_backups(worker.index, lost_arena)
         await asyncio.sleep(cfg.rejoin_after_s)
         self.cluster.start(worker)
         await self.cluster.wait_ready(worker)
         await control(self.session, worker.url, "reset", {})
         self._reset_pools(worker.index)
+        await self._map_arenas()
         self.log_event("rejoin", worker=worker.index)
+
+    async def _map_arenas(self) -> None:
+        paths = [w.arena_path for w in self.cluster.workers if w.alive]
+        await asyncio.gather(
+            *(
+                control(self.session, w.url, "map_arenas", {"paths": paths})
+                for w in self.cluster.workers
+                if w.alive
+            )
+        )
 
     async def _drop_lost_backups(self, w: int, arena: str) -> None:
         for other in self.cluster.workers:

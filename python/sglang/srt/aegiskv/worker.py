@@ -137,6 +137,7 @@ class AegisKVWorker:
             "free_region": self._op_free_region,
             "import": self._op_import,
             "release_import": self._op_release_import,
+            "map_arenas": self._op_map_arenas,
             "drop_arena": self._op_drop_arena,
             "poll": self._op_poll,
             "reset": self._op_reset,
@@ -179,7 +180,7 @@ class AegisKVWorker:
         """Pool slots owned by AegisKV, outside both the allocator and the tree."""
         held = sum(region.slots.numel() for region in self._regions.values())
         for job in self._jobs:
-            if job.kind == "import":
+            if job.kind in ("import", "free"):
                 held += job.slots.numel()
         return held
 
@@ -296,8 +297,13 @@ class AegisKVWorker:
     def _op_free_region(self, args: Dict[str, Any]) -> Dict[str, Any]:
         region = self._regions.pop(args["region_id"], None)
         if region is not None:
-            self._stream.synchronize()
-            self._allocator.free(region.slots)
+            # Stages into the region may still be queued; free once they drain.
+            with torch.cuda.stream(self._stream):
+                event = torch.cuda.Event()
+                event.record(self._stream)
+            self._jobs.append(
+                _Job(kind="free", key=args["region_id"], event=event, slots=region.slots)
+            )
         return {}
 
     # ------------------------------------------------------------------ #
@@ -441,6 +447,8 @@ class AegisKVWorker:
             self._finished_stages.append(job.key)
         elif job.kind == "import":
             self._publish_import(job)
+        elif job.kind == "free":
+            self._allocator.free(job.slots)
 
     def _op_poll(self, args: Dict[str, Any]) -> Dict[str, Any]:
         self._retire_jobs(block_checkpoints=False)
@@ -466,6 +474,12 @@ class AegisKVWorker:
             "waiting_reqs": self._get_waiting_queue_len(),
         }
 
+    def _op_map_arenas(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Map and pin arenas ahead of use; pinning takes about 1 s per GiB."""
+        for path in args["paths"]:
+            self._arenas.get(path)
+        return {}
+
     def _op_drop_arena(self, args: Dict[str, Any]) -> Dict[str, Any]:
         self._stream.synchronize()
         self._retire_jobs(block_checkpoints=True)
@@ -482,6 +496,8 @@ class AegisKVWorker:
             self._op_release_import({"import_id": import_id})
         for region_id in list(self._regions):
             self._op_free_region({"region_id": region_id})
+        self._stream.synchronize()
+        self._retire_jobs(block_checkpoints=True)
         self._targets.clear()
         self._imports.clear()
         self._finished_stages = []

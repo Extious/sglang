@@ -17,6 +17,8 @@
   "extra_server_args": [
     "--trust-remote-code",
     "--cuda-graph-backend-prefill",
-    "disabled"
+    "disabled",
+    "--enable-priority-scheduling",
+    "--disable-priority-preemption"
   ]
 }

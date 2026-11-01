@@ -1,0 +1,51 @@
+{
+  "name": "a100_main",
+  "policy": "hbm_replica",
+  "model_path": "/home/bingxing2/home/scx8333/aegis/models/MiniCPM4.1-8B-AutoAWQ",
+  "out_dir": "/home/bingxing2/home/scx8333/aegis/runs/main/hbm_replica/hbm_replica_w2",
+  "gpus": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "base_port": 31000,
+  "mem_fraction_static": 0.85,
+  "context_length": 40960,
+  "chunked_prefill_size": 4096,
+  "extra_server_args": [
+    "--trust-remote-code",
+    "--cuda-graph-backend-prefill",
+    "disabled",
+    "--enable-priority-scheduling",
+    "--disable-priority-preemption"
+  ],
+  "python": "/home/bingxing2/home/scx8333/aegis/env/bin/python",
+  "worker_env": {},
+  "num_workflows": 32,
+  "concurrency": 8,
+  "input_len": 16384,
+  "output_lens": {
+    "A": 256,
+    "B": 256,
+    "C": 768,
+    "D": 256,
+    "E": 256,
+    "F": 256
+  },
+  "seed": 0,
+  "stagger_s": 2.0,
+  "fail_worker": 2,
+  "fail_at_s": 57.1,
+  "fail_fraction": null,
+  "rejoin_after_s": 60.0,
+  "dram_backup_tokens": 65536,
+  "staging_tokens": 200000,
+  "hbm_quota_tokens": 460000,
+  "hbm_reserve_fraction": 0.05,
+  "checkpoint_interval": 64,
+  "poll_interval_s": 0.05,
+  "profile_path": null,
+  "tracker_path": null,
+  "resident_layers": -1
+}

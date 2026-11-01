@@ -11,4 +11,7 @@ export TRITON_CACHE_DIR=$AEGIS/triton_cache
 export TORCHINDUCTOR_CACHE_DIR=$AEGIS/inductor_cache
 export TMPDIR=$AEGIS/tmp
 export HF_HUB_OFFLINE=1
+# On aarch64, scikit-learn's bundled libgomp fails to dlopen ("cannot allocate
+# memory in static TLS block") once torch is loaded; preload it at startup.
+export LD_PRELOAD=$(ls $AEGIS/env/lib/python3.12/site-packages/scikit_learn.libs/libgomp-*.so* 2>/dev/null | head -1)
 mkdir -p $TMPDIR $SGLANG_JIT_CACHE_DIR $TRITON_CACHE_DIR

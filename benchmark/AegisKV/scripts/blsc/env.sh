@@ -2,7 +2,8 @@
 # SGLang v0.5.21 needs CUDA 13; the A100 runs it through NVIDIA's forward-compat
 # user-space driver (cuda-compat-13-0) on the R535 kernel driver.
 AEGIS=${AEGIS:-$HOME/aegis}
-export PATH=$AEGIS/env/bin:$AEGIS/cuda13/bin:$PATH
+# JIT kernels need C++20 host headers; the system gcc is 7.3, so use the site gcc 13.
+export PATH=$AEGIS/env/bin:$AEGIS/cuda13/bin:/home/bingxing2/apps/compilers/gcc/13.2.0/bin:$PATH
 export CUDA_HOME=$AEGIS/cuda13
 export LD_LIBRARY_PATH=$AEGIS/compat/usr/local/cuda-13.0/compat:$AEGIS/cuda13/lib:${LD_LIBRARY_PATH:-}
 export SGLANG_JIT_CACHE_DIR=$AEGIS/jitcache

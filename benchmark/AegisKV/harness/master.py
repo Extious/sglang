@@ -18,7 +18,8 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 import msgspec
 from harness import workload
-from harness.client import ControlError, WorkerDied, control, generate_stream
+from harness.channel import ControlChannel
+from harness.client import ControlError, WorkerDied, generate_stream
 from harness.cluster import Cluster, Worker
 from harness.config import ExperimentConfig
 
@@ -136,6 +137,7 @@ class Master:
         self._import_waiters: Dict[str, asyncio.Future] = {}
         self._stopped = False
         self._bg_tasks: set = set()
+        self._channels: Dict[str, ControlChannel] = {}
         self._seq = 0
         self.fail_time: Optional[float] = None
         os.makedirs(cfg.out_dir, exist_ok=True)
@@ -170,7 +172,7 @@ class Master:
             for w in range(len(self.cluster.workers)):
                 self._reset_pools(w)
                 url = self.cluster.workers[w].url
-                await control(s, url, "reset", {})
+                await self._rpc(url, "reset", {})
                 # Runs reuse the same prompts; a warm radix cache would leak hits.
                 async with s.post(f"{url}/flush_cache") as resp:
                     if resp.status != 200:
@@ -186,6 +188,8 @@ class Master:
                 injector.cancel()
                 await asyncio.gather(poller, injector, return_exceptions=True)
                 await asyncio.gather(*self._bg_tasks, return_exceptions=True)
+                for url in list(self._channels):
+                    self._reset_channel(url)
         self._write_results()
 
     # ------------------------------------------------------------------ #
@@ -344,7 +348,7 @@ class Master:
         self._import_waiters[import_id] = future
         record["source"] = "+".join(k for k in ("region_id", "arena") if k in args)
         try:
-            ack = await control(self.session, holder_url, "import", args)
+            ack = await self._rpc(holder_url, "import", args)
         except (ControlError, WorkerDied) as e:
             record["import_error"] = repr(e)
             return 0
@@ -387,9 +391,7 @@ class Master:
 
     async def _release_import(self, w: int, import_id: str) -> None:
         try:
-            await control(
-                self.session,
-                self.cluster.workers[w].url,
+            await self._rpc(self.cluster.workers[w].url,
                 "release_import",
                 {"import_id": import_id},
             )
@@ -427,9 +429,7 @@ class Master:
             "max_tokens": max_tokens,
         }
         try:
-            await control(
-                self.session,
-                self.cluster.workers[call.exec_w].url,
+            await self._rpc(self.cluster.workers[call.exec_w].url,
                 "protect",
                 {"rid": f"{call.key}#a{call.attempt}", "targets": [spec]},
             )
@@ -492,10 +492,13 @@ class Master:
         holder_url = self.cluster.workers[call.holder].url
         self._seq += 1
         region_id = f"{prot.tag}#r{self._seq}"
+        # Count the slots before the RPC so concurrent admissions see them.
+        estimate = -(-layers * call.total_len // NUM_LAYERS)
+        holder = call.holder
+        self.region_slots_used[holder] += estimate
+        prot.region_id = region_id
         try:
-            res = await control(
-                self.session,
-                holder_url,
+            res = await self._rpc(holder_url,
                 "reserve_region",
                 {
                     "region_id": region_id,
@@ -504,13 +507,15 @@ class Master:
                 },
             )
         except (ControlError, WorkerDied):
+            res = {}
+        if not res.get("reserved") or call.prot is not prot or prot.region_id != region_id:
+            self.region_slots_used[holder] -= estimate
+            prot.region_id = ""
+            if res.get("reserved"):
+                self._spawn(self._rpc(holder_url, "free_region", {"region_id": region_id}))
             return False
-        if not res.get("reserved"):
-            return False
-        prot.region_id, prot.region_layers = region_id, layers
-        prot.region_slots = res["num_slots"]
+        prot.region_layers, prot.region_slots = layers, res["num_slots"]
         prot.region_committed = prot.region_requested = 0
-        self.region_slots_used[call.holder] += prot.region_slots
         if not (prot.has_dram and prot.max_tokens >= call.total_len):
             offset = self.staging_pools[call.holder].alloc(call.total_len)
             if offset is None:
@@ -530,9 +535,7 @@ class Master:
             return
         if self.alive(prot.holder):
             try:
-                await control(
-                    self.session,
-                    self.cluster.workers[prot.holder].url,
+                await self._rpc(self.cluster.workers[prot.holder].url,
                     "free_region",
                     {"region_id": prot.region_id},
                 )
@@ -562,15 +565,12 @@ class Master:
         holder_url = self.cluster.workers[prot.holder].url
         try:
             if self.alive(exec_w):
-                await control(
-                    self.session,
-                    self.cluster.workers[exec_w].url,
+                await self._rpc(self.cluster.workers[exec_w].url,
                     "unprotect",
                     {"target_ids": target_ids},
                 )
             if prot.has_region and self.alive(prot.holder):
-                await control(
-                    self.session, holder_url, "free_region", {"region_id": prot.region_id}
+                await self._rpc(holder_url, "free_region", {"region_id": prot.region_id}
                 )
         except (ControlError, WorkerDied):
             pass
@@ -585,6 +585,18 @@ class Master:
                     prot.staging_offset, prot.staging_capacity
                 )
 
+    async def _rpc(self, url: str, op: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        channel = self._channels.get(url)
+        if channel is None:
+            channel = ControlChannel(session=self.session, url=url)
+            self._channels[url] = channel
+        return await channel.call(op, args)
+
+    def _reset_channel(self, url: str) -> None:
+        channel = self._channels.pop(url, None)
+        if channel is not None:
+            channel.close()
+
     def _spawn(self, coro: Any) -> None:
         task = asyncio.create_task(coro)
         self._bg_tasks.add(task)
@@ -595,9 +607,7 @@ class Master:
             self._target_owner.pop(tid, None)
         if self.alive(call.exec_w):
             try:
-                await control(
-                    self.session,
-                    self.cluster.workers[call.exec_w].url,
+                await self._rpc(self.cluster.workers[call.exec_w].url,
                     "unprotect",
                     {"target_ids": target_ids},
                 )
@@ -610,7 +620,7 @@ class Master:
 
     async def _poll_one(self, worker: Worker) -> None:
         try:
-            res = await control(self.session, worker.url, "poll", {})
+            res = await self._rpc(worker.url, "poll", {})
         except (ControlError, WorkerDied):
             return
         self.stats[worker.index] = res["stats"]
@@ -642,36 +652,37 @@ class Master:
                 future.set_result(state)
 
     async def _advance_regions(self) -> None:
-        for call in list(self.running.values()):
-            prot = call.prot
-            if prot is None or not prot.has_region or not self.alive(prot.holder):
-                continue
-            if prot.staging_offset >= 0:
-                src_offset, src_committed = prot.staging_offset, prot.staging_committed
-            else:
-                src_offset, src_committed = prot.dram_offset, prot.dram_committed
-            if src_committed <= prot.region_requested:
-                continue
-            self._seq += 1
-            task_id = f"{prot.region_id}#st{self._seq}"
-            self._stage_owner[task_id] = (call.key, prot.region_id, src_committed)
-            try:
-                await control(
-                    self.session,
-                    self.cluster.workers[prot.holder].url,
-                    "stage_region",
-                    {
-                        "task_id": task_id,
-                        "region_id": prot.region_id,
-                        "arena": prot.arena,
-                        "slot_offset": src_offset,
-                        "token_lo": prot.region_requested,
-                        "token_hi": src_committed,
-                    },
-                )
-            except (ControlError, WorkerDied):
-                continue
-            prot.region_requested = src_committed
+        await asyncio.gather(*(self._advance_region(c) for c in list(self.running.values())))
+
+    async def _advance_region(self, call: Call) -> None:
+        prot = call.prot
+        if prot is None or not prot.region_layers or not self.alive(prot.holder):
+            return
+        if prot.staging_offset >= 0:
+            src_offset, src_committed = prot.staging_offset, prot.staging_committed
+        else:
+            src_offset, src_committed = prot.dram_offset, prot.dram_committed
+        if src_committed <= prot.region_requested:
+            return
+        token_lo, prot.region_requested = prot.region_requested, src_committed
+        self._seq += 1
+        task_id = f"{prot.region_id}#st{self._seq}"
+        self._stage_owner[task_id] = (call.key, prot.region_id, src_committed)
+        try:
+            await self._rpc(
+                self.cluster.workers[prot.holder].url,
+                "stage_region",
+                {
+                    "task_id": task_id,
+                    "region_id": prot.region_id,
+                    "arena": prot.arena,
+                    "slot_offset": src_offset,
+                    "token_lo": token_lo,
+                    "token_hi": src_committed,
+                },
+            )
+        except (ControlError, WorkerDied):
+            prot.region_requested = token_lo
 
     async def _poll_loop(self) -> None:
         while not self._stopped:
@@ -703,7 +714,8 @@ class Master:
         await asyncio.sleep(cfg.rejoin_after_s)
         self.cluster.start(worker)
         await self.cluster.wait_ready(worker)
-        await control(self.session, worker.url, "reset", {})
+        self._reset_channel(worker.url)
+        await self._rpc(worker.url, "reset", {})
         self._reset_pools(worker.index)
         await self._map_arenas()
         self.log_event("rejoin", worker=worker.index)
@@ -712,7 +724,7 @@ class Master:
         paths = [w.arena_path for w in self.cluster.workers if w.alive]
         await asyncio.gather(
             *(
-                control(self.session, w.url, "map_arenas", {"paths": paths})
+                self._rpc(w.url, "map_arenas", {"paths": paths})
                 for w in self.cluster.workers
                 if w.alive
             )
@@ -722,8 +734,7 @@ class Master:
         for other in self.cluster.workers:
             if other.alive:
                 try:
-                    await control(
-                        self.session, other.url, "drop_arena", {"path": arena}
+                    await self._rpc(other.url, "drop_arena", {"path": arena}
                     )
                 except (ControlError, WorkerDied):
                     pass

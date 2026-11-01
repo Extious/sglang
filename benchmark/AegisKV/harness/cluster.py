@@ -90,7 +90,11 @@ class Cluster:
 
     def start(self, worker: Worker) -> None:
         self._create_arena(worker)
-        env = dict(os.environ, CUDA_VISIBLE_DEVICES=str(worker.gpu))
+        # `gpus` index the devices this job may use (e.g. a Slurm allocation).
+        visible = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+        devices = visible.split(",") if visible else None
+        device = devices[worker.gpu] if devices else str(worker.gpu)
+        env = dict(os.environ, CUDA_VISIBLE_DEVICES=device)
         # JIT kernels invoke `ninja`; take it from the interpreter's environment.
         bin_dir = os.path.dirname(os.path.abspath(self.cfg.python))
         env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"

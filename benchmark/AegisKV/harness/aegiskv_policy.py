@@ -64,6 +64,10 @@ class AegisKVPolicy(Policy):
             prior[role] = self.profile.prefill(cfg.input_len, 0) + 0.03 * out
         return prior
 
+    def resume_priority(self, call: Any) -> int:
+        # Critical-path calls resume ahead of calls whose slack absorbs the wait.
+        return 2 if self._last_slack.get(call.key, 0.0) <= _ZERO_SLACK_S else 1
+
     def describe(self, call: Any) -> Dict[str, Any]:
         info = super().describe(call)
         info["slack"] = self._last_slack.get(call.key)
@@ -119,7 +123,11 @@ class AegisKVPolicy(Policy):
             return
         if prot is None or not prot.has_dram or prot.max_tokens != prefix:
             ok = await master.protect_dram(call, prefix)
-            if not ok and zero and await self._evict_positive(master, call.holder, slack):
+            if (
+                not ok
+                and zero
+                and await self._evict_positive(master, call.holder, slack)
+            ):
                 await master.protect_dram(call, prefix)
         prot = call.prot
         if prot is None:
@@ -133,7 +141,11 @@ class AegisKVPolicy(Policy):
         layers = self.resident_layers if prot.has_dram else NUM_LAYERS
         if prot.has_region and prot.region_layers and prot.region_layers < layers:
             await master.drop_region(call)
-        if layers > 0 and not call.prot.has_region and self._region_fits(master, call, layers):
+        if (
+            layers > 0
+            and not call.prot.has_region
+            and self._region_fits(master, call, layers)
+        ):
             await master.add_region(call, layers)
 
     async def _evict_positive(

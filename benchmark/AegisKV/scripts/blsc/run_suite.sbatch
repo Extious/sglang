@@ -17,6 +17,8 @@ echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-}"
 # Baseline suites reuse the failure time fixed by the AegisKV suite's No-Failure run.
 FAIL_AT=()
 [ -n "${FAIL_AT_FILE:-}" ] && FAIL_AT=(--fail-at "$(cat "$FAIL_AT_FILE")")
+# Entries <policy>@<worker>/<pct> need the No-Failure makespan of the AegisKV suite.
+[ -n "${MAKESPAN_FILE:-}" ] && FAIL_AT+=(--makespan "$(cat "$MAKESPAN_FILE")")
 # sbatch --export splits on commas, so SUITE uses colons.
 PYTHONPATH="$AEGIS_MASTER_SITE" python -m harness.run --config "$CONFIG" --suite "${SUITE//:/,}" --warmup "${WARMUP:-0}" --out-dir "$OUT" "${FAIL_AT[@]}"
 echo "SUITE_EXIT=$?"

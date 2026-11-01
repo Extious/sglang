@@ -122,6 +122,9 @@ class AegisKVWorker:
             dtype=kv_pool.dtype,
         )
         self._stream = torch.cuda.Stream(device=self._device)
+        # Imports must not queue behind checkpoint copies, which wait for the
+        # in-flight forward; they get their own stream.
+        self._import_stream = torch.cuda.Stream(device=self._device)
 
         self._targets: Dict[str, CheckpointTarget] = {}
         self._regions: Dict[str, PackedRegion] = {}
@@ -172,7 +175,10 @@ class AegisKVWorker:
 
     def _run_one(self, item: Dict[str, Any]) -> Dict[str, Any]:
         try:
-            return {"ok": True, "result": self.handle_control(op=item["op"], args=item["args"])}
+            return {
+                "ok": True,
+                "result": self.handle_control(op=item["op"], args=item["args"]),
+            }
         except Exception as e:
             logger.exception("AegisKV op %s failed", item["op"])
             return {"ok": False, "error": repr(e)}
@@ -191,7 +197,7 @@ class AegisKVWorker:
         """Pool slots owned by AegisKV, outside both the allocator and the tree."""
         held = sum(region.slots.numel() for region in self._regions.values())
         for job in self._jobs:
-            if job.kind in ("import", "free"):
+            if job.kind == "free":
                 held += job.slots.numel()
         return held
 
@@ -313,7 +319,9 @@ class AegisKVWorker:
                 event = torch.cuda.Event()
                 event.record(self._stream)
             self._jobs.append(
-                _Job(kind="free", key=args["region_id"], event=event, slots=region.slots)
+                _Job(
+                    kind="free", key=args["region_id"], event=event, slots=region.slots
+                )
             )
         return {}
 
@@ -322,6 +330,12 @@ class AegisKVWorker:
     # ------------------------------------------------------------------ #
 
     def _op_import(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Rebuild a committed prefix and publish it before replying.
+
+        The copy (tens of ms for a 16K-token prefix) runs inside this control
+        op, so the takeover can resubmit as soon as the reply arrives instead
+        of waiting another scheduler iteration plus a poll.
+        """
         import_id = args["import_id"]
         token_ids = array("q", args["token_ids"])
         num_tokens = len(token_ids)
@@ -343,25 +357,25 @@ class AegisKVWorker:
                     status="failed", num_tokens=num_tokens, error="no KV capacity"
                 )
                 return {"accepted": False}
-            self._launch_import_copy(slots=slots, region=region, arena=arena)
+            self._copy_import(slots=slots, region=region, arena=arena)
             if region is not None:
                 free_region = args["region_id"]
-        with torch.cuda.stream(self._stream):
-            event = torch.cuda.Event()
-            event.record(self._stream)
         self._imports[import_id] = ImportState(status="copying", num_tokens=num_tokens)
-        self._jobs.append(
+        self._publish_import(
             _Job(
                 kind="import",
                 key=import_id,
-                event=event,
+                event=None,
                 slots=slots,
                 token_ids=token_ids,
                 free_region=free_region,
                 started=started,
             )
         )
-        return {"accepted": True}
+        return {
+            "accepted": True,
+            "state": msgspec.to_builtins(self._imports[import_id]),
+        }
 
     def _check_import_coverage(
         self, *, region: Optional[PackedRegion], arena: Optional[Dict[str, Any]]
@@ -376,15 +390,17 @@ class AegisKVWorker:
                 f"Import sources cover {covered}/{self._num_layers} layers"
             )
 
-    def _launch_import_copy(
+    def _copy_import(
         self,
         *,
         slots: torch.Tensor,
         region: Optional[PackedRegion],
         arena: Optional[Dict[str, Any]],
     ) -> None:
-        with torch.cuda.stream(self._stream):
+        with torch.cuda.stream(self._import_stream):
             if region is not None:
+                # Region bytes arrive through stage copies on the backup stream.
+                self._import_stream.wait_stream(self._stream)
                 region_to_device(
                     k_buffers=self._k_buffers,
                     v_buffers=self._v_buffers,
@@ -402,6 +418,7 @@ class AegisKVWorker:
                     layer_lo=max(layer_lo, arena["layer_lo"]),
                     layer_hi=arena["layer_hi"],
                 )
+        self._import_stream.synchronize()
 
     def _publish_import(self, job: _Job) -> None:
         state = self._imports[job.key]
@@ -456,8 +473,6 @@ class AegisKVWorker:
                 target.committed = max(target.committed, job.upto)
         elif job.kind == "stage":
             self._finished_stages.append(job.key)
-        elif job.kind == "import":
-            self._publish_import(job)
         elif job.kind == "free":
             self._allocator.free(job.slots)
 

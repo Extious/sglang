@@ -112,6 +112,48 @@ def _usage(events: List[dict], t_end: float) -> Dict[str, float]:
     }
 
 
+def _bootstrap_ci(values: np.ndarray, reps: int = 10000, seed: int = 0) -> List[float]:
+    """95% percentile-bootstrap confidence interval of the mean."""
+    values = values[~np.isnan(values)]
+    if len(values) < 2:
+        return [float("nan"), float("nan")]
+    rng = np.random.default_rng(seed)
+    means = rng.choice(values, size=(reps, len(values))).mean(axis=1)
+    return [float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))]
+
+
+# Metrics compared between policies: (summary key, extractor over the summary).
+TESTED_METRICS = {
+    "critical_first_output_s": lambda s: [
+        r["first_output_s"] for r in s["victims"] if r["critical"]
+    ],
+    "exposed_delay_s": lambda s: [r["exposed_delay_s"] for r in s["victims"]],
+    "added_wct_s": lambda s: s["added_wct"],
+}
+
+
+def _significance(summaries: List[dict], target: str = "aegiskv") -> Dict[str, dict]:
+    """One-sided Mann-Whitney U tests: is `target` lower than each other policy?"""
+    from scipy.stats import mannwhitneyu
+
+    ours = next((s for s in summaries if s["policy"] == target), None)
+    if ours is None:
+        return {}
+    out: Dict[str, dict] = {}
+    for other in summaries:
+        if other is ours:
+            continue
+        for name, get in TESTED_METRICS.items():
+            a = np.array(get(ours), dtype=float)
+            b = np.array(get(other), dtype=float)
+            a, b = a[~np.isnan(a)], b[~np.isnan(b)]
+            if len(a) < 2 or len(b) < 2:
+                continue
+            p = mannwhitneyu(a, b, alternative="less").pvalue
+            out.setdefault(other["policy"], {})[name] = float(p)
+    return out
+
+
 def summarize(nofail: dict, runs: List[str]) -> dict:
     ref_slack, ref_wct = _reference_slack(nofail), _wct(nofail)
     rows, delta, pre_ratio, usages, policy = [], [], [], [], None
@@ -154,6 +196,12 @@ def summarize(nofail: dict, runs: List[str]) -> dict:
         "hbm_gib": float(np.mean([u["hbm_gib"] for u in usages])),
         "hbm_peak_gib": float(np.max([u["hbm_peak_gib"] for u in usages])),
         "dram_gib": float(np.mean([u["dram_gib"] for u in usages])),
+        "ci95": {
+            name: _bootstrap_ci(
+                np.array(get({"victims": rows, "added_wct": delta}), dtype=float)
+            )
+            for name, get in TESTED_METRICS.items()
+        },
         "victims": rows,
         "added_wct": delta,
     }
@@ -223,6 +271,17 @@ def _plot(summaries: List[dict], out: str) -> None:
                 width=0.7,
             )
             if points and len(vals) > 1:
+                lo, hi = _bootstrap_ci(vals)
+                ax.errorbar(
+                    i,
+                    height,
+                    yerr=[[height - lo], [hi - height]],
+                    color="black",
+                    capsize=2,
+                    linewidth=0.7,
+                    capthick=0.7,
+                    zorder=4,
+                )
                 jitter = (np.arange(len(vals)) % 5 - 2) * 0.06
                 ax.scatter(
                     i + jitter, vals, s=2.5, color="black", zorder=3, linewidths=0
@@ -272,8 +331,10 @@ def main() -> None:
     for item in args.runs:
         _, paths = item.split("=", 1)
         summaries.append(summarize(nofail, paths.split(",")))
+    tests = _significance(summaries)
     with open(os.path.join(args.out, "summary.json"), "w") as f:
-        json.dump(summaries, f, indent=2)
+        json.dump({"policies": summaries, "aegiskv_lower_pvalues": tests}, f, indent=2)
+    print(json.dumps({"aegiskv_lower_pvalues": tests}))
     for s in summaries:
         print(
             json.dumps(

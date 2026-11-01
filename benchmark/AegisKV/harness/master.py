@@ -307,7 +307,7 @@ class Master:
             input_ids=call.prompt + base,
             max_new_tokens=remaining,
             # Takeover resumptions jump the retry Worker's queue (no preemption).
-            priority=1 if call.attempt > 0 else 0,
+            priority=self.policy.resume_priority(call) if call.attempt > 0 else 0,
         ):
             new = chunk.get("output_ids") or []
             if not new:
@@ -709,8 +709,24 @@ class Master:
         except (ControlError, WorkerDied):
             prot.region_requested = token_lo
 
+    def _log_usage(self) -> None:
+        self.log_event(
+            "usage",
+            dram={w: p.used for w, p in self.dram_pools.items()},
+            staging={w: p.used for w, p in self.staging_pools.items()},
+            hbm=dict(self.region_slots_used),
+            pool={
+                w: s.get("total", 0) - s.get("available", 0)
+                for w, s in self.stats.items()
+            },
+        )
+
     async def _poll_loop(self) -> None:
+        last_usage = 0.0
         while not self._stopped:
+            if self.now() - last_usage >= 1.0:
+                last_usage = self.now()
+                self._log_usage()
             alive = [w for w in self.cluster.workers if w.alive]
             await asyncio.gather(*(self._poll_one(w) for w in alive))
             for call in self.running.values():

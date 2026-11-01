@@ -17,6 +17,10 @@ class Policy:
     async def tick(self, master: Any) -> None:
         """Called every poll interval with the Master's live state."""
 
+    def resume_priority(self, call: Any) -> int:
+        """Scheduling priority of a takeover resubmission (fresh calls use 0)."""
+        return 1
+
     def describe(self, call: Any) -> Dict[str, Any]:
         prot = call.prot
         if prot is None:

@@ -3,10 +3,12 @@
     cd benchmark/AegisKV && python -m harness.run --config configs/<name>.json \
         --suite nofail,rebuild,aegiskv --warmup 4 --out-dir runs/<name>
 
-Workers start once; each suite entry resets backups and the radix cache,
-restarts a Worker killed by the previous entry, then runs the full workload.
-`nofail` runs the Rebuild policy without the failure. Workers are always torn
-down on exit so no GPU sits idle after a crash.
+Workers start once. The warm-up runs No-Failure Workflows with a different seed
+(it also trains AegisKV's Tracker). Entries: `nofail` (Rebuild, no failure), a
+policy name (with the failure), `profile` (fit T^D on workers 0-1) and
+`tracker` (train the GBDT on the warm-up). Each run resets backups and the
+radix cache and restarts a Worker killed by the previous run. Workers are always
+torn down on exit so no GPU sits idle after a crash.
 """
 
 from __future__ import annotations
@@ -43,6 +45,23 @@ def _entry_config(cfg: ExperimentConfig, entry: str, out_dir: str) -> Experiment
     return msgspec.structs.replace(cfg, policy=entry, out_dir=out_dir)
 
 
+async def _prepare(cfg: ExperimentConfig, cluster: Cluster, entry: str) -> ExperimentConfig:
+    """Run an offline-input entry and return the config later runs should use."""
+    if entry == "profile":
+        from harness.profile import collect_profile
+
+        path = os.path.join(cfg.out_dir, "profile.json")
+        await collect_profile(cluster, output=path, max_len=cfg.context_length)
+        return msgspec.structs.replace(cfg, profile_path=path)
+    if entry == "tracker":
+        from harness.train_tracker import train
+
+        path = os.path.join(cfg.out_dir, "tracker.pkl")
+        train([os.path.join(cfg.out_dir, "warmup", "result.json")], path)
+        return msgspec.structs.replace(cfg, tracker_path=path)
+    raise ValueError(entry)
+
+
 async def _main(cfg: ExperimentConfig, suite: List[str], warmup: int) -> None:
     cluster = Cluster(cfg, run_tag=f"{cfg.name}_{os.getpid()}")
     try:
@@ -53,17 +72,32 @@ async def _main(cfg: ExperimentConfig, suite: List[str], warmup: int) -> None:
             warm = msgspec.structs.replace(
                 _entry_config(cfg, "nofail", os.path.join(cfg.out_dir, "warmup")),
                 num_workflows=warmup,
+                seed=cfg.seed + 1000,
             )
             await Master(cfg=warm, cluster=cluster, policy=make_policy("rebuild", warm)).run()
+            logging.info("RUN_DONE warmup")
         for entry in suite:
             await _ensure_alive(cluster)
+            if entry in ("profile", "tracker"):
+                cfg = await _prepare(cfg, cluster, entry)
+                logging.info("RUN_DONE %s", entry)
+                continue
             run_cfg = _entry_config(cfg, entry, os.path.join(cfg.out_dir, entry))
             os.makedirs(run_cfg.out_dir, exist_ok=True)
             run_cfg.dump(os.path.join(run_cfg.out_dir, "config.json"))
             t = time.monotonic()
             policy = make_policy(run_cfg.policy, run_cfg)
-            await Master(cfg=run_cfg, cluster=cluster, policy=policy).run()
+            master = Master(cfg=run_cfg, cluster=cluster, policy=policy)
+            await master.run()
             logging.info("RUN_DONE %s in %.1fs", entry, time.monotonic() - t)
+            if entry == "nofail" and cfg.fail_fraction is not None:
+                makespan = max(end for _, end in master.workflow_times.values())
+                cfg = msgspec.structs.replace(
+                    cfg, fail_at_s=round(cfg.fail_fraction * makespan, 1)
+                )
+                with open(os.path.join(cfg.out_dir, "fail_at_s.txt"), "w") as f:
+                    f.write(f"{cfg.fail_at_s}\n")
+                logging.info("fail_at_s=%s", cfg.fail_at_s)
     finally:
         cluster.shutdown()
 

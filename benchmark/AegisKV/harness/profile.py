@@ -135,6 +135,8 @@ async def collect_profile(
         # Warm up kernels and JIT caches before timing.
         await _prefill_samples(session, w0.url, [1024])
         prefill = await _prefill_samples(session, w0.url, lengths)
+        # The first import pays one-time setup; time only the ones after it.
+        await _import_samples(session, w0, w1, [1024])
         imports = await _import_samples(session, w0, w1, lengths)
         for w in (w0, w1):
             await _flush(session, w.url)
